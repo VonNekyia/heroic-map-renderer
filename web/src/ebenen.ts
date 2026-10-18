@@ -1187,12 +1187,12 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
   let gezeigtesKonto = '';
   /** Baut die Zeile nur, wenn sich etwas ändert; so bleibt der Fokus auf „Abmelden“. */
   const zeigeKonto = (): void => {
-    const stand = JSON.stringify([spieler?.name, mitServer && mitAktionsebene, meldung]);
+    const stand = JSON.stringify([spieler?.uuid, spieler?.name, mitServer && mitAktionsebene, meldung]);
     if (stand !== gezeigtesKonto) {
       gezeigtesKonto = stand;
       konto.replaceChildren();
       if (spieler) {
-        L.DomUtil.create('span', '', konto).textContent = `Angemeldet als ${spieler.name} `;
+        L.DomUtil.create('span', '', konto).textContent = spieler.name ? `Angemeldet als ${spieler.name} ` : 'Angemeldet ';
         const knopf = L.DomUtil.create('button', 'ebenen-abmelden', konto);
         knopf.type = 'button';
         knopf.textContent = 'Abmelden';

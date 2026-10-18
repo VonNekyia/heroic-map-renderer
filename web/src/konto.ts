@@ -15,9 +15,9 @@ export interface Knopf {
   on: boolean;
 }
 
-/** Wer angemeldet ist. */
+/** Wer angemeldet ist; ohne `ich.json` beim Server nur mit `uuid`. */
 export interface Spieler {
-  name: string;
+  name?: string;
   uuid: string;
 }
 
@@ -86,7 +86,8 @@ export const abmelden = (): Promise<number> => schicke('abmelden', {});
 export async function ich(): Promise<Antwort<Spieler>> {
   const wert = await hole('ich', 4096);
   if (wert === 'abgemeldet' || wert === 'fehlt') return wert;
-  return istObjekt(wert) && istText(wert.name, 64) && istText(wert.uuid, 36) ? { name: wert.name, uuid: wert.uuid } : 'fehlt';
+  if (!istObjekt(wert) || !istText(wert.uuid, 36)) return 'fehlt';
+  return { name: istText(wert.name, 64) ? wert.name : undefined, uuid: wert.uuid };
 }
 
 /** Höchstens so viele Knöpfe je Objekt; siehe docs/frontend.md, „Aktionsebenen“. */

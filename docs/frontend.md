@@ -613,7 +613,8 @@ Ebenen und Knöpfe.
   neu; dann meldet `hashchange` an.
 - **Sitzung:** ein Cookie mit `HttpOnly`, das die Seite nie sieht. Wer
   angemeldet ist, sagt `GET api/ich`; die Liste zeigt „Angemeldet als …“ und
-  „Abmelden“ (`POST api/abmelden`). Nach dem Anmelden klappt die Liste auf.
+  „Abmelden“ (`POST api/abmelden`). Ohne `ich.json` beim Server kommt nur
+  die UUID; dann steht dort nur „Angemeldet“. Nach dem Anmelden klappt die Liste auf.
   Ein abgelaufener oder benutzter Link steht als Meldung darunter.
 - **Gäste:** Die Seite fragt nur nach der Sitzung, wenn `layers.json` eine
   Aktionsebene nennt oder dieser Browser zuletzt angemeldet war

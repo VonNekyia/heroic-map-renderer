@@ -12,6 +12,8 @@ interface Server {
   angemeldet: boolean;
   /** Ob das Schiff für den Spieler an ist. */
   schiff: boolean;
+  /** Der Name aus `ich.json`; `null`: Die Datei fehlt, der Server sagt nur die UUID. */
+  name: string | null;
   /** Nach so vielen ms setzt das Plugin den Klick um; ohne Angabe nie. */
   umsetzen?: number;
   /** Alle Anfragen unter api/, mit Methode, Pfad, Kopf und Körper. */
@@ -19,7 +21,7 @@ interface Server {
 }
 
 async function server(page: Page, s: Partial<Server> = {}): Promise<Server> {
-  const z: Server = { angemeldet: false, schiff: false, anfragen: [], ...s };
+  const z: Server = { angemeldet: false, schiff: false, name: 'Steve', anfragen: [], ...s };
   const json = (wert: object) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(wert) });
   await page.route('**/api/**', async (route) => {
     const r: Request = route.request();
@@ -45,7 +47,8 @@ async function server(page: Page, s: Partial<Server> = {}): Promise<Server> {
       return route.fulfill({ status: 404 });
     }
     if (!z.angemeldet) return route.fulfill({ status: 401 });
-    if (pfad === 'ich') return route.fulfill(json({ name: 'Steve', uuid: '069a79f4-44e9-4726-a5be-fca90e38aaf5' }));
+    const uuid = '069a79f4-44e9-4726-a5be-fca90e38aaf5';
+    if (pfad === 'ich') return route.fulfill(json(z.name === null ? { uuid } : { name: z.name, uuid }));
     if (pfad === 'knoepfe.json') return route.fulfill(json({ knoepfe: [{ ...SCHIFF, on: z.schiff }] }));
     if (pfad === 'ebenen/beispiel/routen.json') return route.fulfill(json({ objects: z.schiff ? [ROUTE] : [] }));
     return route.fulfill({ status: 404 });
@@ -138,13 +141,13 @@ test('ein abgelaufener oder benutzter Anmeldelink sagt es, und die Seite bleibt 
   expect(page.url()).not.toContain('anmelden');
 });
 
-test('ein Anmeldelink in einem Tab, in dem die Karte schon offen ist, meldet ohne Neuladen an', async ({ page }) => {
-  await server(page);
+test('ein Anmeldelink in einem Tab, in dem die Karte schon offen ist, meldet ohne Neuladen an; ohne ich.json beim Server ohne Namen', async ({ page }) => {
+  await server(page, { name: null });
   await welt(page, mitRouten);
   await page.goto(DEMO);
   await expect(page.locator('.ebenen-konto')).toContainText('Anmelden');
   await page.evaluate((t) => (location.hash = `anmelden=${t}`), TOKEN);
-  await expect(page.locator('.ebenen-konto')).toContainText('Angemeldet als Steve');
+  await expect(page.locator('.ebenen-konto span')).toHaveText('Angemeldet');
   await expect(page.locator('.ebenen-liste label')).toHaveCount(2);
   expect(page.url()).not.toContain('anmelden');
 });

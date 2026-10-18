@@ -475,7 +475,7 @@ pub fn zeichenstand(look: &str) -> u32 {
 /// Zeichnung es zeigt; `jedes_goldbild_hat_einen_look` fällt bei einem
 /// Goldbild, das hier fehlt.
 #[cfg(test)]
-const GOLDBILDER_JE_LOOK: [(&str, &str); 9] = [
+const GOLDBILDER_JE_LOOK: [(&str, &str); 11] = [
     ("metatile", "map"),
     ("metatile-4x3", "map"),
     ("metatile-cinematic", "cinematic"),
@@ -485,13 +485,15 @@ const GOLDBILDER_JE_LOOK: [(&str, &str); 9] = [
     ("metatile-top", "map"),
     ("metatile-top-north", "map"),
     ("metatile-wurzeln", "map"),
+    ("pyramide-top-north-1px", "map"),
+    ("pyramide-top-north-2px", "map"),
 ];
 
 /// FNV-1a über die Goldbilder je Look, siehe
 /// `zeichenstand_folgt_den_goldbildern`.
 #[cfg(test)]
 const GOLDBILDER: [(&str, u64); 3] = [
-    ("map", 0xe326_30b9_2f2f_fe61),
+    ("map", 0x99ac_8670_c548_2516),
     ("cinematic", 0x8338_0150_d842_fd85),
     ("flat", 0x9da5_830a_c6ae_0047),
 ];

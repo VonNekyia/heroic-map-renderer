@@ -326,6 +326,7 @@ nicht passt (`update_braucht_den_stand_und_dieselben_assets`):
     | #243 | 2 | 2 | – | der Grund unter Mangrovenwurzeln, siehe [Sprites und Deckung](../renderer/sprites-und-deckung.md), „Verdeckte Würfel“ |
     | #250, wie v0.7.0 | 3 | 3 | 3 | das Licht von `--flat`, siehe [Die einfarbige Ansicht](../renderer/einfarbig.md), „Licht je Spalte“; bis 0101 ein Zeichenstand für alle |
     | #257 | 3 | 3 | 4 | ein Schritt Licht von der Seite in `--flat`, ebenda |
+    | #295 | 4 | 3 | 5 | Bodenpflanzen liegen von oben flach, siehe [Die Kamera](../renderer/kamera.md), „Pflanzen von oben“ |
 
 - **Assets und Daten:** je Wurzel von `--assets` und `--data` ihre Nummer,
   dann je Datei darunter der Pfad, die Grösse und die Zeit der letzten

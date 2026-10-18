@@ -183,6 +183,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0105](entscheidungen/0105-regionen-im-iso-ohne-nebel.md): Regionen im iso ohne Nebel und ohne Füllung, nur Rand und Wand, der Code des Nebels gelöscht; von oben bleibt die Füllung; Wahl des Users vom 11.10.; löst 0104 im Punkt Nebel ab.
 - [0106](entscheidungen/0106-download-als-zip-strom.md): der Download für den Mod als ein Strom unter `/download/<baum>.zip`, ZIP stored ohne Verzeichnis mit `ende`, von grob nach fein, 8 Threads lesen voraus, `?nach=` setzt fort; tar, Verzeichnis, Deflate und Höhen im Strom verworfen.
 - [0107](entscheidungen/0107-aktionsebenen.md): Aktionsebenen und Knöpfe je Spieler: Knöpfe an Objekten, nicht in Dateien; Inhalte je Spieler; Anmeldung im Web per Link aus dem Spiel, Sitzung vom Server, Klicks als Zeile `Aktion:` ans Plugin; Haken je Plugin, eigener Dienst, Push und Token in der Query verworfen.
+- [0108](entscheidungen/0108-pflanzen-von-oben-flach.md): Bodenpflanzen liegen von oben flach, die Textur der ersten senkrechten Fläche über dem ganzen Block, Norden oben; nicht in Cinematic; halb so gross und wenige Punkte an der Vorschau verworfen.
 
 ## Versuche
 

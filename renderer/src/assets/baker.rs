@@ -51,7 +51,7 @@ impl Quad {
 }
 
 /// Alle Vierecke einer Blockstate, im Blockwürfel 0..1.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct BakedModel {
     pub quads: Vec<Quad>,
     /// Zeichnet das Spiel den Block weich beleuchtet? Es fragt das erste

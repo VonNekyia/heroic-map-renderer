@@ -6373,6 +6373,88 @@ fn welt_mit_wurzeln(dir: &TempDir) -> World {
     World::open(dir.path()).unwrap()
 }
 
+/// Bodenpflanzen auf Gras: ein Kreuz mit der Textur `richtung`, eine
+/// Feldfrucht mit Löchern, eine Pflanze breiter als ihr Block, Seegras und
+/// Laubstreu, die schon eine Oberseite hat.
+fn welt_mit_pflanzen(dir: &TempDir) -> World {
+    common::write_world(dir.path(), &[(0, 0)], |x, y, z| match (y, x, z) {
+        (0, _, _) => "minecraft:grass_block",
+        (1, 2, 2) => "minecraft:pflanze",
+        (1, 6, 2) => "minecraft:feldfrucht",
+        (1, 10, 2) => "minecraft:ragende_pflanze",
+        (1, 2, 8) => "minecraft:seegras",
+        (1, 6, 8) => "minecraft:laubstreu",
+        _ => "minecraft:air",
+    });
+    World::open(dir.path()).unwrap()
+}
+
+/// Von oben liegt eine Bodenpflanze flach über ihrem Block, statt mit ihren
+/// senkrechten Flächen zu verschwinden: das Kreuz mit Westen blau und Norden
+/// dunkel, die Feldfrucht mit dem Gras in ihren Löchern, die breite Pflanze
+/// nur über ihrem Block. Die Laubstreu bleibt, wie sie ist. In 2:1 zeichnet
+/// jede Pflanze wie vorher. Goldbild `metatile-pflanzen-top-north`.
+/// Siehe docs/renderer/kamera.md, „Pflanzen von oben“.
+#[test]
+fn pflanzen_liegen_von_oben_flach() {
+    let dir = tempdir();
+    let world = welt_mit_pflanzen(&dir);
+    let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    let mut assets = Assets::open(vec![
+        fixtures.join("assets-base"),
+        fixtures.join("assets-pflanzen"),
+    ])
+    .unwrap();
+    // Bei scale 16 ist jedes Texel einer Oberseite ein Pixel.
+    let projection = Projection::mit_kamera(16, Kamera::ObenNord);
+    let sprites = tabelle(&mut assets, &world, projection);
+    let rect = ScreenRect {
+        x: 0,
+        y: 0,
+        width: 256,
+        height: 256,
+    };
+    let bild = render_area(&world, &sprites, rect, Y_RANGE).unwrap();
+    // Ohne Pflanzen: nur das Gras.
+    let gras = render_chunks(
+        &tempdir(),
+        &[(0, 0)],
+        |_, y, _| match y {
+            0 => "minecraft:grass_block",
+            _ => "minecraft:air",
+        },
+        projection,
+        rect,
+    );
+    let anders = |bx: u32, bz: u32| {
+        (0..16)
+            .flat_map(|dy| (0..16).map(move |dx| (16 * bx + dx, 16 * bz + dy)))
+            .filter(|&(x, y)| bild.get_pixel(x, y) != gras.get_pixel(x, y))
+            .count()
+    };
+    // Das Kreuz deckt seinen Block ganz, die Feldfrucht genau mit den 64
+    // deckenden Texeln von `spaerlich.png`.
+    assert_eq!(anders(2, 2), 256, "Kreuz");
+    assert_eq!(anders(6, 2), 64, "Feldfrucht");
+    assert_eq!(anders(10, 2), 256, "breite Pflanze");
+    assert_eq!(anders(9, 2) + anders(11, 2), 0, "breite Pflanze daneben");
+    assert_eq!(anders(2, 8), 256, "Seegras");
+    // Westen blau, Osten rot, Norden dunkel wie in `richtung.png`.
+    let pixel = |x: u32, y: u32| bild.get_pixel(32 + x, 32 + y).0;
+    let [w, o] = [pixel(0, 8), pixel(15, 8)];
+    assert!(
+        w[2] > w[0] && o[0] > o[2],
+        "Kreuz: Westen {w:?}, Osten {o:?}"
+    );
+    let hell = |p: [u8; 4]| u32::from(p[0]) + u32::from(p[1]) + u32::from(p[2]);
+    assert!(
+        hell(pixel(8, 0)) < hell(pixel(8, 8)),
+        "Kreuz: Norden nicht dunkel"
+    );
+    let fehler = goldbild("metatile-pflanzen-top-north", bild);
+    assert!(fehler.is_none(), "{}", fehler.unwrap_or_default());
+}
+
 /// Mangrovenwurzeln über einem vollen Block lassen ihre untere Schicht weg,
 /// übereinander auch die Flächen zueinander. Durch das Loch in der oberen
 /// Schicht ist dann der Grund zu sehen: Er bleibt Kandidat, denn den Boden

@@ -167,7 +167,9 @@ Familien mit demselben Bild, die verschieden decken. Das Pack
 `assets-wurzeln` gibt den Mangrovenwurzeln die sechs Schichten aus 26.2,
 für ihre Seiten aus jeder Richtung. Das Pack `assets-wurzeln-loch` gibt
 ihnen zwei Schichten wie das Modell des Spiels, oben grau mit einem Loch
-von 4 × 4 Texeln, unten blau. Biome und Bannermuster für die Tests liegen
+von 4 × 4 Texeln, unten blau. Das Pack `assets-pflanzen` gibt dem Kreuz
+`pflanze` die Textur `richtung` und der Feldfrucht `feldfrucht` die
+Textur `spaerlich`, damit von oben Lage und Löcher zu sehen sind. Biome und Bannermuster für die Tests liegen
 unter `renderer/tests/fixtures/data-base`.
 
 ## Welten im Speicher
@@ -312,7 +314,9 @@ Projektion, Baking, Rasterizer oder Maleralgorithmus fällt damit auf.
 `metatile-cinematic.png` sie mit Cinematic in 2:1 aus `se` um dieselbe
 Treppe, alle bei scale 16. `metatile-wurzeln.png` zeigt die
 Mangrovenwurzeln aus #243 genordet von oben bei scale 4, den Grund durch
-ihre Löcher. `metatile-flat.png` zeigt die ganze Szene in der einfarbigen
+ihre Löcher. `metatile-pflanzen-top-north.png` zeigt Bodenpflanzen auf
+Gras genordet von oben bei scale 16, flach über ihrem Block, siehe
+[Die Kamera](../renderer/kamera.md), „Pflanzen von oben“. `metatile-flat.png` zeigt die ganze Szene in der einfarbigen
 Ansicht von `--flat`, `top-north` bei scale 1, 32 × 32 Pixel, siehe
 [Die einfarbige Ansicht](../renderer/einfarbig.md). Der Test vergleicht alle, schreibt zu jedem
 abweichenden das Ist-Bild daneben, als `<name>-ist.png`, und fällt erst

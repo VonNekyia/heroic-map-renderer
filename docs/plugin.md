@@ -1,6 +1,6 @@
 ---
 title: Plugin
-description: Das Paper-Plugin lebt im eigenen Repo. Was es vom Renderer nutzt, die Schalter, den Ordner eines Baums, den Kopf von stand-neu.bin, die Ausgabe und den Code, den Fortschritt und die Schätzung als JSON, das Token für den Kartendownload Byte für Byte, das das Plugin ausstellt und der Server des Renderers prüft, das Manifest eines Baums mit Grösse und ETag jeder Kachel und den Aufruf --banners für die Sprites der Banner samt seiner Meldung.
+description: Das Paper-Plugin lebt im eigenen Repo. Was es vom Renderer nutzt, die Schalter, den Ordner eines Baums, den Kopf von stand-neu.bin, die Ausgabe und den Code, den Fortschritt und die Schätzung als JSON, das Token für den Kartendownload Byte für Byte, das das Plugin ausstellt und der Server des Renderers prüft, die Tokens für Anmeldung und Sitzung der Webkarte, das Manifest eines Baums mit Grösse und ETag jeder Kachel und den Aufruf --banners für die Sprites der Banner samt seiner Meldung.
 code:
   - renderer/src/cli.rs
   - renderer/src/render/stand.rs
@@ -136,6 +136,12 @@ dem Plugin-Programmierer ab.
   [Server](benutzung/server.md), „Was er ausliefert“. Was das Plugin unter
   einem Namen mit `.` vorn schreibt, liefert er nicht; erst nach dem
   Umbenennen. Das Format steht in [Ebenen](benutzung/ebenen.md).
+- **Die Webkarte je Spieler** mit `--player-dir` neben `--secret-file`: der
+  Ordner mit einem Ordner je Spieler, den das Plugin schreibt. Je Klick im
+  Web schreibt der Server eine Zeile `Aktion: {"spieler","ebene","objekt","knopf"}`
+  auf stdout; das Plugin nimmt nur Zeilen, die genau so beginnen, und
+  prüft den Klick selbst. Siehe [Server](benutzung/server.md),
+  „Aktionsebenen“.
 
 ## Banner zeichnen: `--banners`
 
@@ -333,6 +339,56 @@ Die Testvektoren nennen zu jedem ungültigen Token einen Grund: `form`,
 `kodierung`, `unterschrift`, `inhalt` oder `abgelaufen`. Ungültige mit
 falschem Inhalt sind richtig unterschrieben, damit ein Test die Prüfung des
 Inhalts trifft und nicht schon an der Unterschrift endet.
+
+### Anmeldung und Sitzung
+
+Für Aktionsebenen und Knöpfe auf der Webkarte meldet sich ein Spieler aus
+dem Spiel an (#294, [0107](entscheidungen/0107-aktionsebenen.md)). Dafür
+gibt es zwei weitere Arten von Token, in derselben Form und mit demselben
+Geheimnis wie oben:
+
+- **Anmeldung, Fassung 2:** stellt das Plugin aus, 5 min gültig, und
+  schickt sie dem Spieler als Link. Der Server nimmt jede nur einmal.
+- **Sitzung, Fassung 3:** stellt der Server des Renderers selbst aus, wenn
+  er eine Anmeldung annimmt, 7 Tage gültig, als Cookie.
+
+Beide haben denselben Inhalt, fest 45 Byte, als Token 104 Zeichen. Alle
+Zahlen ohne Vorzeichen, in Big Endian.
+
+| Ab Byte | Länge | Feld | Inhalt |
+|---|---|---|---|
+| 0 | 1 | Fassung | 2 für die Anmeldung, 3 für die Sitzung |
+| 1 | 16 | Spieler | seine UUID wie beim Download |
+| 17 | 8 | Ablauf | Epoch s; gültig, solange die Uhr des Servers davor steht |
+| 25 | 4 | Zähler | der Zähler des Spielers fürs Abmelden, siehe unten |
+| 29 | 16 | Zufall | 16 zufällige Byte aus einem sicheren Zufallsgenerator |
+
+- **Prüfen** wie oben, Form, Kodierung, Unterschrift und Ablauf gleich. Der
+  Inhalt ist falsch, wenn er nicht genau 45 Byte hat oder die Fassung
+  nicht genau die verlangte ist. So gilt keine Art als eine andere: Eine
+  Anmeldung ist keine Sitzung, und kein Download-Token ist eins von beiden
+  (`pruefe_sitzung` in
+  [`renderer/src/cli/token.rs`](../renderer/src/cli/token.rs)).
+- **Zähler:** Das Plugin schreibt ihn je Spieler in die Datei `zaehler`
+  in dessen Ordner unter `--player-dir`, Dezimal-ASCII, ein Zeilenumbruch
+  am Ende erlaubt; fehlt die Datei, gilt 0. Mit `/karte abmelden` erhöht
+  das Plugin ihn um eins. Der Server lehnt jedes Token ab, dessen Zähler
+  kleiner ist als der in der Datei; so endet jede ältere Sitzung des
+  Spielers. Der Vertrag:
+  - **Nie verschwinden, nie sinken:** Gibt es die Datei einmal, bleibt
+    sie, auch wenn das Plugin den Ordner des Spielers aufräumt oder neu
+    schreibt, und ihr Wert sinkt nie. Sonst gälte wieder 0, und eine
+    beendete Sitzung lebte wieder auf.
+  - **Atomar:** Das Plugin schreibt sie nur über eine Datei mit `.` vorn im
+    selben Ordner und benennt sie dann um.
+- **Rate:** Das Plugin stellt einem Spieler höchstens eine Anmeldung je
+  15 s aus. Der Server nimmt je Spieler höchstens 20 offene an, also in
+  5 min, siehe [Server](benutzung/server.md), „Anmelden und Sitzung“.
+- **Testvektoren** unter `anmeldung` und `sitzung` in
+  [`renderer/tests/fixtures/token.json`](../renderer/tests/fixtures/token.json),
+  je mit `gueltig` und `ungueltig` wie oben; die Gründe sind dort nur
+  `inhalt`, `abgelaufen` und `unterschrift`, die übrigen prüfen die
+  Vektoren des Downloads.
 
 ## Manifest
 

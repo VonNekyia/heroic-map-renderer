@@ -46,7 +46,8 @@ zweifach vergrössert. Stand von #247, vor dem Licht je Spalte.*
 
 Der Pfad ist derselbe wie für die Karte mit Texturen, siehe
 [Der Weg einer Kachel](renderpfad.md). Von oben stehen senkrechte Flächen
-auf der Kante und fallen weg, siehe [Die Kamera](kamera.md), „Von oben“.
+auf der Kante und fallen weg; Bodenpflanzen liegen flach, siehe
+[Die Kamera](kamera.md), „Pflanzen von oben“.
 Bei scale 1 deckt die Oberseite eines Würfels genau einen Pixel.
 
 - **Das Mittel:** Der Rasterizer mittelt die Textur über den Pixel in
@@ -203,8 +204,9 @@ Belegt per `javap` am Client von 26.2 in `MapItem.update`,
   siehe „Die Karte des Spiels“.
 - **Ausgeschnittene Flächen** zählen ganz oder gar nicht, siehe „Farbe je
   Zustand“.
-- **Pflanzen aus Kreuzen** fehlen von oben, wie in `top-north` bei jedem
-  scale. Die Karte des Spiels nimmt jeden Block, dessen Farbe auf der
-  Karte nicht `MapColor.NONE` ist.
+- **Pflanzen aus Kreuzen** liegen von oben flach, wie in `top-north` bei
+  jedem scale. Eine, deren Textur den Pixel nicht zur Hälfte deckt, fehlt
+  bei scale 1 wie jede solche Fläche. Die Karte des Spiels nimmt jeden
+  Block, dessen Farbe auf der Karte nicht `MapColor.NONE` ist.
 - **Nur die Richtung `s`:** Das Relief nimmt den Nachbarn im Norden als
   Zeile darüber, und Norden liegt oben.

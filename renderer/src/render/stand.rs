@@ -449,11 +449,11 @@ impl Stand {
 /// Höhe oder den Abdruck eines Chunks dieses Looks anders schreiben kann,
 /// auch wenn kein Goldbild es zeigt; was alle Looks teilen, hebt jeden.
 /// Siehe docs/entscheidungen/0101-zeichenstand-je-look.md.
-pub const ZEICHENSTAND_MAP: u32 = 3;
+pub const ZEICHENSTAND_MAP: u32 = 4;
 /// Ebenso für `look` `cinematic`.
 pub const ZEICHENSTAND_CINEMATIC: u32 = 3;
 /// Ebenso für `look` `flat`, die einfarbige Ansicht.
-pub const ZEICHENSTAND_FLAT: u32 = 4;
+pub const ZEICHENSTAND_FLAT: u32 = 5;
 
 /// Die Looks, wie `look` in `map.json` sie nennt, mit ihrem Zeichenstand.
 pub const LOOKS: [(&str, u32); 3] = [
@@ -475,13 +475,14 @@ pub fn zeichenstand(look: &str) -> u32 {
 /// Zeichnung es zeigt; `jedes_goldbild_hat_einen_look` fällt bei einem
 /// Goldbild, das hier fehlt.
 #[cfg(test)]
-const GOLDBILDER_JE_LOOK: [(&str, &str); 11] = [
+const GOLDBILDER_JE_LOOK: [(&str, &str); 12] = [
     ("metatile", "map"),
     ("metatile-4x3", "map"),
     ("metatile-cinematic", "cinematic"),
     ("metatile-flat", "flat"),
     ("metatile-north-45", "map"),
     ("metatile-nw", "map"),
+    ("metatile-pflanzen-top-north", "map"),
     ("metatile-top", "map"),
     ("metatile-top-north", "map"),
     ("metatile-wurzeln", "map"),
@@ -493,7 +494,7 @@ const GOLDBILDER_JE_LOOK: [(&str, &str); 11] = [
 /// `zeichenstand_folgt_den_goldbildern`.
 #[cfg(test)]
 const GOLDBILDER: [(&str, u64); 3] = [
-    ("map", 0x99ac_8670_c548_2516),
+    ("map", 0x3d3c_aa69_f916_b834),
     ("cinematic", 0x8338_0150_d842_fd85),
     ("flat", 0x9da5_830a_c6ae_0047),
 ];
@@ -1065,14 +1066,15 @@ mod tests {
         }
     }
 
-    /// Karte und Cinematic haben den Abdruck von v0.7.0, Zeichenstand 3 mit
-    /// denselben Tabellen: Ihr Stand gilt nach 0101 weiter. Die einfarbige
-    /// Ansicht zeichnet anders und hat einen anderen.
+    /// Cinematic hat den Abdruck von v0.7.0, Zeichenstand 3 mit denselben
+    /// Tabellen: Sein Stand gilt nach 0101 weiter. Karte und einfarbige
+    /// Ansicht zeichnen anders, seit #295 auch die Pflanzen von oben, und
+    /// haben andere.
     #[test]
-    fn abdruck_von_karte_und_cinematic_wie_in_v0_7_0() {
+    fn abdruck_von_cinematic_wie_in_v0_7_0() {
         const V0_7_0: u64 = 0x2651_7df1_a999_85d2;
-        assert_eq!(fingerabdruck_des_renderers("map"), V0_7_0);
         assert_eq!(fingerabdruck_des_renderers("cinematic"), V0_7_0);
+        assert_ne!(fingerabdruck_des_renderers("map"), V0_7_0);
         assert_ne!(fingerabdruck_des_renderers("flat"), V0_7_0);
     }
 

@@ -494,6 +494,8 @@ Block, statt ihn zu decken, wie in 0058:
   untere Hälfte der Sonnenblume; ihre Blüte oben hat ein eigenes Modell.
   In 26.3 kommen der Setzling der Pappel und der rote Strauch über
   `block/cross` dazu (#98).
+- **Von oben** liegen sie in der Karte flach, in Cinematic nicht, siehe
+  [Die Kamera](kamera.md), „Pflanzen von oben“.
 - **Gegen die Liste des Prototyps** zu #89: Mangrovenkeimling,
   Kannenpflanze und ihre Feldfrucht haben eigene Modelle ohne Vorlage und
   bleiben hart. Spinnennetz und die Amethystknospen erben vom Kreuz und

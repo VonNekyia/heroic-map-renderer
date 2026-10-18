@@ -132,7 +132,8 @@ export interface Zeichnen {
   gelaende: Gelaende;
   /** `area` aus map.json: Ausserhalb gibt es weder Kacheln noch Höhen. */
   area?: Rechteck;
-  tafel: (bausteine: unknown[]) => HTMLElement;
+  /** Die Tafel aus ihren Bausteinen, für das Objekt mit dieser `id`. */
+  tafel: (bausteine: unknown[], objekt: string) => HTMLElement;
   /** Hängt die Tafel an eine Fläche: beim Zeigen, per Klick und per Tastatur. */
   bediene: (flaeche: L.Polygon, name: string | undefined, inhalt: () => HTMLElement) => void;
 }
@@ -246,7 +247,8 @@ export function zeichne(formen: readonly Form[], z: Zeichnen): { flaechen: L.Lay
         }
         const panel = f.panel;
         if (panel) {
-          bediene(flaeche, f.name, () => tafel(panel));
+          const id = f.id;
+          bediene(flaeche, f.name, () => tafel(panel, id));
         }
         flaechen.push(flaeche);
       }

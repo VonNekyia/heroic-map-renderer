@@ -598,9 +598,10 @@ Banner, feste Grösse und die Tafel beim Zeigen folgen
 
 Ein Spieler meldet sich mit einem Link aus dem Spiel an. Danach sieht er
 seine eigenen Ebenen und Knöpfe in den Tafeln. Das Format steht in
-[Ebenen](benutzung/ebenen.md), den Server dazu in
-[Server](benutzung/server.md); beides liefert der Renderer unter `api/`
-neben der Seite (#294). Gebaut in [`web/src/konto.ts`](../web/src/konto.ts)
+[Ebenen](benutzung/ebenen.md), „Aktionsebenen und Knöpfe“, der Server
+dazu in [Server](benutzung/server.md), „Aktionsebenen“: Der Renderer
+antwortet unter `api/` neben der Seite. Warum so:
+[0107](entscheidungen/0107-aktionsebenen.md) (#294). Gebaut in [`web/src/konto.ts`](../web/src/konto.ts)
 für die Aufrufe und in [`web/src/ebenen.ts`](../web/src/ebenen.ts) für Liste,
 Ebenen und Knöpfe.
 

@@ -55,7 +55,8 @@ gemeinsam geschrieben; der Reviewer hat ihn am 18.10. freigegeben.
     Mod: Die Rechte eines Spielers kennt das Plugin nur, solange er online
     ist.
   - Jedes Plugin darf Knöpfe an fremde Objekte hängen, nach Absprache mit
-    deren Besitzer.
+    deren Besitzer. Geprüft wird die Absprache nicht; der Besitzer muss
+    nichts tun.
   - Die Abrufe je Spieler gehen mit `Cache-Control: private, no-store`,
     wegen geteilter Rechner.
 

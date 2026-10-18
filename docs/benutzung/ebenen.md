@@ -727,8 +727,9 @@ einer Anmeldung über den Server des Renderers. Entschieden in
 - **Eigene Objekte** verdecken keine gemeinsamen: Ihre `id` ist eine
   andere. Die Grenzen einer Ebene gelten für beide zusammen, siehe
   „Grenzen“.
-- **Ohne Anmeldung** zeigt die Webkarte die Ebene nicht; die Liste nennt
-  sie mit einem Hinweis, wie man sich im Spiel anmeldet.
+- **Ohne Anmeldung** zeigt die Webkarte die Ebene nicht. Die Liste kann
+  sie mit einem Hinweis nennen, wie man sich im Spiel anmeldet, siehe
+  [Frontend](../frontend.md), „Ebenen“.
 - **Im Mod** ist sie eine gewöhnliche Ebene: Das Plugin schickt jedem
   Spieler seine Fassung, mit ihrer eigenen `version`.
 
@@ -745,7 +746,9 @@ einer Anmeldung über den Server des Renderers. Entschieden in
 | `on` | der Zustand für diesen Spieler |
 
 - **An Objekten:** Ein Plugin hängt seinen Knopf an ein Objekt einer
-  beliebigen Ebene, auch einer fremden, nach Absprache mit deren Besitzer.
+  beliebigen Ebene, auch einer fremden. Die Absprache mit deren Besitzer
+  ist Sache der Plugins; geprüft wird sie nicht, und der Besitzer muss
+  nichts tun.
   Die Ansicht hängt ihn unter die Tafel dieses Objekts, in der Reihenfolge
   des Anhängens; ein Objekt ohne Tafel bekommt eine nur mit den Knöpfen.
 - **Woher:** im Web aus `api/knoepfe.json` des Spielers, im Mod mit der

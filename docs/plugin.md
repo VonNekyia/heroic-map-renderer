@@ -309,7 +309,9 @@ Alle Zahlen ohne Vorzeichen, in Big Endian.
 Ein Inhalt hat also genau 51 + n Byte.
 
 - **Stufe und Deckel rechnet das Plugin aus:** die Stufe aus dem Massstab
-  und `map.json` des Baums, den Deckel aus der Grösse des Satzes und der Art
+  und `map.json` des Baums, bei `top-north` mit scale 4 also `maxZoom` für
+  4 px je Block, eins weniger für 2 px und zwei weniger für 1 px, siehe
+  [Zoomstufen](benutzung/zoomstufen.md), „1 und 2 px je Block“; den Deckel aus der Grösse des Satzes und der Art
   des Downloads, siehe #154. Der Server braucht so weder den Massstab noch
   die Art.
 - **Uhr:** Plugin und Server laufen auf demselben Rechner und lesen dieselbe

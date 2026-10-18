@@ -14,6 +14,7 @@ import {
   type Projektion,
 } from './pick';
 import { ebenen } from './ebenen';
+import { nimmToken } from './konto';
 import { FRISCH, hoehen, type Hoehenkarten } from './hoehen';
 import { VERSION, type Grenzen, type Rechteck } from './skin-api';
 import './style.css';
@@ -620,6 +621,8 @@ function fitZoom(grenzen: Grenzen, info: MapInfo, size: L.Point): number {
 }
 
 async function start(): Promise<void> {
+  // Vor jeder Anfrage: Das Anmelde-Token verlässt die Adresse; siehe docs/frontend.md, „Aktionsebenen“.
+  const token = nimmToken();
   // Ein Skin lädt, während map.json kommt; ohne ihn fällt sein Import weg.
   const skinModul = __SKIN__ ? import('virtual:skin') : undefined;
   // Ohne Angabe liegen die Kacheln neben der Seite. Der Parameter ist für
@@ -710,7 +713,7 @@ async function start(): Promise<void> {
     // darum behält der Cache nur wenige.
     const bodenCell = hatHoehen(info) && zelleGilt(info.groundCell) ? info.groundCell : heightsCell;
     const boden = karten && hatHoehen(info) && typeof info.ground === 'string' ? hoehen(base, info.ground, bodenCell!, 8) : undefined;
-    void ebenen({ map, wurzel, blick, scale, maxZoom, karten, boden, bodenCell, heightsCell, seaLevel, minY, maxY, area, satz: satz ?? undefined }).catch(
+    void ebenen({ map, wurzel, blick, scale, maxZoom, karten, boden, bodenCell, heightsCell, seaLevel, minY, maxY, area, satz: satz ?? undefined, token }).catch(
       (error: unknown) => console.error(error),
     );
   }

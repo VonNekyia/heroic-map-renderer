@@ -15,6 +15,7 @@ import { bereich, form, hatFlaeche, versetze, zeichne, zuege, type Form, type St
 import { bildpunkt, oberflaeche as hoeheAuf, rechteck, schriftPfad, zurKamera, type Blick, type Gelaende, type Rechteck } from './gelaende';
 import { FRISCH, LEER, type Hoehenkarten } from './hoehen';
 import { REGION } from './pick';
+import { abmelden, aktion, anmelden, ebene as spielerEbene, ich, knoepfe as holeKnoepfeVomServer, nimmToken, objektSchluessel, type Knopf, type Spieler } from './konto';
 import { farbe, istObjekt, istText, istZahl, punkt } from './pruefen';
 import { KAPPE, ladeSchrift, Schrift, schriftzug, SVG, type Schriftzug } from './schrift';
 
@@ -25,6 +26,8 @@ interface Eintrag {
   visible: boolean;
   order: number;
   version: string;
+  /** Eine Aktionsebene: ihre Datei kommt je Spieler aus `api/`, nur angemeldet. */
+  player: boolean;
 }
 
 type Groesse = 'large' | 'medium' | 'small';
@@ -84,6 +87,8 @@ export interface Umgebung {
   area?: Rechteck;
   /** Der Satz der Banner-Sprites dieses Baums, siehe docs/benutzung/ebenen.md, „Sprites“; ohne `trees.json` keiner. */
   satz?: string;
+  /** Das Anmelde-Token aus dem Fragment, schon aus der Adresse gelöscht. */
+  token?: string;
 }
 
 /**
@@ -171,6 +176,7 @@ function eintrag(wert: unknown): Eintrag | undefined {
     visible: wert.visible !== false,
     order: Number.isInteger(wert.order) ? (wert.order as number) : 0,
     version: wert.version,
+    player: wert.player === true,
   };
 }
 
@@ -664,6 +670,8 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
 
   interface Geladen {
     version: string;
+    /** Was gezeichnet ist: `version`, bei einer Aktionsebene der Inhalt ihrer Datei. */
+    stand: string;
     /** Nadeln und Banner. */
     gruppe: L.LayerGroup;
     /** Flächen, Ränder, Linien und Schrift, in dieser Reihenfolge. */
@@ -676,6 +684,43 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
   /** Je Ebene die `version` mit `permission` oder `web: false`; die holt die Karte nicht noch einmal. */
   const abgewiesen = new Map<string, string>();
   let eintraege: Eintrag[] = [];
+  /** Die Einträge aus `layers.json`, wie zuletzt gelesen, auch Aktionsebenen ohne Anmeldung. */
+  let roh: unknown[] = [];
+  let mitAktionsebene = false;
+
+  // Anmeldung und Knöpfe, siehe docs/frontend.md, „Aktionsebenen“.
+  let spieler: Spieler | undefined;
+  /** Ob unter `api/` ein Server des Renderers antwortet; erst nach der ersten Frage bekannt. */
+  let mitServer = false;
+  /** Ob die Seite schon gefragt hat, wer angemeldet ist. */
+  let gefragt = false;
+  /** Was beim letzten Anmelden schiefging, für die Liste. */
+  let meldung = '';
+  /** Die Knöpfe je Objekt, nach `objektSchluessel`. */
+  let knoepfe = new Map<string, Knopf[]>();
+  /** Knöpfe, deren Klick noch läuft, nach `knopfSchluessel`. */
+  const laufend = new Set<string>();
+  /** Je Objekt ein Hinweis unter den Knöpfen, etwa „noch keine Antwort“. */
+  const hinweise = new Map<string, string>();
+  const knopfSchluessel = (k: Knopf) => JSON.stringify([k.ebene, k.objekt, k.knopf]);
+  /** Ob dieser Browser zuletzt angemeldet war; nur, damit die Seite auch ohne Aktionsebene nach Knöpfen fragt. */
+  const merkName = `angemeldet:${location.pathname}`;
+  const merke = (an: boolean): void => {
+    try {
+      if (an) localStorage.setItem(merkName, '1');
+      else localStorage.removeItem(merkName);
+    } catch {
+      // Ohne Speicher fragt die Seite nur mit Aktionsebene.
+    }
+  };
+  const warAngemeldet = (): boolean => {
+    try {
+      return localStorage.getItem(merkName) === '1';
+    } catch {
+      return false;
+    }
+  };
+
   /** Die Tafel, die gerade offen ist, das Element ihres Ziels, das den Fokus zurückbekommt, und ob sie gehalten ist. */
   let offen: { popup: L.Popup; element: () => Element | undefined; gehalten: () => boolean } | undefined;
 
@@ -976,7 +1021,7 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     schriften: readonly Schriftzug[],
     renderer: L.Renderer,
     formPane: string,
-    tafelDerEbene: (bausteine: unknown[]) => HTMLElement,
+    tafelDerEbene: (bausteine: unknown[], objekt: string) => HTMLElement,
   ): Promise<{ flaechen: L.Layer[]; striche: Strich[]; schriftLagen: Schrift[] }> => {
     // Formen auf dem Boden ohne Laub, die Schrift auf der Oberfläche wie Nadeln und Banner.
     const [boden, oben] = await Promise.all([
@@ -989,8 +1034,25 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     return { flaechen, striche, schriftLagen };
   };
 
-  const ladeEbene = async (e: Eintrag): Promise<void> => {
+  /**
+   * Lädt eine Ebene und zeichnet sie. Eine Aktionsebene kommt aus `api/` und
+   * zeichnet nur neu, wenn sich ihr Inhalt geändert hat oder `erzwingen` gilt.
+   */
+  const ladeEbene = async (e: Eintrag, erzwingen = false): Promise<void> => {
     if (abgewiesen.get(e.id) === e.version) return;
+    const [mod, name] = e.id.split(':') as [string, string];
+    // Die Bilder auch einer Aktionsebene liegen öffentlich unter layers/.
+    const ordner = `${wurzel}/layers/${mod}`;
+    let datei: unknown;
+    let stand = e.version;
+    if (e.player) {
+      const wert = await spielerEbene(mod, name, GRENZEN.datei);
+      if (wert === 'abgemeldet') return abgemeldet();
+      // Ohne Datei hat der Spieler in dieser Ebene noch nichts.
+      datei = wert === 'fehlt' ? undefined : wert;
+      stand = JSON.stringify(datei) ?? '';
+      if (!erzwingen && geladen.get(e.id)?.stand === stand) return;
+    }
     const nummer = (auftrag.get(e.id) ?? 0) + 1;
     auftrag.set(e.id, nummer);
     // Gilt, solange niemand umgeschaltet hat und die Ebene noch in der Liste steht und an ist.
@@ -998,9 +1060,7 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
       const jetzt = eintraege.find((x) => x.id === e.id);
       return auftrag.get(e.id) === nummer && jetzt !== undefined && an(jetzt);
     };
-    const [mod, name] = e.id.split(':') as [string, string];
-    const ordner = `${wurzel}/layers/${mod}`;
-    const datei = await json(`${ordner}/${name}.json`, GRENZEN.datei);
+    if (!e.player) datei = await json(`${ordner}/${name}.json`, GRENZEN.datei);
     if (istObjekt(datei) && (datei.permission !== undefined || datei.web === false)) {
       if (!gilt()) return;
       console.warn(`${ordner}/${name}.json: Ebene mit permission oder web: false, übergangen`);
@@ -1023,7 +1083,14 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
       console.warn(`${e.id}: ${orte.length} Nadeln und Banner, gezeigt die ersten ${GRENZEN.nadeln}`);
       orte = orte.slice(0, GRENZEN.nadeln);
     }
-    const tafelDerEbene = (bausteine: unknown[]) => tafel(bausteine, ordner, e.version);
+    // Ein Objekt mit Knöpfen, aber ohne Tafel, bekommt eine nur mit den Knöpfen; Linien und Schrift haben keine.
+    const mitKnopf = (id: string) => knoepfe.has(objektSchluessel(e.id, id));
+    for (const o of [...formen, ...orte]) if (o.panel === undefined && !('linie' in o && o.linie) && mitKnopf(o.id)) o.panel = [];
+    const tafelDerEbene = (bausteine: unknown[], objekt: string) => {
+      const teil = tafel(bausteine, ordner, e.version);
+      teil.append(knopfLeiste(e.id, objekt));
+      return teil;
+    };
     // Der Satz dieses Baums, einmal je Laden und nur, wenn ein Banner einen Entwurf nennt.
     let satz: Satz | undefined;
     if (umgebung.satz && orte.some((o) => 'design' in o && o.design)) {
@@ -1056,7 +1123,7 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
         });
         const panel = o.panel;
         if (panel) {
-          const oeffne = tafelAn(m, () => tafelDerEbene(panel), () => m.getElement(), () => m.getLatLng(), (icon.options.iconSize as L.PointTuple)[1]);
+          const oeffne = tafelAn(m, () => tafelDerEbene(panel, o.id), () => m.getElement(), () => m.getLatLng(), (icon.options.iconSize as L.PointTuple)[1]);
           m.on('keypress', (ereignis) => {
             if (ereignis.originalEvent.key === 'Enter') oeffne(true);
           });
@@ -1071,7 +1138,7 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     const formGruppe = L.layerGroup([...flaechen, ...striche.map((s) => s.linie), ...schriftLagen]).addTo(map);
     versetze(striche, faktor());
     const gruppe = L.layerGroup(marker.filter((m): m is L.Marker => m !== undefined)).addTo(map);
-    geladen.set(e.id, { version: e.version, gruppe, formen: formGruppe, striche });
+    geladen.set(e.id, { version: e.version, stand, gruppe, formen: formGruppe, striche });
   };
 
   const entferne = (id: string): void => {
@@ -1115,20 +1182,199 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     }
   };
 
+  // Unter der Liste, wer angemeldet ist, oder wie man sich anmeldet.
+  const konto = L.DomUtil.create('div', 'ebenen-konto', kasten);
+  let gezeigtesKonto = '';
+  /** Baut die Zeile nur, wenn sich etwas ändert; so bleibt der Fokus auf „Abmelden“. */
+  const zeigeKonto = (): void => {
+    const stand = JSON.stringify([spieler?.name, mitServer && mitAktionsebene, meldung]);
+    if (stand !== gezeigtesKonto) {
+      gezeigtesKonto = stand;
+      konto.replaceChildren();
+      if (spieler) {
+        L.DomUtil.create('span', '', konto).textContent = `Angemeldet als ${spieler.name} `;
+        const knopf = L.DomUtil.create('button', 'ebenen-abmelden', konto);
+        knopf.type = 'button';
+        knopf.textContent = 'Abmelden';
+        knopf.addEventListener('click', () => void abmelden().then(abgemeldet));
+      } else if (mitServer && mitAktionsebene) {
+        konto.textContent = 'Anmelden für eigene Ebenen: im Spiel /karte anmelden';
+      }
+      if (meldung) {
+        const zeile = L.DomUtil.create('div', 'ebenen-meldung', konto);
+        zeile.setAttribute('role', 'status');
+        zeile.textContent = meldung;
+      }
+      konto.hidden = konto.childNodes.length === 0;
+    }
+    if ((eintraege.length > 0 || !konto.hidden) && !control.getContainer()) control.addTo(map);
+  };
+
+  /** Die Knöpfe eines Objekts unter seiner Tafel, mit dem Hinweis darunter. */
+  const knopfLeiste = (ebeneId: string, objekt: string): HTMLElement => {
+    const leiste = L.DomUtil.create('div', 'tafel-knoepfe');
+    leiste.dataset.objekt = objektSchluessel(ebeneId, objekt);
+    fuelle(leiste);
+    return leiste;
+  };
+  /**
+   * Bringt eine Leiste auf den Stand von `knoepfe`. Vorhandene Knöpfe bleiben
+   * Elemente, nur Text und Zustand ändern sich; so behält ein Knopf den Fokus.
+   * Ein laufender Klick sperrt seinen Knopf mit `aria-disabled`, nicht mit
+   * `disabled`, das den Fokus nähme.
+   */
+  const fuelle = (leiste: HTMLElement): void => {
+    const schluessel = leiste.dataset.objekt!;
+    const da = new Map([...leiste.querySelectorAll<HTMLButtonElement>('button')].map((b) => [b.dataset.knopf, b]));
+    const neu: HTMLElement[] = (knoepfe.get(schluessel) ?? []).map((k) => {
+      let b = da.get(k.knopf);
+      if (!b) {
+        b = L.DomUtil.create('button', 'tafel-knopf');
+        b.type = 'button';
+        b.dataset.knopf = k.knopf;
+        const { ebene: ebeneId, objekt } = k;
+        b.addEventListener('click', () => void klick(ebeneId, objekt, b!.dataset.knopf!));
+      }
+      b.textContent = k.label[sprache] ?? k.label.de ?? k.label.en ?? '';
+      b.setAttribute('aria-pressed', String(k.on));
+      const busy = laufend.has(knopfSchluessel(k));
+      b.setAttribute('aria-busy', String(busy));
+      b.setAttribute('aria-disabled', String(busy));
+      return b;
+    });
+    let hinweis = leiste.querySelector<HTMLElement>('.tafel-hinweis');
+    if (!hinweis) {
+      hinweis = L.DomUtil.create('div', 'tafel-hinweis');
+      hinweis.setAttribute('role', 'status');
+    }
+    hinweis.textContent = hinweise.get(schluessel) ?? '';
+    neu.push(hinweis);
+    leiste.hidden = neu.length === 1 && !hinweis.textContent;
+    if (neu.length !== leiste.children.length || neu.some((b, i) => leiste.children[i] !== b)) leiste.replaceChildren(...neu);
+  };
+  const fuelleAlle = (): void => {
+    for (const leiste of document.querySelectorAll<HTMLElement>('.tafel-knoepfe')) fuelle(leiste);
+  };
+
+  /**
+   * Übernimmt die Knöpfe. Bekommt ein Objekt seine ersten Knöpfe oder
+   * verliert es alle, zeichnet seine Ebene neu: Ein Objekt ohne Tafel hat
+   * dann eine oder keine mehr.
+   */
+  const setzeKnoepfe = (liste: readonly Knopf[]): void => {
+    const neu = new Map<string, Knopf[]>();
+    for (const k of liste) {
+      const s = objektSchluessel(k.ebene, k.objekt);
+      neu.set(s, [...(neu.get(s) ?? []), k]);
+    }
+    const geaendert = new Set<string>();
+    for (const s of new Set([...knoepfe.keys(), ...neu.keys()])) {
+      if (knoepfe.has(s) !== neu.has(s)) geaendert.add((JSON.parse(s) as [string, string])[0]);
+    }
+    knoepfe = neu;
+    fuelleAlle();
+    for (const e of eintraege) if (geaendert.has(e.id) && geladen.has(e.id)) void ladeEbene(e, true).catch((fehler: unknown) => console.error(e.id, fehler));
+  };
+  const holeKnoepfe = async (): Promise<void> => {
+    const antwort = await holeKnoepfeVomServer(kennungGilt);
+    if (antwort === 'abgemeldet') abgemeldet();
+    // Ohne Antwort bleiben die alten bis zur nächsten Frage.
+    else if (antwort !== 'fehlt') setzeKnoepfe(antwort);
+  };
+
+  /** Ohne Sitzung: Aktionsebenen und Knöpfe fallen weg. */
+  const abgemeldet = (): void => {
+    if (!spieler) return;
+    spieler = undefined;
+    merke(false);
+    setzeKnoepfe([]);
+    void abgleichen(roh);
+  };
+
+  /** Fragt, wer angemeldet ist, und holt dann die Knöpfe. */
+  const pruefe = async (): Promise<void> => {
+    gefragt = true;
+    const antwort = await ich();
+    mitServer = antwort !== 'fehlt';
+    spieler = typeof antwort === 'object' ? antwort : undefined;
+    merke(spieler !== undefined);
+    if (spieler) await holeKnoepfe();
+    else setzeKnoepfe([]);
+    zeigeKonto();
+  };
+
+  /** Löst ein Anmelde-Token ein; danach ist die Liste offen, mit „Angemeldet als …“. */
+  const meldeAn = async (token: string): Promise<void> => {
+    const status = await anmelden(token);
+    meldung = status === 204 ? '' : status === 401 ? 'Anmeldelink abgelaufen oder schon benutzt; neu im Spiel: /karte anmelden' : 'Anmelden ging nicht';
+    await pruefe();
+    if (status === 204) kasten.open = true;
+  };
+
+  /** Nach 0,3, 0,8, 1,5 und 3 s fragt die Seite nach einem Klick nach dem neuen Zustand. */
+  const NACH_KLICK = [300, 500, 700, 1500];
+
+  /**
+   * Ein Klick auf einen Knopf: Der Server nimmt ihn mit 202 an, den neuen
+   * Zustand setzt erst das Plugin. Bis er da ist, ist der Knopf gesperrt;
+   * kommt er in 3 s nicht, wird der Knopf mit dem alten Zustand frei, und
+   * den Rest holt das Nachfragen alle 30 s.
+   */
+  const klick = async (ebeneId: string, objekt: string, knopfId: string): Promise<void> => {
+    const schluessel = objektSchluessel(ebeneId, objekt);
+    const k = knoepfe.get(schluessel)?.find((x) => x.knopf === knopfId);
+    if (!k || laufend.has(knopfSchluessel(k))) return;
+    laufend.add(knopfSchluessel(k));
+    hinweise.delete(schluessel);
+    fuelleAlle();
+    const status = await aktion(k);
+    let hinweis = '';
+    if (status === 202) {
+      hinweis = 'noch keine Antwort';
+      for (const ms of NACH_KLICK) {
+        await new Promise((fertig) => setTimeout(fertig, ms));
+        await holeKnoepfe();
+        if (!spieler) break;
+        // Auch ein Knopf, der weggefallen ist, hat geantwortet.
+        if (knoepfe.get(schluessel)?.find((x) => x.knopf === knopfId)?.on !== k.on) {
+          hinweis = '';
+          break;
+        }
+      }
+    } else if (status === 401) {
+      abgemeldet();
+    } else if (status === 404) {
+      // Den Knopf gibt es nicht mehr.
+      await holeKnoepfe();
+    } else {
+      hinweis = 'Klick nicht angenommen';
+    }
+    laufend.delete(knopfSchluessel(k));
+    if (hinweis) hinweise.set(schluessel, hinweis);
+    fuelleAlle();
+    // Der Klick ändert womöglich Inhalte je Spieler, auch in anderen Ebenen.
+    if (status === 202 && !hinweis) for (const e of eintraege) if (e.player && geladen.has(e.id)) void ladeEbene(e).catch((fehler: unknown) => console.error(e.id, fehler));
+  };
+
   /** Liest die Liste; nimmt weg, was nicht mehr an ist, und lädt neu, was an ist und sich geändert hat. */
   const abgleichen = async (neu: unknown[]): Promise<void> => {
+    roh = neu;
     if (neu.length > GRENZEN.ebenen) console.warn(`${wurzel}/layers.json: ${neu.length} Ebenen, gezeigt die ersten ${GRENZEN.ebenen}`);
-    eintraege = neu
+    const alle = neu
       .slice(0, GRENZEN.ebenen)
       .map(eintrag)
       .filter((e): e is Eintrag => e !== undefined)
       .sort((a, b) => b.order - a.order || a.id.localeCompare(b.id));
-    if (eintraege.length > 0 && !control.getContainer()) control.addTo(map);
+    mitAktionsebene = alle.some((e) => e.player);
+    // Aktionsebenen nur angemeldet; siehe docs/frontend.md, „Aktionsebenen“.
+    eintraege = alle.filter((e) => !e.player || spieler);
     zeigeListe();
+    zeigeKonto();
     stapeln();
     // Auch, wenn der Betreiber `visible` ändert und der Betrachter nie gewählt hat.
     for (const id of [...geladen.keys()]) if (!eintraege.some((e) => e.id === id && an(e))) entferne(id);
-    const zuLaden = eintraege.filter((e) => an(e) && geladen.get(e.id)?.version !== e.version);
+    // Eine Aktionsebene fragt jedes Mal; neu zeichnet sie nur mit neuem Inhalt.
+    const zuLaden = eintraege.filter((e) => an(e) && (e.player || geladen.get(e.id)?.version !== e.version));
     await Promise.all(zuLaden.map((e) => ladeEbene(e).catch((fehler: unknown) => console.error(e.id, fehler))));
   };
 
@@ -1137,14 +1383,27 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     const liste = await json(`${wurzel}/layers.json`, GRENZEN.liste).catch(() => undefined);
     return istObjekt(liste) && Array.isArray(liste.layers) ? liste.layers : undefined;
   };
+  /** Ob eine Liste eine Aktionsebene nennt, ohne sie ganz zu lesen. */
+  const nenntAktionsebene = (liste: unknown[]) => liste.some((e) => istObjekt(e) && e.player === true);
   const nachfragen = async (): Promise<void> => {
     const liste = await holeListe();
+    // Erst die Knöpfe, dann die Ebenen: So zeichnet eine Ebene schon mit ihnen.
+    if (spieler) await holeKnoepfe();
+    else if (!gefragt && liste && nenntAktionsebene(liste)) await pruefe();
     if (liste) await abgleichen(liste);
   };
 
   // Ohne layers.json beim Laden fragt die Karte bis zum Neuladen nicht nach.
   const erste = await holeListe();
   if (!erste) return;
+  // Gäste ohne Aktionsebene fragen nie nach einer Sitzung, so sehen sie keine 401.
+  if (umgebung.token) await meldeAn(umgebung.token);
+  else if (nenntAktionsebene(erste) || warAngemeldet()) await pruefe();
+  // Ein Anmeldelink in einem Tab, in dem die Karte schon offen ist, lädt die Seite nicht neu.
+  addEventListener('hashchange', () => {
+    const token = nimmToken();
+    if (token) void meldeAn(token).then(() => abgleichen(roh));
+  });
   if (iso && !karten) console.warn(`${wurzel}: Ebenen ohne Höhen, im iso auf seaLevel`);
   // Erst anmelden, dann abgleichen: Ein Fehler beim ersten Abgleich hält das
   // Nachfragen nicht auf.
@@ -1192,7 +1451,7 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
       'change',
       () => {
         beiDpr();
-        for (const e of eintraege) if (geladen.has(e.id)) void ladeEbene(e).catch((fehler: unknown) => console.error(e.id, fehler));
+        for (const e of eintraege) if (geladen.has(e.id)) void ladeEbene(e, true).catch((fehler: unknown) => console.error(e.id, fehler));
       },
       { once: true },
     );

@@ -1,9 +1,10 @@
 ---
 title: Frontend
-description: Das Leaflet-Frontend - wie es die Kacheln ausliefert, einem laufenden Render zusieht, map.json in ein Koordinatensystem übersetzt, die Koordinaten des Blocks unter Maus und Finger zeigt als /tp kopiert und per Eingabe dorthin springt, zwischen Ansichten umschaltet, mit einem Knopf die ganze Karte zeigt, den Stand der Karte nennt, Ebenen mit Nadeln, Bannern, Infotafel, Regionen, Kreisen, Linien und Kartenschrift zeigt, den Hinweis von Mojang zeigt und die Lizenzen verlinkt, wie es einen Skin beim Build einbindet, wie es mit Adresse, Titel und Vorschaubild für Suchmaschinen und geteilte Links gebaut und unter welchen Headern, auch für den Cache, es ausgeliefert wird und warum es nicht mehr tut.
+description: Das Leaflet-Frontend - wie es die Kacheln ausliefert, einem laufenden Render zusieht, map.json in ein Koordinatensystem übersetzt, die Koordinaten des Blocks unter Maus und Finger zeigt als /tp kopiert und per Eingabe dorthin springt, zwischen Ansichten umschaltet, mit einem Knopf die ganze Karte zeigt, den Stand der Karte nennt, Ebenen mit Nadeln, Bannern, Infotafel, Regionen, Kreisen, Linien und Kartenschrift zeigt, einen Spieler per Link aus dem Spiel anmeldet und ihm Aktionsebenen und Knöpfe zeigt, den Hinweis von Mojang zeigt und die Lizenzen verlinkt, wie es einen Skin beim Build einbindet, wie es mit Adresse, Titel und Vorschaubild für Suchmaschinen und geteilte Links gebaut und unter welchen Headern, auch für den Cache, es ausgeliefert wird und warum es nicht mehr tut.
 code:
   - web/src/main.ts
   - web/src/ebenen.ts
+  - web/src/konto.ts
   - web/src/ebenen
   - web/src/formen.ts
   - web/src/gelaende.ts
@@ -592,6 +593,59 @@ Banner, feste Grösse und die Tafel beim Zeigen folgen
   und die Namen von Nadeln und Bannern stehen wie ohne Skin in der
   Kartenschrift. Kontrast und Platz prüft
   `skins/tablett/tests/marmor.spec.ts`.
+
+## Aktionsebenen
+
+Ein Spieler meldet sich mit einem Link aus dem Spiel an. Danach sieht er
+seine eigenen Ebenen und Knöpfe in den Tafeln. Das Format steht in
+[Ebenen](benutzung/ebenen.md), den Server dazu in
+[Server](benutzung/server.md); beides liefert der Renderer unter `api/`
+neben der Seite (#294). Gebaut in [`web/src/konto.ts`](../web/src/konto.ts)
+für die Aufrufe und in [`web/src/ebenen.ts`](../web/src/ebenen.ts) für Liste,
+Ebenen und Knöpfe.
+
+- **Anmeldelink:** `/karte anmelden` im Spiel gibt einen Link
+  `<karte>/#anmelden=<token>`. Die Seite löscht das Fragment mit
+  `history.replaceState` als Erstes, vor jeder Anfrage, und schickt das
+  Token im Kopf `Authorization: Bearer …` an `POST api/anmelden`. Es steht
+  danach weder in der Adresse noch im Verlauf, noch in einer Anfrage ausser
+  dieser. Ist die Karte im Tab schon offen, lädt der Link die Seite nicht
+  neu; dann meldet `hashchange` an.
+- **Sitzung:** ein Cookie mit `HttpOnly`, das die Seite nie sieht. Wer
+  angemeldet ist, sagt `GET api/ich`; die Liste zeigt „Angemeldet als …“ und
+  „Abmelden“ (`POST api/abmelden`). Nach dem Anmelden klappt die Liste auf.
+  Ein abgelaufener oder benutzter Link steht als Meldung darunter.
+- **Gäste:** Die Seite fragt nur nach der Sitzung, wenn `layers.json` eine
+  Aktionsebene nennt oder dieser Browser zuletzt angemeldet war
+  (`localStorage`, `angemeldet:<pfad>`). So bekommt ein Gast ohne
+  Aktionsebene keine `401` in der Konsole. Mit Aktionsebene und ohne
+  Anmeldung steht unter der Liste „Anmelden für eigene Ebenen: im Spiel
+  /karte anmelden“; die Aktionsebene selbst fehlt in der Liste.
+- **Ohne Server des Renderers** gibt es keinen Hinweis. Als ohne Server
+  gilt: keine Antwort, ein Fehler ausser `401`, oder kein gültiges JSON,
+  etwa die `index.html` eines statischen Servers.
+- **Aktionsebene:** `"player": true` in `layers.json`. Ihre Datei kommt aus
+  `api/ebenen/<modname>/<ebene>.json` mit `cache: 'no-store'`, ihre Bilder
+  wie sonst aus `layers/<modname>/images/`. Sie fragt bei jedem Nachfragen,
+  alle 30 s, und zeichnet nur neu, wenn sich der Inhalt geändert hat. Eine
+  `401` heisst abgemeldet: Aktionsebenen und Knöpfe fallen weg.
+- **Knöpfe:** aus `api/knoepfe.json`, je Objekt höchstens 4, unter der
+  Tafel des Objekts als `<button aria-pressed>` mit dem Zustand des
+  Spielers. Ein Objekt mit Knopf und ohne Tafel bekommt eine nur mit den
+  Knöpfen; Linien und Kartenschrift haben keine Tafel, also auch keine
+  Knöpfe. Ändert sich, welche Objekte Knöpfe haben, zeichnet ihre Ebene
+  neu. Sonst ändern sich nur Text und Zustand der Knöpfe in einer offenen
+  Tafel, und der Fokus bleibt.
+- **Klick:** `POST api/aktion` mit `{"ebene","objekt","knopf"}`, den
+  Köpfen `Content-Type: application/json` und `X-Heroic-Map: 1`. Der Server
+  antwortet `202`; den neuen Zustand setzt erst das Plugin. Bis dahin ist
+  der Knopf mit `aria-busy` und `aria-disabled` gesperrt, nicht mit
+  `disabled`, das ihm den Fokus nähme; ein Doppelklick schickt einen
+  `POST`. Die Seite fragt `api/knoepfe.json` nach 0,3, 0,8, 1,5 und 3 s und
+  hört beim ersten neuen Zustand auf; dann lädt sie die Aktionsebenen neu.
+  Kommt in 3 s nichts, wird der Knopf mit dem alten Zustand frei, darunter
+  „noch keine Antwort“; den Rest holt das Nachfragen alle 30 s. Ein `404`
+  heisst: Den Knopf gibt es nicht mehr.
 
 ## Skins
 

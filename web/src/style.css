@@ -397,3 +397,68 @@ body {
   height: 10px;
   border-radius: 50%;
 }
+
+/* Die Knöpfe unter der Tafel; ein Knopf, der an ist, hell. Siehe
+   docs/frontend.md, „Aktionsebenen“. */
+.tafel-knoepfe {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.tafel-knoepfe[hidden] {
+  display: none;
+}
+
+.tafel-knopf {
+  padding: 2px 8px;
+  border: 1px solid #3a3a44;
+  border-radius: 2px;
+  background: #24242c;
+  color: #d9d9d9;
+  font: inherit;
+  cursor: pointer;
+}
+
+.tafel-knopf[aria-pressed='true'] {
+  border-color: #d9d9d9;
+  background: #d9d9d9;
+  color: #101014;
+}
+
+.tafel-knopf[aria-busy='true'] {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.tafel-knopf:focus-visible {
+  outline: 2px solid #d9d9d9;
+  outline-offset: 1px;
+}
+
+.tafel-hinweis {
+  flex-basis: 100%;
+  color: #a0a0a8;
+  font-size: 12px;
+}
+
+.tafel-hinweis:empty {
+  display: none;
+}
+
+/* Unter der Liste der Ebenen: wer angemeldet ist, oder wie man sich anmeldet. */
+.ebenen-konto {
+  max-width: 16em;
+  margin-top: 2px;
+  padding-top: 2px;
+  border-top: 1px solid var(--ui-trenner);
+}
+
+.ebenen-konto[hidden] {
+  display: none;
+}
+
+.ebenen-abmelden {
+  font: inherit;
+}

@@ -37,10 +37,6 @@ pub(super) struct Sitzung {
 /// Welche Art von [`Sitzung`] eine Prüfung verlangt; der Wert ist die
 /// Fassung.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "der Server prüft damit ab #294, Teil 3")
-)]
 pub(super) enum Art {
     Anmeldung = 2,
     Sitzung = 3,
@@ -73,10 +69,6 @@ pub(super) fn pruefe(text: &str, geheimnis: &hmac::Key, jetzt: u64) -> Result<To
 
 /// Prüft eine Anmeldung oder Sitzung wie [`pruefe`], genau in der Fassung
 /// von `art`. Den Zähler gegen die Datei des Spielers prüft der Server.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "der Server prüft damit ab #294, Teil 3")
-)]
 pub(super) fn pruefe_sitzung(
     text: &str,
     geheimnis: &hmac::Key,
@@ -97,6 +89,34 @@ pub(super) fn pruefe_sitzung(
         return Err(Grund::Abgelaufen);
     }
     Ok(sitzung)
+}
+
+/// Stellt eine Sitzung als Token in der Fassung von `art` aus, wie es
+/// [`pruefe_sitzung`] annimmt.
+pub(super) fn stelle_aus(sitzung: &Sitzung, art: Art, geheimnis: &hmac::Key) -> String {
+    let mut inhalt = Vec::with_capacity(45);
+    inhalt.push(art as u8);
+    inhalt.extend(sitzung.spieler);
+    inhalt.extend(sitzung.ablauf.to_be_bytes());
+    inhalt.extend(sitzung.zaehler.to_be_bytes());
+    inhalt.extend(sitzung.zufall);
+    let unterschrift = hmac::sign(geheimnis, &inhalt);
+    format!("{}.{}", kodiere(&inhalt), kodiere(unterschrift.as_ref()))
+}
+
+/// base64url ohne Polsterung, kanonisch.
+fn kodiere(bytes: &[u8]) -> String {
+    let mut text = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for stueck in bytes.chunks(3) {
+        let n = stueck
+            .iter()
+            .enumerate()
+            .fold(0u32, |n, (i, b)| n | u32::from(*b) << (16 - 8 * i));
+        for i in 0..=stueck.len() {
+            text.push(char::from(ALPHABET[(n >> (18 - 6 * i) & 63) as usize]));
+        }
+    }
+    text
 }
 
 /// Form, Kodierung und Unterschrift, gleich für jede Fassung; der Inhalt
@@ -271,6 +291,7 @@ mod tests {
                     "{name}"
                 );
                 assert_eq!(text.len(), 104, "{name}");
+                assert_eq!(stelle_aus(&s, art, &geheimnis), text, "{name}");
                 let inhalt = text.split('.').next().unwrap();
                 assert_eq!(
                     base64url(inhalt).unwrap(),

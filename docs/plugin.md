@@ -136,6 +136,12 @@ dem Plugin-Programmierer ab.
   [Server](benutzung/server.md), „Was er ausliefert“. Was das Plugin unter
   einem Namen mit `.` vorn schreibt, liefert er nicht; erst nach dem
   Umbenennen. Das Format steht in [Ebenen](benutzung/ebenen.md).
+- **Die Webkarte je Spieler** mit `--player-dir` neben `--secret-file`: der
+  Ordner mit einem Ordner je Spieler, den das Plugin schreibt. Je Klick im
+  Web schreibt der Server eine Zeile `Aktion: {"spieler","ebene","objekt","knopf"}`
+  auf stdout; das Plugin nimmt nur Zeilen, die genau so beginnen, und
+  prüft den Klick selbst. Siehe [Server](benutzung/server.md),
+  „Aktionsebenen“.
 
 ## Banner zeichnen: `--banners`
 

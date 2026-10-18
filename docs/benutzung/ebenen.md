@@ -766,9 +766,9 @@ einer Anmeldung über den Server des Renderers. Entschieden in
 
 - **Ein Klick** geht im Web als `POST api/aktion` an den Server des
   Renderers, im Mod als Nachricht über den Kanal. Den neuen Zustand kennt
-  erst das Plugin; die Ansicht holt ihn danach neu. Die Anmeldung und das
-  Web beschreibt [Server](server.md), sobald der Server sie kann; die
-  Nachrichten im Kanal die Doku des Plugins.
+  erst das Plugin; die Ansicht holt ihn danach neu. Anmeldung, Pfade und
+  Prüfungen im Web stehen in [Server](server.md), „Aktionsebenen“; die
+  Nachrichten im Kanal in der Doku des Plugins.
 - **Im Web** ein `<button aria-pressed>`, mit der Tastatur bedienbar.
 - **Ebenen mit `permission`** bekommen Knöpfe und Inhalte je Spieler nur im
   Mod, nie im Web: Die Rechte eines Spielers kennt das Plugin nur, solange

@@ -1,9 +1,10 @@
 ---
 title: "Server: --serve"
-description: Wie der Renderer Karte und Kacheln selbst ausliefert, für Plugin, EXE und von Hand; Schalter, Pfade, Header, ETag und 304, MIME, 404, die Grenzen am offenen Netz, HTTPS aus PEM, das Ende mit stdin, den Download mit Token für den Mod, einzeln und als ein Strom im ZIP, und die Angaben der Seite zur Laufzeit.
+description: Wie der Renderer Karte und Kacheln selbst ausliefert, für Plugin, EXE und von Hand; Schalter, Pfade, Header, ETag und 304, MIME, 404, die Grenzen am offenen Netz, HTTPS aus PEM, das Ende mit stdin, den Download mit Token für den Mod, einzeln und als ein Strom im ZIP, die Webkarte je Spieler mit Anmeldung, Aktionsebenen und Knöpfen unter /api/ und die Angaben der Seite zur Laufzeit.
 code:
   - renderer/src/cli/server.rs
   - renderer/src/cli/server/strom.rs
+  - renderer/src/cli/server/api.rs
   - renderer/src/cli/token.rs
   - renderer/src/cli.rs
   - renderer/tests/server.rs
@@ -40,6 +41,7 @@ heroic-map-renderer --serve ./tiles --web ./web/dist --listen 0.0.0.0:8080
 | `--tls-cert DATEI` | ohne: HTTP | HTTPS: die Kette der Zertifikate als PEM, das eigene zuerst |
 | `--tls-key DATEI` | – | der Schlüssel dazu als PEM, PKCS#8, PKCS#1 oder SEC1 |
 | `--secret-file DATEI` | ohne: kein Download | das Geheimnis der Token, genau 32 Byte; der Download unter `/download/` |
+| `--player-dir DIR` | ohne: kein `/api/` | nur mit `--secret-file`: die Webkarte je Spieler, siehe „Aktionsebenen“ |
 | `--site-url URL`, `--site-title TEXT`, `--site-description TEXT` | ohne: die Seite des Builds | Adresse, Titel und Beschreibung der Seite, nur zusammen, siehe „Angaben der Seite“ |
 | `--site-image PFAD` | ohne: kein Vorschaubild | das Vorschaubild, relativ zur Adresse oder absolut |
 
@@ -104,7 +106,8 @@ Server:     http://127.0.0.1:8080 mit ./tiles unter /tiles/ und ./web/dist unter
   erwartet: die Kacheln als `tiles` direkt unter der Seite. Jede andere
   Lage lehnt der Server beim Start ab.
 - **Nur GET und HEAD,** sonst `405` mit `Allow: GET, HEAD`. HEAD nennt die
-  Länge ohne Körper.
+  Länge ohne Körper. Unter `/api/` gelten eigene Methoden, siehe
+  „Aktionsebenen“.
 - **`404`** für alles, was fehlt, keine Datei ist oder sich nicht öffnen
   oder lesen lässt, ohne Zeile im Log. Unter `--web` dazu für jeden Pfad,
   dessen Teil mit `.` beginnt oder endet, ein anderes Zeichen als
@@ -370,11 +373,114 @@ einer Anfrage statt einer je Kachel (#289). Code: `download_strom` in
   `Download:   <baum> als ZIP bis Stufe <s> für <uuid>: <n> Dateien, <mb> MB in <sek> s`,
   mit `nach` und dem Grund eines Abbruchs.
 
+## Aktionsebenen
+
+Mit `--player-dir` beantwortet der Server unter `/api/` die Webkarte je
+Spieler: Anmeldung mit einem Link aus dem Spiel, Sitzung als Cookie,
+Aktionsebenen und Knöpfe aus den Dateien, die das Plugin je Spieler
+schreibt, und Klicks als Zeile auf stdout ans Plugin (#294). Warum so:
+[0107](../entscheidungen/0107-aktionsebenen.md); das Format der Dateien:
+[Ebenen](ebenen.md), „Aktionsebenen und Knöpfe“. Der Code steht in
+[`renderer/src/cli/server/api.rs`](../../renderer/src/cli/server/api.rs).
+
+- **Schalter:** `--player-dir DIR` geht nur mit `--secret-file`. Ohne
+  beide gibt jeder Pfad unter `/api/` `404`; die Karte weiss so, dass es
+  keinen Server mit Anmeldung gibt.
+- **Der Ordner** hat je Spieler einen Ordner mit seiner UUID, klein und
+  mit Bindestrichen. Den Pfad bildet der Server nur aus der UUID der
+  Sitzung, nie aus der Anfrage:
+
+  | Datei | Inhalt | fehlt sie |
+  |---|---|---|
+  | `<uuid>/ich.json` | `{"name","uuid"}` | `{"uuid"}` aus der Sitzung |
+  | `<uuid>/zaehler` | der Zähler fürs Abmelden, siehe [Plugin](../plugin.md), „Anmeldung und Sitzung“ | 0 |
+  | `<uuid>/knoepfe.json` | die Knöpfe des Spielers | `{"knoepfe":[]}` |
+  | `<uuid>/ebenen/<modname>/<ebene>.json` | seine Fassung einer Aktionsebene | `404` |
+
+  Jede Datei höchstens 4 MiB wie die Datei einer Ebene. Lässt sich
+  `zaehler` nicht lesen oder steht dort etwas anderes als Ziffern, gilt
+  keine Sitzung des Spielers.
+
+### Pfade
+
+Relativ zur Karte, hinter dem Proxy einer Website also etwa unter
+`/karte/api/`; der Server sieht `/api/`.
+
+| Pfad | Methode | Antwort |
+|---|---|---|
+| `api/anmelden` | `POST` mit `Authorization: Bearer <anmeldung>` | `204` mit dem Cookie einer neuen Sitzung |
+| `api/abmelden` | `POST` | `204`, löscht das Cookie und sperrt die Sitzung |
+| `api/ich` | `GET` | `ich.json` |
+| `api/knoepfe.json` | `GET` | `knoepfe.json` |
+| `api/ebenen/<modname>/<ebene>.json` | `GET` | die Fassung des Spielers, `<modname>` und `<ebene>` nach der Regel der Kennung |
+| `api/aktion` | `POST` mit `{"ebene","objekt","knopf"}` | `202`, dazu die Zeile `Aktion:` |
+
+- **Ohne gültige Sitzung** `401`; ein anderer Pfad `404`, eine andere
+  Methode `405` mit `Allow`.
+- **Nie im Cache:** jede Antwort mit `Cache-Control: private, no-store`,
+  ohne ETag, wegen geteilter Rechner (E4 in 0107).
+- **Der Körper** eines `POST` hat höchstens 1 KiB, sonst `413`.
+
+### Anmelden und Sitzung
+
+1. **Anmeldung:** ein Token der Fassung 2 aus dem Spiel, siehe
+   [Plugin](../plugin.md), „Anmeldung und Sitzung“. Der Server nimmt es
+   nur, wenn es höchstens 5 min gilt und sein Zähler nicht unter dem der
+   Datei liegt, und jedes nur einmal; ein zweites Mal `401`.
+2. **Sitzung:** ein Token der Fassung 3, das der Server selbst ausstellt:
+   derselbe Spieler und Zähler, 7 Tage gültig, neuer Zufall. Er setzt es
+   als Cookie `hm_sitzung` mit `Max-Age=604800; HttpOnly; SameSite=Strict`,
+   ohne `Path`: Der Browser nimmt dann den Ordner der Anfrage, also
+   `…/api`, auch hinter einem Präfix. `Secure` kommt dazu, wenn der Server
+   selbst HTTPS spricht oder `Origin` mit `https://` beginnt, wie hinter
+   einem Proxy mit HTTPS.
+3. **Gültig** ist eine Sitzung, solange sie nicht abgelaufen ist, nicht
+   abgemeldet und ihr Zähler nicht unter dem der Datei liegt.
+   `/karte abmelden` im Spiel erhöht den Zähler und beendet so jede.
+4. **Abmelden** sperrt den Zufall der Sitzung bis zu ihrem Ablauf und
+   löscht das Cookie mit `Max-Age=0`, auch ohne gültige Sitzung.
+5. **Nur im Speicher:** benutzte Anmeldungen und gesperrte Sitzungen, je
+   höchstens 10 000; ist eine Menge voll, `429`. Nach einem Neustart ginge
+   ein Link innerhalb seiner 5 min ein zweites Mal, und eine abgemeldete
+   Sitzung gälte wieder; dagegen hilft `/karte abmelden`.
+
+### Nur von der Karte
+
+Jedes `POST` unter `/api/` muss von der Karte selbst kommen, sonst `403`:
+
+- `Content-Type: application/json` und `X-Heroic-Map: 1`. Beide erzwingen
+  von einer fremden Seite einen Preflight, den der Server nie mit CORS
+  beantwortet.
+- `Origin`, dessen Host gleich dem ersten Wert von `X-Forwarded-Host` ist,
+  sonst gleich `Host`. Den öffentlichen Ursprung hinter dem Proxy kennt
+  der Server nicht; der Proxy muss `Host` oder `X-Forwarded-Host`
+  weitergeben.
+- Dazu `SameSite=Strict` am Cookie.
+
+### Ein Klick
+
+- **Geprüft:** `ebene` und `knopf` nach der Regel der Kennung, `objekt`
+  mit 1 bis 64 Zeichen ohne Steuerzeichen, sonst `400`; ein anderes Feld
+  oder kein JSON ebenso. Das Tripel muss in `knoepfe.json` des Spielers
+  stehen, sonst `404`.
+- **Höchstens 5 Klicks** je Sitzung und Sekunde, darüber `429`.
+- **Die Zeile** auf stdout, eine je Klick, als JSON mit Escapes, den
+  Spieler nur aus der Sitzung:
+
+  ```
+  Aktion: {"spieler":"8f3c2b6e-0d4a-4c1e-9b7a-2e5f6a1d3c90","ebene":"nations:staedte","objekt":"stadt-17","knopf":"proficisci:schiff"}
+  ```
+
+  Das Plugin liest sie, prüft selbst und löst das Ereignis aus. Den neuen
+  Zustand kennt erst es; die Karte fragt ihn danach neu ab. Sonst schreibt
+  der Server nichts vom Client ins Log, auch keine Token, Cookies oder
+  Körper.
+
 ## HTTP und das Token
 
 Ohne HTTPS gehen die Anfragen im Klartext. Das Token für den Download aus
 #154 könnte dann jemand mitlesen und bis zu seinem Ablauf und Deckel
-nutzen. Für einen Server im offenen Netz ist HTTPS mit einem Zertifikat des
+nutzen, ebenso das Cookie einer Sitzung bis zu ihrem Ablauf. Für einen Server im offenen Netz ist HTTPS mit einem Zertifikat des
 Betreibers deshalb die bessere Wahl.
 
 ## Getestet
@@ -390,7 +496,15 @@ ohne gültiges Zertifikat; dazu der Download mit Token, die der Test selbst
 unterschreibt: jeder Status, Baum und Stufe, der Deckel je Zufall, der Strom
 als ZIP mit `nach` und Abbruch am Deckel, das
 Geheimnis, ein einzelner Baum als Wurzel und dass `/tiles/` nur Bäume aus
-`trees.json` liefert; dazu die Angaben der Seite mit Vorlagen von Hand. In
+`trees.json` liefert; dazu die Angaben der Seite mit Vorlagen von Hand;
+dazu die Webkarte je Spieler: Anmeldung nur von der Karte und jede einmal,
+falsche Fassung, Laufzeit über 5 min und fremdes Geheimnis, das Cookie mit
+und ohne `Secure`, die Dateien nur mit Sitzung und nie im Cache, keine Wege
+hinaus, Methoden, ein Klick mit seiner Zeile auf stdout, falsche Felder,
+`413`, die Rate, der Zähler und das Abmelden, ohne `--player-dir` nichts.
+In [`renderer/src/cli/server/api.rs`](../../renderer/src/cli/server/api.rs)
+prüfen Tests den Ursprung, die Felder eines Klicks, die Pfade, die Datei
+`zaehler`, das Merken der Zufälle und die Rate. In
 [`renderer/src/cli/server.rs`](../../renderer/src/cli/server.rs)
 prüfen Tests das Tauschen, die Pfade, die Zeit, das Schreiben ohne
 Fortschritt, das Zählen bis zum Deckel, dass sich `web/headers.json`

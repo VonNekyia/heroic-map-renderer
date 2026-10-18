@@ -751,6 +751,9 @@ einer Anmeldung über den Server des Renderers. Entschieden in
   nichts tun.
   Die Ansicht hängt ihn unter die Tafel dieses Objekts, in der Reihenfolge
   des Anhängens; ein Objekt ohne Tafel bekommt eine nur mit den Knöpfen.
+  Knöpfe gibt es nur an Objekten, die eine Tafel zeigen können: Nadeln,
+  Banner, Regionen und Kreise. Einen Knopf an einer Linie oder an
+  Kartenschrift zeigt keine Ansicht.
 - **Woher:** im Web aus `api/knoepfe.json` des Spielers, im Mod mit der
   Antwort auf die Anfrage nach der Tafel. Die Liste im Web:
 

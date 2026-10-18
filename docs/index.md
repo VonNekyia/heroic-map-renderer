@@ -182,6 +182,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0104](entscheidungen/0104-regionen-auf-dem-boden-mit-wand.md): Regionen, Kreise und Linien im iso auf dem Boden ohne Laub aus `ground`, entlang des Wegs geglättet, unter Kronen ganz zu sehen, hinter Hängen gestrichelt; am Rand einer Fläche eine Wand, 6 Blöcke hoch, unten 0,6 deckend, nach oben bis 0; ergänzt 0096; den Nebel löst 0105 ab.
 - [0105](entscheidungen/0105-regionen-im-iso-ohne-nebel.md): Regionen im iso ohne Nebel und ohne Füllung, nur Rand und Wand, der Code des Nebels gelöscht; von oben bleibt die Füllung; Wahl des Users vom 11.10.; löst 0104 im Punkt Nebel ab.
 - [0106](entscheidungen/0106-download-als-zip-strom.md): der Download für den Mod als ein Strom unter `/download/<baum>.zip`, ZIP stored ohne Verzeichnis mit `ende`, von grob nach fein, 8 Threads lesen voraus, `?nach=` setzt fort; tar, Verzeichnis, Deflate und Höhen im Strom verworfen.
+- [0108](entscheidungen/0108-pflanzen-von-oben-flach.md): Bodenpflanzen liegen von oben flach, die Textur der ersten senkrechten Fläche über dem ganzen Block, Norden oben; nicht in Cinematic; halb so gross und wenige Punkte an der Vorschau verworfen.
 
 ## Versuche
 

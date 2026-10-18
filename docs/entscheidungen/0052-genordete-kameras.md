@@ -14,6 +14,9 @@ code:
 
 # 0052: Genordete Kameras
 
+Dass von oben die Pflanzen fehlen, gilt seit
+[0108](0108-pflanzen-von-oben-flach.md) nur noch in Cinematic.
+
 ## Anlass
 
 Stufe 2 aus [0051](0051-kameras-und-richtungen.md), #67. Vom User am 01.10.

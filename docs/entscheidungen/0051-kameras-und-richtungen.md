@@ -15,6 +15,9 @@ code:
 
 # 0051: Kameras und Richtungen
 
+Dass Gras und Blumen von oben verschwinden (Folgen), gilt seit
+[0108](0108-pflanzen-von-oben-flach.md) nur noch in Cinematic.
+
 Im kleinsten scale teilweise abgelöst durch
 [0099](0099-einfarbige-ansicht.md): `top-north` geht mit `--flat` bis
 scale 1.

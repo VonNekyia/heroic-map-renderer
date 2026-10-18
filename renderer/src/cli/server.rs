@@ -257,6 +257,9 @@ pub(super) fn serve(e: Einstellung) -> Result<()> {
     {
         ensure!(ordner.is_dir(), "{} ist kein Verzeichnis", ordner.display());
     }
+    if let Some(spieler) = &e.spieler {
+        pruefe_spieler_dir(spieler, std::iter::once(&e.kacheln).chain(&e.seite))?;
+    }
     if let Some(seite) = &e.seite {
         pruefe_ineinander(&e.kacheln, seite)?;
         // Ohne robots.vorlage.txt gäbe /robots.txt 404, und Crawler nähmen
@@ -306,6 +309,25 @@ fn pruefe_ineinander(kacheln: &Path, seite: &Path) -> Result<()> {
     Ok(())
 }
 
+/// `--player-dir` darf nicht unter einer Wurzel liegen, die der Server
+/// offen ausliefert: Sonst gäbe es `knoepfe.json` und `zaehler` ohne
+/// Sitzung.
+fn pruefe_spieler_dir<'a>(spieler: &Path, offen: impl Iterator<Item = &'a PathBuf>) -> Result<()> {
+    let s =
+        std::fs::canonicalize(spieler).with_context(|| format!("{} lesen", spieler.display()))?;
+    for wurzel in offen {
+        let w =
+            std::fs::canonicalize(wurzel).with_context(|| format!("{} lesen", wurzel.display()))?;
+        ensure!(
+            !s.starts_with(&w),
+            "--player-dir {} liegt unter {}, das der Server offen ausliefert",
+            spieler.display(),
+            wurzel.display()
+        );
+    }
+    Ok(())
+}
+
 async fn lausche(
     e: Einstellung,
     tls: Option<TlsAcceptor>,
@@ -341,6 +363,7 @@ async fn lausche(
         freigabe,
         spieler: e.spieler.map(api::Spieler::neu),
         tls: tls.is_some(),
+        kopf_zeit: e.kopf_zeit,
         angaben: e.angaben,
         liste: Mutex::default(),
         stroeme: Mutex::default(),
@@ -599,6 +622,9 @@ struct Zustand {
     spieler: Option<api::Spieler>,
     /// Läuft der Server selbst über HTTPS?
     tls: bool,
+    /// So lange darf der Körper eines `POST` unter `/api/` brauchen, wie der
+    /// Kopf, `--header-timeout`.
+    kopf_zeit: Duration,
     angaben: Option<Angaben>,
     liste: Mutex<Liste>,
     /// Die Zufälle der Token, deren Strom gerade läuft.
@@ -758,15 +784,27 @@ async fn antwort(
     Ok(voll(ganz(z, anfrage).await))
 }
 
-/// Unter `/api/` die Webkarte je Spieler, siehe [`api`]: erst der Körper
-/// bis [`api::KOERPER`], sonst `413`, dann die Antwort aus einem Thread, der
-/// Dateien lesen darf.
+/// Unter `/api/` die Webkarte je Spieler, siehe [`api`]: ohne sie `404`,
+/// ohne den Körper anzusehen. Den Körper liest er nur bei `POST`, bis
+/// [`api::KOERPER`], sonst `413`, und so lange wie den Kopf, sonst `408`:
+/// Ein langsamer Körper hielte sonst einen Platz der Verbindungen. Dann die
+/// Antwort aus einem Thread, der Dateien lesen darf.
 async fn api_antwort(z: Arc<Zustand>, anfrage: Request<Incoming>) -> Response<Full<Bytes>> {
+    if z.spieler.is_none() || z.freigabe.is_none() {
+        return api::privat(leer(&z, StatusCode::NOT_FOUND));
+    }
     let rest = anfrage.uri().path()[api::API.len()..].to_string();
     let (teile, koerper) = anfrage.into_parts();
-    let koerper = match Limited::new(koerper, api::KOERPER).collect().await {
-        Ok(koerper) => koerper.to_bytes(),
-        Err(_) => return api::privat(leer(&z, StatusCode::PAYLOAD_TOO_LARGE)),
+    let koerper = match teile.method {
+        Method::POST => {
+            let lesen = Limited::new(koerper, api::KOERPER).collect();
+            match tokio::time::timeout(z.kopf_zeit, lesen).await {
+                Ok(Ok(koerper)) => koerper.to_bytes(),
+                Ok(Err(_)) => return api::privat(leer(&z, StatusCode::PAYLOAD_TOO_LARGE)),
+                Err(_) => return api::privat(leer(&z, StatusCode::REQUEST_TIMEOUT)),
+            }
+        }
+        _ => Bytes::new(),
     };
     let a = api::Anfrage {
         methode: teile.method,
@@ -1793,6 +1831,7 @@ mod tests {
             freigabe: None,
             spieler: None,
             tls: false,
+            kopf_zeit: Duration::from_secs(10),
             angaben: None,
             liste: Mutex::default(),
             stroeme: Mutex::default(),

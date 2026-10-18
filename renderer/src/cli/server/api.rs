@@ -4,6 +4,7 @@
 //! Siehe docs/benutzung/server.md, „Aktionsebenen“.
 
 use std::collections::HashMap;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
 
@@ -29,11 +30,20 @@ const SITZUNG_S: u64 = 7 * 24 * 3600;
 /// Länger gilt keine Anmeldung, in s.
 const ANMELDUNG_S: u64 = 5 * 60;
 
-/// Höchstens so viele Zufälle hält jede Menge im Speicher.
+/// Höchstens so viele Spieler hält jede Menge im Speicher.
 const HOECHSTENS: usize = 10_000;
 
-/// Höchstens so viele Klicks je Sitzung und Sekunde.
+/// Höchstens so viele offene Anmeldungen je Spieler, also in 5 min.
+const ANMELDUNGEN_JE_SPIELER: usize = 20;
+
+/// Höchstens so viele abgemeldete Sitzungen je Spieler, also in 7 Tagen.
+const SPERREN_JE_SPIELER: usize = 64;
+
+/// Höchstens so viele Klicks je Spieler und Sekunde.
 const KLICKS_JE_S: u32 = 5;
+
+/// Je Spieler und Zufall ein Ablauf.
+type Zufaelle = Mutex<HashMap<[u8; 16], HashMap<[u8; 16], u64>>>;
 
 /// Höchstens so gross ist der Körper eines `POST`.
 pub(super) const KOERPER: usize = 1024;
@@ -46,11 +56,11 @@ const DATEI: u64 = 4 << 20;
 pub(super) struct Spieler {
     /// `--player-dir`, je Spieler ein Ordner mit seiner UUID.
     dir: PathBuf,
-    /// Je Zufall einer angenommenen Anmeldung ihr Ablauf.
-    benutzt: Mutex<HashMap<[u8; 16], u64>>,
-    /// Je Zufall einer abgemeldeten Sitzung ihr Ablauf.
-    abgemeldet: Mutex<HashMap<[u8; 16], u64>>,
-    /// Je Zufall einer Sitzung die Sekunde ihrer Klicks und deren Zahl.
+    /// Je Spieler die angenommenen Anmeldungen bis zu ihrem Ablauf.
+    benutzt: Zufaelle,
+    /// Je Spieler die abgemeldeten Sitzungen bis zu ihrem Ablauf.
+    abgemeldet: Zufaelle,
+    /// Je Spieler die Sekunde seiner Klicks und deren Zahl.
     klicks: Mutex<HashMap<[u8; 16], (u64, u32)>>,
 }
 
@@ -189,22 +199,29 @@ fn klein(pfad: &Path) -> Result<Option<Vec<u8>>, ()> {
     }
 }
 
-/// Die gültige Sitzung aus dem Cookie: unterschrieben, nicht abgelaufen,
-/// nicht abgemeldet und mit einem Zähler nicht unter dem der Datei.
+/// Die erste gültige Sitzung aus den Cookies `hm_sitzung`: unterschrieben,
+/// nicht abgelaufen, nicht abgemeldet und mit einem Zähler nicht unter dem
+/// der Datei. Alle zählen, denn Cookies trennen nicht nach Port: Zwei
+/// Server auf einem Host setzen beide eins.
 fn sitzung(sp: &Spieler, freigabe: &Freigabe, felder: &HeaderMap, jetzt: u64) -> Option<Sitzung> {
-    let text = felder
+    felder
         .get_all(header::COOKIE)
         .iter()
         .filter_map(|wert| wert.to_str().ok())
         .flat_map(|wert| wert.split(';'))
-        .find_map(|teil| teil.trim().strip_prefix(COOKIE)?.strip_prefix('='))?;
-    let sitzung = token::pruefe_sitzung(text, &freigabe.geheimnis, jetzt, Art::Sitzung).ok()?;
-    let abgemeldet = sp
-        .abgemeldet
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .contains_key(&sitzung.zufall);
-    (!abgemeldet && sitzung.zaehler >= zaehler(&sp.ordner(&sitzung.spieler))).then_some(sitzung)
+        .filter_map(|teil| teil.trim().strip_prefix(COOKIE)?.strip_prefix('='))
+        .filter_map(|text| {
+            token::pruefe_sitzung(text, &freigabe.geheimnis, jetzt, Art::Sitzung).ok()
+        })
+        .find(|s| {
+            let abgemeldet = sp
+                .abgemeldet
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .get(&s.spieler)
+                .is_some_and(|sperren| sperren.contains_key(&s.zufall));
+            !abgemeldet && s.zaehler >= zaehler(&sp.ordner(&s.spieler))
+        })
 }
 
 /// Der Zähler des Spielers fürs Abmelden aus `zaehler` in seinem Ordner:
@@ -262,31 +279,49 @@ fn cookie(z: &Zustand, felder: &HeaderMap, wert: &str, max_age: u64) -> HeaderVa
     .expect("nur base64url und ASCII")
 }
 
-/// Merkt `zufall` bis `ablauf`. Ist er schon da, `Err(401)`; ist die Menge
-/// auch ohne Abgelaufene voll, `Err(429)`.
+/// Merkt `zufall` des Spielers bis `ablauf`. Ist er schon da, `Err(401)`.
+/// `Err(429)`, wenn der Spieler auch ohne Abgelaufene schon `je_spieler`
+/// hat oder die Menge [`HOECHSTENS`] Spieler: So sperrt keiner die anderen
+/// aus.
 fn merke(
-    menge: &Mutex<HashMap<[u8; 16], u64>>,
+    menge: &Zufaelle,
+    spieler: [u8; 16],
     zufall: [u8; 16],
     ablauf: u64,
     jetzt: u64,
+    je_spieler: usize,
 ) -> Result<(), StatusCode> {
     let mut menge = menge.lock().unwrap_or_else(PoisonError::into_inner);
-    if menge.contains_key(&zufall) {
+    if menge
+        .get(&spieler)
+        .is_some_and(|eigene| eigene.contains_key(&zufall))
+    {
         return Err(StatusCode::UNAUTHORIZED);
     }
-    if menge.len() >= HOECHSTENS {
-        menge.retain(|_, bis| *bis > jetzt);
+    if !menge.contains_key(&spieler) && menge.len() >= HOECHSTENS {
+        menge.retain(|_, eigene| {
+            eigene.retain(|_, bis| *bis > jetzt);
+            !eigene.is_empty()
+        });
+        if menge.len() >= HOECHSTENS {
+            return Err(StatusCode::TOO_MANY_REQUESTS);
+        }
     }
-    if menge.len() >= HOECHSTENS {
-        return Err(StatusCode::TOO_MANY_REQUESTS);
+    let eigene = menge.entry(spieler).or_default();
+    if eigene.len() >= je_spieler {
+        eigene.retain(|_, bis| *bis > jetzt);
+        if eigene.len() >= je_spieler {
+            return Err(StatusCode::TOO_MANY_REQUESTS);
+        }
     }
-    menge.insert(zufall, ablauf);
+    eigene.insert(zufall, ablauf);
     Ok(())
 }
 
 /// `POST anmelden`: Das Token aus dem Spiel im Header `Authorization`,
-/// Fassung 2, höchstens [`ANMELDUNG_S`] gültig, jedes nur einmal. Gibt `204`
-/// mit dem Cookie einer neuen Sitzung, Fassung 3.
+/// Fassung 2, höchstens [`ANMELDUNG_S`] gültig, jedes nur einmal, je Spieler
+/// höchstens [`ANMELDUNGEN_JE_SPIELER`] offen. Gibt `204` mit dem Cookie
+/// einer neuen Sitzung, Fassung 3.
 fn anmelden(
     z: &Zustand,
     sp: &Spieler,
@@ -309,7 +344,14 @@ fn anmelden(
     else {
         return leer(z, StatusCode::UNAUTHORIZED);
     };
-    if let Err(status) = merke(&sp.benutzt, anmeldung.zufall, anmeldung.ablauf, jetzt) {
+    if let Err(status) = merke(
+        &sp.benutzt,
+        anmeldung.spieler,
+        anmeldung.zufall,
+        anmeldung.ablauf,
+        jetzt,
+        ANMELDUNGEN_JE_SPIELER,
+    ) {
         return leer(z, status);
     }
     let mut zufall = [0; 16];
@@ -331,8 +373,9 @@ fn anmelden(
 }
 
 /// `POST abmelden`: sperrt die Sitzung bis zu ihrem Ablauf und löscht das
-/// Cookie, auch ohne gültige Sitzung. `429`, wenn sich die Sperre nicht
-/// merken lässt; das Cookie löscht er dann trotzdem.
+/// Cookie, auch ohne gültige Sitzung. `429`, wenn der Spieler schon
+/// [`SPERREN_JE_SPIELER`] gesperrte hat; das Cookie löscht er dann
+/// trotzdem.
 fn abmelden(
     z: &Zustand,
     sp: &Spieler,
@@ -344,7 +387,14 @@ fn abmelden(
     }
     let jetzt = jetzt();
     let status = match sitzung(sp, freigabe, felder, jetzt) {
-        Some(s) => match merke(&sp.abgemeldet, s.zufall, s.ablauf, jetzt) {
+        Some(s) => match merke(
+            &sp.abgemeldet,
+            s.spieler,
+            s.zufall,
+            s.ablauf,
+            jetzt,
+            SPERREN_JE_SPIELER,
+        ) {
             Err(StatusCode::TOO_MANY_REQUESTS) => StatusCode::TOO_MANY_REQUESTS,
             _ => StatusCode::NO_CONTENT,
         },
@@ -372,9 +422,13 @@ fn kennung(text: &str) -> bool {
         .is_some_and(|(modname, name)| ist_teil(modname) && ist_teil(name))
 }
 
-/// 1 bis 64 Zeichen, keines davon ein Steuerzeichen.
+/// 1 bis 64 Zeichen, keines davon ein Steuerzeichen oder Trenner von Zeile
+/// und Absatz.
 fn objekt(text: &str) -> bool {
-    (1..=64).contains(&text.chars().count()) && !text.chars().any(|c| c < ' ' || c == '\x7f')
+    (1..=64).contains(&text.chars().count())
+        && !text
+            .chars()
+            .any(|c| c.is_control() || matches!(c, '\u{2028}' | '\u{2029}'))
 }
 
 /// `POST aktion`: ein Klick auf einen Knopf, den `knoepfe.json` des
@@ -400,7 +454,7 @@ fn aktion(
     if !(kennung(&klick.ebene) && kennung(&klick.knopf) && objekt(&klick.objekt)) {
         return leer(z, StatusCode::BAD_REQUEST);
     }
-    if !zaehle(sp, sitzung.zufall, jetzt) {
+    if !zaehle(sp, sitzung.spieler, jetzt) {
         return leer(z, StatusCode::TOO_MANY_REQUESTS);
     }
     if !angehaengt(&sp.ordner(&sitzung.spieler), &klick) {
@@ -413,21 +467,24 @@ fn aktion(
         "objekt": klick.objekt,
         "knopf": klick.knopf,
     });
-    println!("Aktion: {zeile}");
-    leer(z, StatusCode::ACCEPTED)
+    // Ohne Panik, falls stdout zu ist: Dann hört kein Plugin mehr zu.
+    match writeln!(std::io::stdout().lock(), "Aktion: {zeile}") {
+        Ok(()) => leer(z, StatusCode::ACCEPTED),
+        Err(_) => leer(z, StatusCode::SERVICE_UNAVAILABLE),
+    }
 }
 
-/// Zählt einen Klick der Sitzung; `false` über [`KLICKS_JE_S`] in dieser
-/// Sekunde oder wenn die Menge voll ist.
-fn zaehle(sp: &Spieler, zufall: [u8; 16], jetzt: u64) -> bool {
+/// Zählt einen Klick des Spielers, über alle seine Sitzungen; `false` über
+/// [`KLICKS_JE_S`] in dieser Sekunde oder wenn die Menge voll ist.
+fn zaehle(sp: &Spieler, spieler: [u8; 16], jetzt: u64) -> bool {
     let mut klicks = sp.klicks.lock().unwrap_or_else(PoisonError::into_inner);
-    if !klicks.contains_key(&zufall) && klicks.len() >= HOECHSTENS {
+    if !klicks.contains_key(&spieler) && klicks.len() >= HOECHSTENS {
         klicks.retain(|_, (sekunde, _)| *sekunde == jetzt);
         if klicks.len() >= HOECHSTENS {
             return false;
         }
     }
-    let (sekunde, zahl) = klicks.entry(zufall).or_insert((jetzt, 0));
+    let (sekunde, zahl) = klicks.entry(spieler).or_insert((jetzt, 0));
     if *sekunde != jetzt {
         (*sekunde, *zahl) = (jetzt, 0);
     }
@@ -527,6 +584,10 @@ mod tests {
         assert!(!objekt(""));
         assert!(!objekt("a\nAktion: {}"));
         assert!(!objekt("a\u{7f}"));
+        assert!(!objekt("a\u{7}"));
+        assert!(!objekt("a\u{85}"));
+        assert!(!objekt("a\u{2028}b"));
+        assert!(!objekt("a\u{2029}b"));
     }
 
     /// Eine Datei unter `ebenen/` nur nach der Regel der Kennung, ohne
@@ -573,35 +634,57 @@ mod tests {
         }
     }
 
-    /// Jeder Zufall einmal; voll erst, wenn auch ohne die Abgelaufenen kein
-    /// Platz bleibt.
+    fn id(i: u32) -> [u8; 16] {
+        let mut zufall = [0; 16];
+        zufall[..4].copy_from_slice(&i.to_be_bytes());
+        zufall
+    }
+
+    /// Jeder Zufall einmal. Voll wird erst ein Spieler, wenn er auch ohne
+    /// die Abgelaufenen `je_spieler` hat; die anderen merken weiter.
     #[test]
-    fn merken_einmal_und_begrenzt() {
+    fn merken_einmal_und_je_spieler_begrenzt() {
         let menge = Mutex::default();
-        assert_eq!(merke(&menge, [1; 16], 100, 10), Ok(()));
+        let (anna, ben) = ([1; 16], [2; 16]);
+        assert_eq!(merke(&menge, anna, id(0), 100, 10, 3), Ok(()));
         assert_eq!(
-            merke(&menge, [1; 16], 100, 10),
+            merke(&menge, anna, id(0), 100, 10, 3),
             Err(StatusCode::UNAUTHORIZED)
         );
-        for i in 0..HOECHSTENS as u32 - 1 {
-            let mut zufall = [0; 16];
-            zufall[..4].copy_from_slice(&i.to_be_bytes());
-            zufall[15] = 2;
-            assert_eq!(merke(&menge, zufall, 20, 10), Ok(()));
-        }
+        assert_eq!(merke(&menge, anna, id(1), 20, 10, 3), Ok(()));
+        assert_eq!(merke(&menge, anna, id(2), 20, 10, 3), Ok(()));
         assert_eq!(
-            merke(&menge, [3; 16], 100, 10),
+            merke(&menge, anna, id(3), 100, 10, 3),
             Err(StatusCode::TOO_MANY_REQUESTS)
         );
-        // Ab 20 sind die vielen abgelaufen, die erste nicht.
-        assert_eq!(merke(&menge, [3; 16], 100, 20), Ok(()));
+        // Ben merkt weiter, auch mit demselben Zufall.
+        assert_eq!(merke(&menge, ben, id(0), 100, 10, 3), Ok(()));
+        // Ab 20 sind zwei von Anna abgelaufen, die erste nicht.
+        assert_eq!(merke(&menge, anna, id(3), 100, 20, 3), Ok(()));
         assert_eq!(
-            merke(&menge, [1; 16], 100, 20),
+            merke(&menge, anna, id(0), 100, 20, 3),
             Err(StatusCode::UNAUTHORIZED)
         );
     }
 
-    /// Fünf Klicks je Sitzung und Sekunde, in der nächsten wieder fünf.
+    /// Höchstens [`HOECHSTENS`] Spieler; Platz macht erst, wessen Einträge
+    /// alle abgelaufen sind.
+    #[test]
+    fn hoechstens_so_viele_spieler() {
+        let menge = Mutex::default();
+        for i in 0..HOECHSTENS as u32 {
+            assert_eq!(merke(&menge, id(i), [0; 16], 20, 10, 3), Ok(()));
+        }
+        assert_eq!(
+            merke(&menge, id(u32::MAX), [0; 16], 100, 10, 3),
+            Err(StatusCode::TOO_MANY_REQUESTS)
+        );
+        assert_eq!(merke(&menge, id(0), [1; 16], 100, 10, 3), Ok(()));
+        assert_eq!(merke(&menge, id(u32::MAX), [0; 16], 100, 20, 3), Ok(()));
+        assert_eq!(menge.lock().unwrap().len(), 2);
+    }
+
+    /// Fünf Klicks je Spieler und Sekunde, in der nächsten wieder fünf.
     #[test]
     fn fuenf_klicks_je_sekunde() {
         let sp = Spieler::neu(PathBuf::new());

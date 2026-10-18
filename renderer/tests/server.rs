@@ -21,6 +21,15 @@ struct Server {
 }
 
 impl Server {
+    /// Beendet den Server und gibt den Rest seiner Ausgabe auf stdout.
+    fn rest_der_ausgabe(mut self) -> String {
+        let _ = self.kind.kill();
+        let _ = self.kind.wait();
+        let mut text = String::new();
+        self.ausgabe.read_to_string(&mut text).unwrap();
+        text
+    }
+
     /// Der Rest der nächsten Zeile auf stdout, die mit `anfang` beginnt.
     fn zeile(&mut self, anfang: &str) -> String {
         loop {
@@ -1853,17 +1862,80 @@ fn webkarte_je_spieler() {
     header.retain(|(n, _)| *n != "X-Heroic-Map");
     header.push(("Cookie", &cookie));
     assert_eq!(poste(a, "/api/aktion", &header, gut).status, 403);
-    // Höchstens fünf je Sekunde: Elf Klicks liegen in höchstens zwei.
-    let status: Vec<u16> = (0..11).map(|_| klick(gut)).collect();
-    assert!(status.contains(&429), "{status:?}");
+    // Höchstens fünf je Sekunde: In s Sekunden liegen Klicks in höchstens
+    // s + 2 Sekunden des Servers, also höchstens 5 · (s + 2) angenommen.
+    let beginn = Instant::now();
+    let status: Vec<u16> = (0..30).map(|_| klick(gut)).collect();
+    let sekunden = beginn.elapsed().as_secs() as usize;
+    let angenommen = status.iter().filter(|s| **s == 202).count();
+    assert!(
+        angenommen <= 5 * (sekunden + 2),
+        "{status:?} in {sekunden} s"
+    );
+    if 30 > 5 * (sekunden + 2) {
+        assert!(status.contains(&429), "{status:?}");
+    }
+    assert!(status.iter().all(|s| matches!(s, 202 | 429)), "{status:?}");
     // Jeder angenommene steht als Zeile da, kein abgelehnter.
-    for _ in status.iter().filter(|s| **s == 202) {
+    for _ in 0..angenommen {
         assert!(server.zeile("Aktion: ").contains("stadt-17"));
     }
     std::thread::sleep(Duration::from_millis(1100));
     let anders = r#"{"ebene":"nations:staedte","objekt":"stadt-17","knopf":"proficisci:schiff"}"#;
     assert_eq!(klick(anders), 202);
     assert!(server.zeile("Aktion: ").contains("stadt-17"));
+
+    // Ein Steuerzeichen im Objekt, als JSON maskiert.
+    std::thread::sleep(Duration::from_millis(1100));
+    assert_eq!(
+        klick(r#"{"ebene":"nations:staedte","objekt":"stadt\u0007","knopf":"proficisci:schiff"}"#),
+        400
+    );
+
+    // Im Cookie gilt nur eine Sitzung: keine Anmeldung, kein Download-Token,
+    // keine abgelaufene. Von mehreren Cookies zählt das erste gültige.
+    for (falsch, warum) in [
+        (kurzes_token(&geheimnis, 2, jetzt + 300, 0, 20), "Anmeldung"),
+        (token(&geheimnis, "t", 9, 1000, jetzt + 300, 21), "Download"),
+        (kurzes_token(&geheimnis, 3, jetzt, 0, 22), "abgelaufen"),
+    ] {
+        let text = format!("hm_sitzung={falsch}");
+        assert_eq!(lies("/api/ich", Some(&text)).status, 401, "{warum}");
+    }
+    let selbst = kurzes_token(&geheimnis, 3, jetzt + 60, 0, 23);
+    assert_eq!(
+        lies("/api/ich", Some(&format!("hm_sitzung={selbst}"))).status,
+        200
+    );
+    let zwei = format!("hm_sitzung=AAAA.BBBB; {cookie}");
+    assert_eq!(lies("/api/ich", Some(&zwei)).status, 200);
+
+    // Eine Datei über 4 MiB liefert er nicht.
+    let routen = spieler
+        .path()
+        .join(SPIELER)
+        .join("ebenen/proficisci/gross.json");
+    std::fs::write(&routen, vec![b' '; (4 << 20) + 1]).unwrap();
+    assert_eq!(
+        lies("/api/ebenen/proficisci/gross.json", Some(&cookie)).status,
+        404
+    );
+    let methode = poste(a, "/api/ich", &VON_DER_KARTE, "{}");
+    assert_eq!(methode.status, 405);
+    assert_eq!(methode.header("allow"), Some("GET"));
+
+    // Abmelden nur von der Karte.
+    for origin in [None, Some("http://fremd")] {
+        let mut header: Vec<(&str, &str)> = VON_DER_KARTE[..2].to_vec();
+        header.extend(origin.map(|o| ("Origin", o)));
+        header.push(("Cookie", &cookie));
+        assert_eq!(
+            poste(a, "/api/abmelden", &header, "{}").status,
+            403,
+            "{origin:?}"
+        );
+    }
+    assert_eq!(lies("/api/ich", Some(&cookie)).status, 200);
 
     // Der Zähler beendet jede ältere Sitzung, eine neue Anmeldung geht.
     std::fs::write(spieler.path().join(SPIELER).join("zaehler"), "1\n").unwrap();
@@ -1891,13 +1963,35 @@ fn webkarte_je_spieler() {
 #[test]
 fn ohne_player_dir_keine_api() {
     let (kacheln, _seite) = wurzel();
-    let (pfad, _) = geheimnis_in(kacheln.path());
+    let (pfad, geheimnis) = geheimnis_in(kacheln.path());
     let server = starte(kacheln.path(), &["--secret-file", pfad.to_str().unwrap()]);
     for pfad in ["/api/ich", "/api/knoepfe.json"] {
         let antwort = hole(server.adresse, pfad);
         assert_eq!(antwort.status, 404, "{pfad}");
         assert_eq!(antwort.header("cache-control"), Some("private, no-store"));
     }
+    // Ein Klick mit einer Sitzung, die gälte: `404`, und keine Zeile.
+    let sitzung = format!(
+        "hm_sitzung={}",
+        kurzes_token(&geheimnis, 3, jetzt() + 60, 0, 1)
+    );
+    let mut header = VON_DER_KARTE.to_vec();
+    header.push(("Cookie", &sitzung));
+    let gut = r#"{"ebene":"nations:staedte","objekt":"stadt-17","knopf":"proficisci:schiff"}"#;
+    assert_eq!(
+        poste(server.adresse, "/api/aktion", &header, gut).status,
+        404
+    );
+    // Ohne `--player-dir` liest er keinen Körper: `404` gleich, auch wenn
+    // keiner kommt.
+    let beginn = Instant::now();
+    let antwort = roh(
+        server.adresse,
+        b"POST /api/aktion HTTP/1.1\r\nHost: test\r\nContent-Length: 1024\r\n\r\n",
+    );
+    assert_eq!(antwort.status, 404);
+    assert!(beginn.elapsed() < Duration::from_secs(5));
+    assert!(!server.rest_der_ausgabe().contains("Aktion:"));
     let ausgabe = Command::new(env!("CARGO_BIN_EXE_heroic-map-renderer"))
         .arg("--serve")
         .arg(kacheln.path())
@@ -1907,4 +2001,68 @@ fn ohne_player_dir_keine_api() {
         .unwrap();
     assert!(!ausgabe.status.success());
     assert!(String::from_utf8_lossy(&ausgabe.stderr).contains("--secret-file"));
+}
+
+/// Ein `POST` unter `/api/`, dessen Körper nicht kommt, belegt seinen Platz
+/// nur so lange wie ein Kopf: `408` nach `--header-timeout`.
+#[test]
+fn langsamer_koerper_endet() {
+    let (kacheln, _seite) = wurzel();
+    let (pfad, _) = geheimnis_in(kacheln.path());
+    let spieler = tempfile::tempdir().unwrap();
+    let server = starte(
+        kacheln.path(),
+        &[
+            "--secret-file",
+            pfad.to_str().unwrap(),
+            "--player-dir",
+            spieler.path().to_str().unwrap(),
+            "--header-timeout",
+            "1",
+        ],
+    );
+    let mut strom = TcpStream::connect(server.adresse).unwrap();
+    strom
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .unwrap();
+    let beginn = Instant::now();
+    strom
+        .write_all(b"POST /api/aktion HTTP/1.1\r\nHost: test\r\nContent-Length: 1024\r\n\r\n{")
+        .unwrap();
+    let mut daten = Vec::new();
+    let _ = strom.read_to_end(&mut daten);
+    let dauer = beginn.elapsed();
+    assert!(
+        dauer >= Duration::from_millis(900) && dauer < Duration::from_secs(5),
+        "{dauer:?}"
+    );
+    assert_eq!(zerlege(&daten).status, 408);
+}
+
+/// `--player-dir` unter einer Wurzel, die der Server offen ausliefert, lehnt
+/// er beim Start ab.
+#[test]
+fn player_dir_nicht_unter_den_kacheln() {
+    let (kacheln, seite) = wurzel();
+    let (pfad, _) = geheimnis_in(kacheln.path());
+    for unter in [kacheln.path().join("spieler"), seite.path().join("spieler")] {
+        std::fs::create_dir_all(&unter).unwrap();
+        let ausgabe = Command::new(env!("CARGO_BIN_EXE_heroic-map-renderer"))
+            .arg("--serve")
+            .arg(kacheln.path())
+            .arg("--web")
+            .arg(seite.path())
+            .arg("--secret-file")
+            .arg(&pfad)
+            .arg("--player-dir")
+            .arg(&unter)
+            .output()
+            .unwrap();
+        assert!(!ausgabe.status.success(), "{}", unter.display());
+        assert!(
+            String::from_utf8_lossy(&ausgabe.stderr).contains("liegt unter"),
+            "{}",
+            String::from_utf8_lossy(&ausgabe.stderr)
+        );
+    }
 }

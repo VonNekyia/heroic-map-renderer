@@ -384,8 +384,10 @@ schreibt, und Klicks als Zeile auf stdout ans Plugin (#294). Warum so:
 [`renderer/src/cli/server/api.rs`](../../renderer/src/cli/server/api.rs).
 
 - **Schalter:** `--player-dir DIR` geht nur mit `--secret-file`. Ohne
-  beide gibt jeder Pfad unter `/api/` `404`; die Karte weiss so, dass es
-  keinen Server mit Anmeldung gibt.
+  beide gibt jeder Pfad unter `/api/` gleich `404`, ohne den Körper zu
+  lesen; die Karte weiss so, dass es keinen Server mit Anmeldung gibt.
+  Liegt der Ordner unter `--serve` oder `--web`, lehnt der Server den Start
+  ab: Sonst gäbe es `knoepfe.json` und `zaehler` dort ohne Sitzung.
 - **Der Ordner** hat je Spieler einen Ordner mit seiner UUID, klein und
   mit Bindestrichen. Den Pfad bildet der Server nur aus der UUID der
   Sitzung, nie aus der Anfrage:
@@ -419,7 +421,10 @@ Relativ zur Karte, hinter dem Proxy einer Website also etwa unter
   Methode `405` mit `Allow`.
 - **Nie im Cache:** jede Antwort mit `Cache-Control: private, no-store`,
   ohne ETag, wegen geteilter Rechner (E4 in 0107).
-- **Der Körper** eines `POST` hat höchstens 1 KiB, sonst `413`.
+- **Der Körper:** Nur bei `POST` liest der Server ihn, höchstens 1 KiB,
+  sonst `413`, und nur so lange wie einen Kopf, `--header-timeout`, sonst
+  `408`. Ein Körper, der nicht kommt, hält seinen Platz der Verbindungen
+  so nicht länger als ein langsamer Kopf.
 
 ### Anmelden und Sitzung
 
@@ -436,13 +441,22 @@ Relativ zur Karte, hinter dem Proxy einer Website also etwa unter
    einem Proxy mit HTTPS.
 3. **Gültig** ist eine Sitzung, solange sie nicht abgelaufen ist, nicht
    abgemeldet und ihr Zähler nicht unter dem der Datei liegt.
-   `/karte abmelden` im Spiel erhöht den Zähler und beendet so jede.
+   `/karte abmelden` im Spiel erhöht den Zähler und beendet so jede. Von
+   mehreren Cookies `hm_sitzung` zählt das erste gültige: Cookies trennen
+   nicht nach Port, zwei Server auf einem Host setzen beide eins.
 4. **Abmelden** sperrt den Zufall der Sitzung bis zu ihrem Ablauf und
    löscht das Cookie mit `Max-Age=0`, auch ohne gültige Sitzung.
-5. **Nur im Speicher:** benutzte Anmeldungen und gesperrte Sitzungen, je
-   höchstens 10 000; ist eine Menge voll, `429`. Nach einem Neustart ginge
-   ein Link innerhalb seiner 5 min ein zweites Mal, und eine abgemeldete
-   Sitzung gälte wieder; dagegen hilft `/karte abmelden`.
+5. **Nur im Speicher,** je Spieler begrenzt, damit keiner die anderen
+   aussperrt:
+   - benutzte Anmeldungen, höchstens 20 offene je Spieler, also in 5 min;
+   - gesperrte Sitzungen, höchstens 64 je Spieler, also in 7 Tagen;
+   - zusammen höchstens 10 000 Spieler mit Einträgen.
+
+   Darüber `429`, nur für diesen Spieler. Ein Spieler über der Grenze der
+   Sperren meldet sich mit `/karte abmelden` überall ab. Nach einem
+   Neustart ginge ein Link innerhalb seiner 5 min ein zweites Mal, und
+   eine abgemeldete Sitzung gälte wieder; dagegen hilft ebenso
+   `/karte abmelden`.
 
 ### Nur von der Karte
 
@@ -460,10 +474,12 @@ Jedes `POST` unter `/api/` muss von der Karte selbst kommen, sonst `403`:
 ### Ein Klick
 
 - **Geprüft:** `ebene` und `knopf` nach der Regel der Kennung, `objekt`
-  mit 1 bis 64 Zeichen ohne Steuerzeichen, sonst `400`; ein anderes Feld
+  mit 1 bis 64 Zeichen ohne Steuerzeichen, auch die aus C1, und ohne
+  U+2028 und U+2029, sonst `400`; ein anderes Feld
   oder kein JSON ebenso. Das Tripel muss in `knoepfe.json` des Spielers
   stehen, sonst `404`.
-- **Höchstens 5 Klicks** je Sitzung und Sekunde, darüber `429`.
+- **Höchstens 5 Klicks** je Spieler und Sekunde, über alle seine
+  Sitzungen, darüber `429`.
 - **Die Zeile** auf stdout, eine je Klick, als JSON mit Escapes, den
   Spieler nur aus der Sitzung:
 
@@ -472,7 +488,8 @@ Jedes `POST` unter `/api/` muss von der Karte selbst kommen, sonst `403`:
   ```
 
   Das Plugin liest sie, prüft selbst und löst das Ereignis aus. Den neuen
-  Zustand kennt erst es; die Karte fragt ihn danach neu ab. Sonst schreibt
+  Zustand kennt erst es; die Karte fragt ihn danach neu ab. Lässt sich die
+  Zeile nicht schreiben, weil stdout zu ist, gibt der Server `503`. Sonst schreibt
   der Server nichts vom Client ins Log, auch keine Token, Cookies oder
   Körper.
 
@@ -501,10 +518,16 @@ dazu die Webkarte je Spieler: Anmeldung nur von der Karte und jede einmal,
 falsche Fassung, Laufzeit über 5 min und fremdes Geheimnis, das Cookie mit
 und ohne `Secure`, die Dateien nur mit Sitzung und nie im Cache, keine Wege
 hinaus, Methoden, ein Klick mit seiner Zeile auf stdout, falsche Felder,
-`413`, die Rate, der Zähler und das Abmelden, ohne `--player-dir` nichts.
+`413`, die Rate, der Zähler und das Abmelden, ohne `--player-dir` nichts,
+auch keine Zeile und kein Lesen des Körpers; ein Körper, der nicht kommt,
+endet mit `408`; der Ordner unter einer offenen Wurzel startet nicht;
+Anmeldung, Download-Token und abgelaufene Sitzung im Cookie, mehrere
+Cookies, eine Datei über 4 MiB, `POST` auf `api/ich`, Abmelden ohne und mit
+fremdem `Origin`, ein Steuerzeichen im Objekt.
 In [`renderer/src/cli/server/api.rs`](../../renderer/src/cli/server/api.rs)
 prüfen Tests den Ursprung, die Felder eines Klicks, die Pfade, die Datei
-`zaehler`, das Merken der Zufälle und die Rate. In
+`zaehler`, das Merken der Zufälle mit den Grenzen je Spieler und die
+Rate. In
 [`renderer/src/cli/server.rs`](../../renderer/src/cli/server.rs)
 prüfen Tests das Tauschen, die Pfade, die Zeit, das Schreiben ohne
 Fortschritt, das Zählen bis zum Deckel, dass sich `web/headers.json`

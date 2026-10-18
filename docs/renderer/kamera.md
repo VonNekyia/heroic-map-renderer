@@ -1,6 +1,6 @@
 ---
 title: Die Kamera
-description: Die Kameras von --camera, diagonal und genordet, die Richtungen von --direction, die Projektion mit h, a und b, die Regel „ganze Pixel“ für scale und Kamera, die Zeichenreihenfolge ohne Tiefenpuffer, die Draufsicht, Blockkanten auf Pixelmitten, wie überhängende Modelle im Raum in Teile je Würfel zerfallen und warum Weltkoordinaten in f64 projiziert werden.
+description: Die Kameras von --camera, diagonal und genordet, die Richtungen von --direction, die Projektion mit h, a und b, die Regel „ganze Pixel“ für scale und Kamera, die Zeichenreihenfolge ohne Tiefenpuffer, die Draufsicht mit flachen Pflanzen, Blockkanten auf Pixelmitten, wie überhängende Modelle im Raum in Teile je Würfel zerfallen und warum Weltkoordinaten in f64 projiziert werden.
 code:
   - renderer/src/render/projection.rs
   - renderer/src/render/metatile.rs
@@ -133,7 +133,8 @@ Was sich je Kamera im Bild ändert:
   gleichmässige Treppe ergibt das nur bei 2:1, mit zwei Pixeln je Zeile,
   und bei 1:1 und `top`, mit einem. Bei 4:3 läuft die Treppe 3:4, und
   Texelzeilen werden ungleich hoch.
-- **Von oben** verschwindet jede senkrechte Fläche, siehe „Von oben“.
+- **Von oben** fällt jede senkrechte Fläche weg; Bodenpflanzen liegen
+  flach, siehe „Von oben“.
 - **Genordet** liegt die Karte um 45° gedreht gegen die diagonalen, siehe
   „Genordet“.
 - **Kosten:** Je Spalte der Welt kostet eine schräge Kamera in der Basis
@@ -330,9 +331,10 @@ Bei `top` und `top-north` ist b = 0 und die Achse (0, 1, 0). Was daraus
 folgt:
 - **Senkrechte Flächen stehen auf der Kante** und fallen weg
   (`zur_kamera` und `EDGE_ON` in `renderer/src/render/rasterizer.rs`).
-  Gras, Blumen, Getreide und Seegras sind Kreuze aus senkrechten Flächen
-  und verschwinden. Häuser werden zu Rechtecken. Relief zeigen nur noch die
-  weiche Beleuchtung und das Himmelslicht.
+  Häuser werden zu Rechtecken. Relief zeigen nur noch die weiche
+  Beleuchtung und das Himmelslicht. Gras, Blumen, Getreide und Seegras sind
+  Kreuze aus senkrechten Flächen; sie legt der Renderer flach, siehe
+  „Pflanzen von oben“.
 - **Keine Haarlinie:** Jede Fläche eines Vanilla-Blocks, die die Kamera
   von oben sieht, steht messbar schräg, weit über dem Rauschen. Über alle
   32 366 Zustände aus `blocks.txt` von 26.2 sieht sie 96 750 Flächen, die steilste
@@ -348,6 +350,47 @@ folgt:
   dasselbe, siehe [Der Weg einer Kachel](renderpfad.md), „Kandidaten“.
 - **Der Boden eines Würfels,** die Oberseite des Blocks darunter, liegt
   schräg b tiefer im Bild, von oben an derselben Stelle.
+
+### Pflanzen von oben
+
+Von oben stünden die Flächen einer Bodenpflanze auf der Kante, und Wiesen,
+Felder und Seegras wären leer. Darum legt der Renderer sie flach, auf
+Wunsch des Users am 18.10., entschieden in
+[0108](../entscheidungen/0108-pflanzen-von-oben-flach.md). Die Regel, so
+genau, dass eine andere Ansicht wie die Minimap des Mods sie nachbauen kann:
+
+- **Welche Blöcke:** die Bodenpflanzen, wie Cinematic sie kennt, siehe
+  [Cinematic](cinematic.md), „Bodenpflanzen“: wessen Modelle jeder
+  Alternative von einer Vorlage des Kreuzes, der Feldfrucht, des Seegrases,
+  der Blütenteppiche oder des Laubs am Boden erben. Dazu gehören auch
+  Setzlinge, Pilze, Spinnennetz und die Amethystknospen.
+- **Welche Modelle:** Ein Modell, das schon eine Fläche zur Kamera hat,
+  bleibt, wie es ist, etwa Blütenteppiche und Laub am Boden.
+- **Was flach liegt:** die Textur der ersten senkrechten Fläche des
+  Modells, im Rechteck ihrer UV, über den ganzen Block:
+  - oben im Bild der Norden, links der Westen, wie das Bild in der Datei;
+  - eine Drehung oder Spiegelung der UV zählt nicht;
+  - 1/16 über dem Boden des Blocks, also über Ackerboden und Grund;
+  - getönt wie die Fläche, Gras und Farn also in der Farbe des Bioms.
+
+  Die übrigen Flächen des Modells fallen weg, ausser denen einer
+  Flüssigkeit; Seegras bleibt so unter seinem Wasser.
+- **Deckung** wie jede ausgeschnittene Fläche, siehe
+  [Nähte](naehte.md), „Ausgeschnitten statt gemischt“. Ein Pixel, den die
+  Textur nicht zur Hälfte deckt, zeigt den Grund. Bei 1 px je Block bleibt
+  so oft nur der Grund, siehe [Die einfarbige Ansicht](einfarbig.md).
+- **Getreide:** Die Reihen eines Felds bleiben bei 4, 2 und 1 px je Block
+  zu sehen; Gras verschwindet fast im Grasblock, wie im Spiel von oben.
+- **Nur von oben,** `top` und `top-north` mit jedem scale, auch die
+  einfarbige Ansicht. Schräg zeichnet jede Pflanze wie im Spiel.
+- **Nicht in Cinematic:** Dort bleiben die Kreuze, wie sie sind, und
+  verschwinden von oben. Sonst stiege der Zeichenstand von Cinematic für
+  jeden Baum, auch für die schrägen, die sich nicht ändern; siehe 0108.
+
+Den Code nennt `flach_von_oben` in
+[`renderer/src/render/sprites.rs`](../../renderer/src/render/sprites.rs),
+das Goldbild `metatile-pflanzen-top-north`, siehe
+[Tests](../entwicklung/tests.md), „Goldbild“.
 
 ## Genordet
 

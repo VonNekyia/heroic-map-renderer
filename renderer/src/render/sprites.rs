@@ -310,6 +310,52 @@ impl Family {
     }
 }
 
+/// Blickt die Kamera senkrecht nach unten, `top` oder `top-north`?
+fn von_oben(projection: &Projection) -> bool {
+    matches!(projection.kamera(), Kamera::Oben | Kamera::ObenNord)
+}
+
+/// Von oben stünden die senkrechten Flächen einer Bodenpflanze auf der
+/// Kante. Ein Modell ohne Fläche zur Kamera legt darum die Textur seiner
+/// ersten senkrechten Fläche flach über den ganzen Block: das Rechteck ihrer
+/// UV, oben im Norden und links im Westen, 1/16 über dem Boden des Blocks,
+/// mit ihrer Tönung. Seine übrigen Flächen ausser denen einer Flüssigkeit
+/// fallen weg. Ein Modell mit einer Fläche zur Kamera, etwa Blüten am Boden,
+/// bleibt, wie es ist.
+/// Siehe docs/renderer/kamera.md, „Pflanzen von oben“.
+fn flach_von_oben(models: &[(u32, BakedModel)], projection: &Projection) -> Vec<(u32, BakedModel)> {
+    models
+        .iter()
+        .map(|(weight, model)| {
+            let feste = || model.quads.iter().filter(|q| q.fluid.is_none());
+            let vorlage = match feste().any(|q| faces_camera(q, projection)) {
+                true => None,
+                false => feste().next(),
+            };
+            let Some(v) = vorlage else {
+                return (*weight, model.clone());
+            };
+            let [u0, u1, w0, w1] = v.uvs.iter().fold(
+                [f32::MAX, f32::MIN, f32::MAX, f32::MIN],
+                |[u0, u1, w0, w1], [u, w]| [u0.min(*u), u1.max(*u), w0.min(*w), w1.max(*w)],
+            );
+            let y = 1.0 / 16.0;
+            // Nordwest, Südwest, Südost, Nordost: die Normale zeigt nach oben.
+            let flach = Quad {
+                corners: [[0.0, y, 0.0], [0.0, y, 1.0], [1.0, y, 1.0], [1.0, y, 0.0]],
+                uvs: [[u0, w0], [u0, w1], [u1, w1], [u1, w0]],
+                shade: v.shade.map(|_| Face::Up),
+                cullface: None,
+                ..v.clone()
+            };
+            let mut model = model.clone();
+            model.quads.retain(|q| q.fluid.is_some());
+            model.quads.push(flach);
+            (*weight, model)
+        })
+        .collect()
+}
+
 /// Wo der Client die Saat einer Blockstate nimmt: obere Haelften von
 /// Tueren und Doppelpflanzen bei der unteren, das Fussende eines Betts beim
 /// Kopfende. Nur diese Bloecke tragen `half=upper` und `part=foot`.
@@ -622,7 +668,7 @@ impl SpriteSet {
             for member in &members[1..] {
                 assets.skip_like(member, state);
             }
-            let pflanze = set.kino.is_some() && assets.bodenpflanze(state)?;
+            let pflanze = set.bodenpflanze(assets, state)?;
             let Some(family) = set.rastere_familie(assets, state, &models, pflanze) else {
                 continue;
             };
@@ -690,7 +736,7 @@ impl SpriteSet {
             }
             unbekannt.extend(blockentity::unbekannt(daten, assets));
             let models = models_of(assets, state, Some(daten))?;
-            let pflanze = self.kino.is_some() && assets.bodenpflanze(state)?;
+            let pflanze = self.bodenpflanze(assets, state)?;
             let Some(family) = self.rastere_familie(assets, state, &models, pflanze) else {
                 continue;
             };
@@ -828,7 +874,7 @@ impl SpriteSet {
                 return Ok(None);
             }
         }
-        let pflanze = self.kino.is_some() && assets.bodenpflanze(state)?;
+        let pflanze = self.bodenpflanze(assets, state)?;
         self.festes_laub = true;
         let family = self.rastere_familie(assets, state, &models, pflanze);
         self.festes_laub = false;
@@ -847,16 +893,35 @@ impl SpriteSet {
         self.by_hell.get(&family).copied()
     }
 
+    /// Ob der Block eine Bodenpflanze ist ([`Assets::bodenpflanze`]), wo
+    /// es zählt: in Cinematic für die Sonne, sonst von oben für
+    /// [`flach_von_oben`].
+    fn bodenpflanze(&self, assets: &mut Assets, state: &BlockState) -> Result<bool> {
+        Ok((self.kino.is_some() || von_oben(&self.projection)) && assets.bodenpflanze(state)?)
+    }
+
     /// Rastert die Alternativen einer Blockstate zu einer Familie, `None`,
-    /// wenn keine etwas zeichnet. `pflanze`: Der Block ist eine Bodenpflanze
-    /// ([`Assets::bodenpflanze`]).
+    /// wenn keine etwas zeichnet. `bodenpflanze`: Der Block ist eine
+    /// Bodenpflanze ([`SpriteSet::bodenpflanze`]); von oben liegt sie dann
+    /// flach ([`flach_von_oben`]), ausser in Cinematic.
     fn rastere_familie(
         &mut self,
         assets: &Assets,
         state: &BlockState,
         models: &[(u32, BakedModel)],
-        pflanze: bool,
+        bodenpflanze: bool,
     ) -> Option<Family> {
+        let flach;
+        // Cinematic bleibt, wie es war: Sonst stiege sein Zeichenstand für
+        // Bäume, die sich nicht ändern. Siehe
+        // docs/entscheidungen/0108-pflanzen-von-oben-flach.md.
+        let models = if bodenpflanze && von_oben(&self.projection) && self.kino.is_none() {
+            flach = flach_von_oben(models, &self.projection);
+            &flach[..]
+        } else {
+            models
+        };
+        let pflanze = bodenpflanze && self.kino.is_some();
         let fluid = fluid::key(state);
         let nachbarn = blockstate::nachbarregel(state);
         let projection = self.projection;

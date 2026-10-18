@@ -1,6 +1,6 @@
 ---
 title: Zoomstufen
-description: Wie die gröberen Zoomstufen entstehen, wie sie nummeriert sind, wann sie nativ gerendert werden und warum ein Baum zu genau einer Welt, einem scale, einer Kamera und einem look gehört.
+description: Wie die gröberen Zoomstufen entstehen, warum 1 und 2 px je Block bei top-north Stufen des Baums mit 4 px sind, wie sie nummeriert sind, wann sie nativ gerendert werden und warum ein Baum zu genau einer Welt, einem scale, einer Kamera und einem look gehört.
 code:
   - renderer/src/render/pyramid.rs
   - renderer/src/render/tiles.rs
@@ -53,6 +53,24 @@ vergrössert. Links gemittelt, in der Mitte je 2 × 2 der feste Platz rechts
 unten, rechts der Wechsel, wie der Renderer ihn nimmt.*
 
 Entschieden in [0094](../entscheidungen/0094-von-oben-der-naechste-pixel.md).
+
+### 1 und 2 px je Block
+
+Ein Baum aus `top-north` bei scale 4 hat 4 px je Block auf seiner
+feinsten Stufe z, 2 px auf z − 1 und 1 px auf z − 2, jede je 2 × 2 aus
+der darunter wie oben. Das sind die Karten mit 1 und 2 px je Block (#293),
+keine eigenen Bäume. Entschieden in
+[0109](../entscheidungen/0109-1-und-2-px-als-stufen.md).
+
+- **Im Mod** wählt der Spieler 1, 2 oder 4 px; das Plugin gibt im Token
+  die Stufe z − 2, z − 1 oder z frei, siehe [Plugin](../plugin.md),
+  „Token“. Wer 4 px hat, hat 2 und 1 dazu; wer von 1 auf 4 px wechselt,
+  lädt nur die feineren Stufen.
+- **Auf der Webkarte** zeigen dieselben Stufen beim Herauszoomen 2 und
+  1 px; eigene Ansichten mit gekappter feinster Stufe baut das Frontend.
+- **Goldbilder:** `pyramide-top-north-2px` und `pyramide-top-north-1px`
+  halten die Szene der Tests über diesen Stufen fest, siehe
+  [Tests](../entwicklung/tests.md), „Goldbild“.
 
 Die anderen Kameras mitteln mit vormultipliziertem Alpha. Geradeaus gemittelt zögen
 durchsichtige Pixel ihre Farbe in die Nachbarn, und jede Kante gegen Luft

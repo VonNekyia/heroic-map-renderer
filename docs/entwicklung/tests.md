@@ -318,7 +318,12 @@ Treppe, alle bei scale 16. `metatile-wurzeln.png` zeigt die
 Mangrovenwurzeln aus #243 genordet von oben bei scale 4, den Grund durch
 ihre Löcher. `metatile-pflanzen-top-north.png` zeigt Bodenpflanzen auf
 Gras genordet von oben bei scale 16, flach über ihrem Block, siehe
-[Die Kamera](../renderer/kamera.md), „Pflanzen von oben“. `metatile-flat.png` zeigt die ganze Szene in der einfarbigen
+[Die Kamera](../renderer/kamera.md), „Pflanzen von oben“.
+`pyramide-top-north-2px.png` und `pyramide-top-north-1px.png` zeigen die
+Szene genordet von oben bei scale 4, 32 × 32 Blöcke, auf den Stufen der
+Pyramide mit 2 und 1 px je Block, siehe
+[Zoomstufen](../benutzung/zoomstufen.md), „1 und 2 px je Block“.
+`metatile-flat.png` zeigt die ganze Szene in der einfarbigen
 Ansicht von `--flat`, `top-north` bei scale 1, 32 × 32 Pixel, siehe
 [Die einfarbige Ansicht](../renderer/einfarbig.md). Der Test vergleicht alle, schreibt zu jedem
 abweichenden das Ist-Bild daneben, als `<name>-ist.png`, und fällt erst

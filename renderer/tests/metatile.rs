@@ -15,8 +15,9 @@ use heroic_map_renderer::render::rasterizer::{
 };
 use heroic_map_renderer::render::sonne::texel_mitte;
 use heroic_map_renderer::render::{
-    BiomeTable, ChunkCache, Kamera, Projection, Reach, Richtung, ScreenRect, SpriteSet, draw_list,
-    render_area, render_area_with, render_area_without_culling, survey, survey_in,
+    BiomeTable, ChunkCache, Kamera, Projection, Reach, Richtung, ScreenRect, SpriteSet,
+    Verkleinern, draw_list, render_area, render_area_with, render_area_without_culling, shrink,
+    survey, survey_in,
 };
 use heroic_map_renderer::world::{BlockState, World};
 use image::RgbaImage;
@@ -2154,7 +2155,8 @@ fn tempdir() -> TempDir {
 /// `north-45`, wo das Gelände nur Oberseiten gleicher Farbe zeigte, und in
 /// 2:1 aus Nordwesten um die Treppe aus Stein, ganz in der einfarbigen
 /// Ansicht von `--flat`; dazu die Mangrovenwurzeln aus #243 in `top-north`
-/// bei scale 4. Neu erzeugen mit
+/// bei scale 4 und die Szene dort in den Stufen der Pyramide mit 2 und 1 px
+/// je Block (#293). Neu erzeugen mit
 /// `UPDATE_GOLDEN=1 cargo test --test metatile`.
 #[test]
 fn goldbild_bleibt_gleich() {
@@ -2193,6 +2195,29 @@ fn goldbild_bleibt_gleich() {
             render_area(&world, &sprites, rect, common::SZENE_Y).unwrap(),
         ));
     }
+    // Die Szene in top-north bei scale 4, 32 mal 32 Blöcke, und darüber die
+    // Stufen der Pyramide mit 2 und 1 px je Block, wie die Karte sie zeigt
+    // und der Mod sie lädt.
+    // Siehe docs/benutzung/zoomstufen.md, „1 und 2 px je Block“.
+    let projection = Projection::mit_kamera(4, Kamera::ObenNord);
+    let survey_4 = survey(&world, projection, common::SZENE_Y, None).unwrap();
+    let mut assets_4 = assets();
+    assets_4.load_biomes(&common::biomdaten()).unwrap();
+    let sprites = SpriteSet::build_in(&mut assets_4, &survey_4.states, projection).unwrap();
+    let rect = ScreenRect {
+        x: 0,
+        y: 0,
+        width: 128,
+        height: 128,
+    };
+    let zwei = shrink(
+        &render_area(&world, &sprites, rect, common::SZENE_Y).unwrap(),
+        Verkleinern::Pixel,
+        1,
+    );
+    let eins = shrink(&zwei, Verkleinern::Pixel, 2);
+    fehler.extend(goldbild("pyramide-top-north-2px", zwei));
+    fehler.extend(goldbild("pyramide-top-north-1px", eins));
     // Die einfarbige Ansicht über die ganze Szene, ein Pixel je Block.
     // Eigene Namen: `survey` und `assets` ruft der Teil danach noch als
     // Funktionen.

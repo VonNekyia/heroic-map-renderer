@@ -729,7 +729,7 @@ einer Anmeldung über den Server des Renderers. Entschieden in
   „Grenzen“.
 - **Ohne Anmeldung** zeigt die Webkarte die Ebene nicht. Die Liste kann
   sie mit einem Hinweis nennen, wie man sich im Spiel anmeldet, siehe
-  [Frontend](../frontend.md), „Ebenen“.
+  [Frontend](../frontend.md), „Aktionsebenen“.
 - **Im Mod** ist sie eine gewöhnliche Ebene: Das Plugin schickt jedem
   Spieler seine Fassung, mit ihrer eigenen `version`.
 

@@ -136,6 +136,12 @@ dem Plugin-Programmierer ab.
   [Server](benutzung/server.md), „Was er ausliefert“. Was das Plugin unter
   einem Namen mit `.` vorn schreibt, liefert er nicht; erst nach dem
   Umbenennen. Das Format steht in [Ebenen](benutzung/ebenen.md).
+- **Die Webkarte je Spieler** mit `--player-dir` neben `--secret-file`: der
+  Ordner mit einem Ordner je Spieler, den das Plugin schreibt. Je Klick im
+  Web schreibt der Server eine Zeile `Aktion: {"spieler","ebene","objekt","knopf"}`
+  auf stdout; das Plugin nimmt nur Zeilen, die genau so beginnen, und
+  prüft den Klick selbst. Siehe [Server](benutzung/server.md),
+  „Aktionsebenen“.
 
 ## Banner zeichnen: `--banners`
 
@@ -366,7 +372,16 @@ Zahlen ohne Vorzeichen, in Big Endian.
   am Ende erlaubt; fehlt die Datei, gilt 0. Mit `/karte abmelden` erhöht
   das Plugin ihn um eins. Der Server lehnt jedes Token ab, dessen Zähler
   kleiner ist als der in der Datei; so endet jede ältere Sitzung des
-  Spielers.
+  Spielers. Der Vertrag:
+  - **Nie verschwinden, nie sinken:** Gibt es die Datei einmal, bleibt
+    sie, auch wenn das Plugin den Ordner des Spielers aufräumt oder neu
+    schreibt, und ihr Wert sinkt nie. Sonst gälte wieder 0, und eine
+    beendete Sitzung lebte wieder auf.
+  - **Atomar:** Das Plugin schreibt sie nur über eine Datei mit `.` vorn im
+    selben Ordner und benennt sie dann um.
+- **Rate:** Das Plugin stellt einem Spieler höchstens eine Anmeldung je
+  15 s aus. Der Server nimmt je Spieler höchstens 20 offene an, also in
+  5 min, siehe [Server](benutzung/server.md), „Anmelden und Sitzung“.
 - **Testvektoren** unter `anmeldung` und `sitzung` in
   [`renderer/tests/fixtures/token.json`](../renderer/tests/fixtures/token.json),
   je mit `gueltig` und `ungueltig` wie oben; die Gründe sind dort nur

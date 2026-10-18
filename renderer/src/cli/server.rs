@@ -1,7 +1,8 @@
 //! Der Server für Karte und Kacheln, `--serve`: GET und HEAD, die Header der
 //! Karte, ETag und 304, Grenzen für das offene Netz, mit PEM auch HTTPS,
-//! mit einem Geheimnis der Download der Karte gegen ein Token, mit
-//! `--site-*` die Angaben der Seite zur Laufzeit.
+//! mit einem Geheimnis der Download der Karte gegen ein Token, dazu mit
+//! `--player-dir` die Webkarte je Spieler unter `/api/`, mit `--site-*` die
+//! Angaben der Seite zur Laufzeit.
 //! Siehe docs/benutzung/server.md.
 
 use std::collections::{HashMap, HashSet};
@@ -20,7 +21,7 @@ use anyhow::{Context, Result, bail, ensure};
 use heroic_map_renderer::ebenen::{geraet, ist_teil};
 use heroic_map_renderer::render::heights;
 use http_body_util::combinators::UnsyncBoxBody;
-use http_body_util::{BodyExt, Full};
+use http_body_util::{BodyExt, Full, Limited};
 use hyper::body::{Body, Bytes, Incoming};
 use hyper::header::{self, HeaderMap, HeaderName, HeaderValue};
 use hyper::server::conn::http1;
@@ -40,6 +41,7 @@ use super::NUR_DOWNLOAD;
 use super::manifest::{MANIFEST, etag};
 use super::token::{self, Token};
 
+mod api;
 mod strom;
 
 /// Unter diesem Pfad liegen die Kacheln, wie die Karte sie neben sich sucht.
@@ -74,6 +76,9 @@ pub(super) struct Einstellung {
     /// Die Datei mit den 32 Byte, mit denen das Plugin Token unterschreibt;
     /// ohne gibt es keinen Download.
     pub geheimnis: Option<PathBuf>,
+    /// Der Ordner des Plugins mit einem Ordner je Spieler, für [`api`];
+    /// ohne gibt es keine Webkarte je Spieler.
+    pub spieler: Option<PathBuf>,
     /// Adresse, Titel, Beschreibung und Bild für die Seite; ohne liefert der
     /// Server sie, wie der Build sie schrieb.
     pub angaben: Option<Angaben>,
@@ -246,8 +251,14 @@ pub(super) fn serve(e: Einstellung) -> Result<()> {
         e.verbindungen > 0,
         "--max-connections muss mindestens 1 sein"
     );
-    for ordner in std::iter::once(&e.kacheln).chain(&e.seite) {
+    for ordner in std::iter::once(&e.kacheln)
+        .chain(&e.seite)
+        .chain(&e.spieler)
+    {
         ensure!(ordner.is_dir(), "{} ist kein Verzeichnis", ordner.display());
+    }
+    if let Some(spieler) = &e.spieler {
+        pruefe_spieler_dir(spieler, std::iter::once(&e.kacheln).chain(&e.seite))?;
     }
     if let Some(seite) = &e.seite {
         pruefe_ineinander(&e.kacheln, seite)?;
@@ -298,6 +309,25 @@ fn pruefe_ineinander(kacheln: &Path, seite: &Path) -> Result<()> {
     Ok(())
 }
 
+/// `--player-dir` darf nicht unter einer Wurzel liegen, die der Server
+/// offen ausliefert: Sonst gäbe es `knoepfe.json` und `zaehler` ohne
+/// Sitzung.
+fn pruefe_spieler_dir<'a>(spieler: &Path, offen: impl Iterator<Item = &'a PathBuf>) -> Result<()> {
+    let s =
+        std::fs::canonicalize(spieler).with_context(|| format!("{} lesen", spieler.display()))?;
+    for wurzel in offen {
+        let w =
+            std::fs::canonicalize(wurzel).with_context(|| format!("{} lesen", wurzel.display()))?;
+        ensure!(
+            !s.starts_with(&w),
+            "--player-dir {} liegt unter {}, das der Server offen ausliefert",
+            spieler.display(),
+            wurzel.display()
+        );
+    }
+    Ok(())
+}
+
 async fn lausche(
     e: Einstellung,
     tls: Option<TlsAcceptor>,
@@ -331,6 +361,9 @@ async fn lausche(
         seite: e.seite,
         header: header_der_karte()?,
         freigabe,
+        spieler: e.spieler.map(api::Spieler::neu),
+        tls: tls.is_some(),
+        kopf_zeit: e.kopf_zeit,
         angaben: e.angaben,
         liste: Mutex::default(),
         stroeme: Mutex::default(),
@@ -585,6 +618,13 @@ struct Zustand {
     seite: Option<PathBuf>,
     header: Vec<(HeaderName, HeaderValue)>,
     freigabe: Option<Freigabe>,
+    /// Die Webkarte je Spieler, nur mit `freigabe`.
+    spieler: Option<api::Spieler>,
+    /// Läuft der Server selbst über HTTPS?
+    tls: bool,
+    /// So lange darf der Körper eines `POST` unter `/api/` brauchen, wie der
+    /// Kopf, `--header-timeout`.
+    kopf_zeit: Duration,
     angaben: Option<Angaben>,
     liste: Mutex<Liste>,
     /// Die Zufälle der Token, deren Strom gerade läuft.
@@ -721,6 +761,9 @@ async fn antwort(
     z: Arc<Zustand>,
     anfrage: Request<Incoming>,
 ) -> Result<Response<Koerper>, Infallible> {
+    if anfrage.uri().path().starts_with(api::API) {
+        return Ok(voll(api_antwort(z, anfrage).await));
+    }
     let kopf = anfrage.method() == Method::HEAD;
     let zip = anfrage
         .uri()
@@ -739,6 +782,41 @@ async fn antwort(
         return Ok(download_strom(&z, anfrage.headers(), baum, nach.as_deref(), kopf).await);
     }
     Ok(voll(ganz(z, anfrage).await))
+}
+
+/// Unter `/api/` die Webkarte je Spieler, siehe [`api`]: ohne sie `404`,
+/// ohne den Körper anzusehen. Den Körper liest er nur bei `POST`, bis
+/// [`api::KOERPER`], sonst `413`, und so lange wie den Kopf, sonst `408`:
+/// Ein langsamer Körper hielte sonst einen Platz der Verbindungen. Dann die
+/// Antwort aus einem Thread, der Dateien lesen darf.
+async fn api_antwort(z: Arc<Zustand>, anfrage: Request<Incoming>) -> Response<Full<Bytes>> {
+    if z.spieler.is_none() || z.freigabe.is_none() {
+        return api::privat(leer(&z, StatusCode::NOT_FOUND));
+    }
+    let rest = anfrage.uri().path()[api::API.len()..].to_string();
+    let (teile, koerper) = anfrage.into_parts();
+    let koerper = match teile.method {
+        Method::POST => {
+            let lesen = Limited::new(koerper, api::KOERPER).collect();
+            match tokio::time::timeout(z.kopf_zeit, lesen).await {
+                Ok(Ok(koerper)) => koerper.to_bytes(),
+                Ok(Err(_)) => return api::privat(leer(&z, StatusCode::PAYLOAD_TOO_LARGE)),
+                Err(_) => return api::privat(leer(&z, StatusCode::REQUEST_TIMEOUT)),
+            }
+        }
+        _ => Bytes::new(),
+    };
+    let a = api::Anfrage {
+        methode: teile.method,
+        rest,
+        felder: teile.headers,
+        koerper,
+    };
+    let bei = Arc::clone(&z);
+    match tokio::task::spawn_blocking(move || api::antwort(&bei, &a)).await {
+        Ok(antwort) => antwort,
+        Err(_) => api::privat(leer(&z, StatusCode::INTERNAL_SERVER_ERROR)),
+    }
 }
 
 /// Eine ganze Antwort als [`Koerper`].
@@ -1751,6 +1829,9 @@ mod tests {
             seite: None,
             header: Vec::new(),
             freigabe: None,
+            spieler: None,
+            tls: false,
+            kopf_zeit: Duration::from_secs(10),
             angaben: None,
             liste: Mutex::default(),
             stroeme: Mutex::default(),

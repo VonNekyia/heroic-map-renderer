@@ -269,7 +269,7 @@ pub struct Args {
         "biome_blend", "render", "cinematic", "center", "area", "tiles", "size", "scan", "prune",
         "native_levels", "resume", "update", "gpu", "progress", "estimate", "defender_exclusion", "heights",
         "serve", "web", "listen", "max_connections", "header_timeout", "max_header_bytes", "max_headers",
-        "write_timeout", "exit_with_stdin", "tls_cert", "tls_key", "secret_file", "site_url",
+        "write_timeout", "exit_with_stdin", "tls_cert", "tls_key", "secret_file", "player_dir", "site_url",
         "site_title", "site_description", "site_image", "download_client_jar", "client_version",
         "cache_dir", "compact", "compact_tree", "flat", "banners", "out",
     ])]
@@ -284,7 +284,7 @@ pub struct Args {
         "biome_blend", "render", "cinematic", "center", "area", "tiles", "size", "scan", "prune",
         "native_levels", "resume", "update", "gpu", "progress", "estimate", "defender_exclusion", "heights",
         "serve", "web", "listen", "max_connections", "header_timeout", "max_header_bytes", "max_headers",
-        "write_timeout", "exit_with_stdin", "tls_cert", "tls_key", "secret_file", "site_url",
+        "write_timeout", "exit_with_stdin", "tls_cert", "tls_key", "secret_file", "player_dir", "site_url",
         "site_title", "site_description", "site_image", "download_client_jar", "client_version",
         "cache_dir", "compact", "pyramid", "flat", "banners", "out",
     ])]
@@ -373,6 +373,12 @@ pub struct Args {
     /// Token, die das Plugin mit diesem Geheimnis unterschreibt: genau 32 Byte
     #[arg(long, value_name = "DATEI", requires = "serve")]
     secret_file: Option<PathBuf>,
+
+    /// Mit --serve und --secret-file die Webkarte je Spieler unter /api/:
+    /// Anmeldung, Aktionsebenen und Knöpfe aus diesem Ordner des Plugins, je
+    /// Spieler ein Ordner mit seiner UUID
+    #[arg(long, value_name = "VERZEICHNIS", requires_all = ["serve", "secret_file"])]
+    player_dir: Option<PathBuf>,
 
     /// Mit --web die Adresse der Seite, für canonical, og:url und robots.txt;
     /// nur zusammen mit --site-title und --site-description
@@ -596,6 +602,7 @@ pub fn run() -> Result<()> {
             ende_mit_stdin: args.exit_with_stdin,
             tls: args.tls_cert.zip(args.tls_key),
             geheimnis: args.secret_file,
+            spieler: args.player_dir,
             angaben: match &args.site_url {
                 Some(url) => Some(server::Angaben::neu(
                     url,
@@ -5975,6 +5982,7 @@ mod tests {
             "tls_cert",
             "tls_key",
             "secret_file",
+            "player_dir",
             "site_url",
             "site_title",
             "site_description",

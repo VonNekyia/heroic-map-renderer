@@ -767,6 +767,14 @@ liegen als `tiles/` daneben, oder `?tiles=` nennt ihren Pfad.
   Tests prüfen den Build darunter; der Server des Renderers (#151) nimmt sie
   per `include_str!`. Ein anderer Server setzt sie so oder strenger. Liegen die Kacheln auf einer anderen
   Domain als die Seite, brauchen `img-src` und `connect-src` diese Domain.
+- **Abgebrochene Kacheln:** Beim Zoomen bricht Leaflet Kacheln ab, die noch
+  laden, und setzt dafür ein GIF als `data:` in `src`. Das verletzte die
+  CSP, bei jedem Zoomen viele Male. Die Karte nimmt darum eine Unterklasse
+  `Kacheln` in [`web/src/main.ts`](../web/src/main.ts): Sie entfernt `src`,
+  das bricht die Anfrage genauso ab und lädt nichts. `L.Util.emptyImageUrl`
+  umzusetzen reicht nicht, Leaflet liest die Adresse aus einer Variable
+  seines Moduls. Die drei Methoden folgen Leaflet 1.9.4; ein neues Leaflet
+  braucht einen Blick darauf.
 - **Cache:** Ein neuer Lauf tauscht Kacheln unter derselben URL. Damit der
   Browser danach den neuen Stand zeigt:
   - **Betreiber** setzen für `tiles/` `Cache-Control: no-cache`, in nginx

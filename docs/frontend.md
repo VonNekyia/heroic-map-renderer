@@ -436,6 +436,10 @@ Banner, feste Grösse und die Tafel beim Zeigen folgen
   Reihenfolge ändern; der Fokus bleibt. Fehlt `layers.json` beim Laden,
   fragt sie nicht nach, siehe [Ebenen](benutzung/ebenen.md), „Ändern und
   Neuladen“.
+  - Lädt eine Ebene noch, startet das Nachfragen sie für dieselbe
+    `version` nicht neu. Sonst verwürfe jedes Nachfragen ein Laden, das
+    länger braucht als der Takt, etwa auf einem ausgelasteten Rechner, und
+    die Ebene erschiene nie.
   - Was nicht mehr in der Liste steht oder nicht mehr an ist, nimmt sie
     weg, auch wenn der Betreiber `visible` ändert und der Betrachter nie
     gewählt hat.
@@ -547,7 +551,9 @@ Banner, feste Grösse und die Tafel beim Zeigen folgen
     ihre Tafel wie Nadel und Banner; nur diese fangen Klicks, auch ohne
     Füllung. Eine Fläche mit `panel` erreicht Tab, Enter oder Leertaste
     öffnet die Tafel mit dem Fokus darin, Escape gibt ihn zurück, wie bei
-    den Nadeln;
+    den Nadeln. Im Fokus hat sie keinen Rahmen, der Kasten um ihre Grenzen
+    wäre; für die Tastatur (`:focus-visible`) zeigt sie ihren Umriss als
+    Strich von 2 px in `--ui-markiert`;
   - die Höhen: je Laden einer Ebene einmal, die Regionen aller ihrer Formen
     in einem und die aller ihrer Schriften in einem: für eine Fläche ihr
     Rechteck, für Ränder und Linien die Regionen entlang des Zugs, je samt

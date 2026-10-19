@@ -14,22 +14,26 @@ const KOPIE = process.env.KOPIE ?? '';
 test.skip(!KOPIE, 'nur mit KOPIE, siehe oben');
 const lies = (name: string) => JSON.parse(readFileSync(`${KOPIE}/${name}`, 'utf8')) as Record<string, unknown>;
 
-async function spiegel(page: Page, kreiseAn: boolean): Promise<void> {
+async function kopie(page: Page, kreiseAn: boolean): Promise<void> {
   const liste = lies('layers.json') as { layers: { id: string; visible: boolean }[] };
-  const layers = liste.layers.map((e) => (e.id === 'nations:kreise' ? { ...e, visible: kreiseAn } : e));
+  const layers = liste.layers.map((e) => (e.id.endsWith(':kreise') ? { ...e, visible: kreiseAn } : e));
   const info = { ...lies('map-4x3.json'), tiles: '{z}/{x}/{y}.webp' };
-  await page.route('**/tiles-spiegel/map.json', (r) => r.fulfill({ json: info }));
-  await page.route('**/tiles-spiegel/layers.json', (r) => r.fulfill({ json: { layers } }));
-  await page.route('**/tiles-spiegel/layers/nations/*.json', (r) => {
-    const name = /nations\/(\w+)\.json/.exec(r.request().url())![1]!;
-    return r.fulfill({ json: lies(`${name}.json`) });
+  await page.route('**/tiles-kopie/map.json', (r) => r.fulfill({ json: info }));
+  await page.route('**/tiles-kopie/layers.json', (r) => r.fulfill({ json: { layers } }));
+  // Die Datei einer Ebene nach ihrem Namen, ohne Datei leer.
+  await page.route('**/tiles-kopie/layers/*/*.json', (r) => {
+    const name = /\/(\w+)\.json$/.exec(r.request().url())![1]!;
+    try {
+      return r.fulfill({ json: lies(`${name}.json`) });
+    } catch {
+      return r.fulfill({ json: { objects: [] } });
+    }
   });
-  await page.route('**/tiles-spiegel/layers/proficisci/*.json', (r) => r.fulfill({ json: { objects: [] } }));
   // Höhen überall eben auf 64, ground fehlt: wie ein Baum mit Höhen, ohne Daten der Welt.
   const flach = deflateSync(Buffer.from(new Int16Array(128 * 128).fill(64).buffer));
   await page.route('**/heights/*.bin', (r) => r.fulfill({ body: flach }));
   await page.route('**/ground/*.bin', (r) => r.fulfill({ status: 404 }));
-  await page.route('**/tiles-spiegel/*/*/*.webp', (r) => r.fulfill({ status: 404 }));
+  await page.route('**/tiles-kopie/*/*/*.webp', (r) => r.fulfill({ status: 404 }));
 }
 
 async function heap(cdp: CDPSession, schnell: boolean): Promise<{ mb: number; oben: string[] }> {
@@ -96,10 +100,10 @@ for (const [b, h] of [
     test(`${b}x${h} ${ort} Kreise ${kreise ? 'an' : 'aus'}`, async ({ page }) => {
       test.setTimeout(900_000);
       await page.setViewportSize({ width: b, height: h });
-      await spiegel(page, kreise);
+      await kopie(page, kreise);
       const cdp = await page.context().newCDPSession(page);
       const start = Date.now();
-      await page.goto(`/?tiles=/tiles-spiegel&${suche}`);
+      await page.goto(`/?tiles=/tiles-kopie&${suche}`);
       await expect(page.locator('.ebenen')).toBeVisible();
       // Bis die Ebenen stehen: die Zahl der Pfade ändert sich 2 s lang nicht mehr.
       let vorher = -1;

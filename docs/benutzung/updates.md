@@ -1,6 +1,6 @@
 ---
 title: Updates
-description: Wie --update nur zeichnet, wo sich die Welt seit dem letzten vollen Lauf geändert hat, mit dem Stand je Baum, Zeitstempeln und Fingerabdrücken je Chunk, dem Gebiet einer Änderung, Abbruch und --resume, und wann ein voller Lauf nötig ist.
+description: Wie --update nur zeichnet, wo sich die Welt seit dem letzten vollen Lauf geändert hat, mit dem Stand je Baum, Zeitstempeln und Fingerabdrücken je Chunk, dem offenen Gebiet abgebrochener Läufe und Ausschnitte, dem Gebiet einer Änderung, Abbruch und --resume, und wann ein voller Lauf nötig ist.
 code:
   - renderer/src/cli.rs
   - renderer/src/cli/pixel.rs
@@ -69,16 +69,16 @@ Ende, nach `map.json`; getauscht wie jede Datei, siehe
 Ein Ausschnitt schreibt keinen.
 
 Kacheln ohne neuen Stand zeichnen ein Ausschnitt, ein Lauf, der abbricht,
-und einer mit `--resume`, der keinen Stand schreibt. Damit `stand.bin` nie
-einen Inhalt nennt, den eine Kachel vielleicht nicht zeigt, macht jeder
-Lauf vor der ersten Kachel im alten Stand unbekannt, was er zeichnen kann:
-jeden Chunk, den er liest, auch für einen Strahl zur Sonne, samt seinen
-acht Nachbarn; ein voller Lauf also alle (`Stand::unbekannt_wo`). Das gilt
-für jeden Chunk, den der Stand kennt oder der jetzt in der Welt steht. Das
-nächste Update zeichnet dieses Gebiet über die volle Höhe noch einmal, auch
-wenn ein Chunk darin wieder seinen alten Inhalt hat, wie ein Ofen, der
-wieder ausgeht (`zurueckgewechselter_chunk_wird_gezeichnet`, nach einem
-abgebrochenen Update und nach einem Ausschnitt).
+und einer mit `--resume`, der keinen Stand schreibt. Damit das nächste
+Update keine davon übersieht, hält jeder Lauf vor der ersten Kachel fest,
+was er zeichnen kann:
+
+- **Ein Update und ein Ausschnitt** legen ihr Gebiet ab, siehe „Das offene
+  Gebiet“. `stand.bin` bleibt dabei, wie es ist.
+- **Ein voller Lauf** liest ohnehin alles. Er macht im alten Stand jeden
+  Chunk unbekannt, den der Stand kennt oder der jetzt in der Welt steht
+  (`Stand::unbekannt_wo`). Bricht er ab, zeichnet das nächste Update also
+  alles.
 
 Der Stand enthält die Stempel, wie sie zu Beginn des Laufs waren, vor dem
 Vorlauf gelesen. Schreibt der Server einen Chunk während des Laufs, liest
@@ -101,6 +101,51 @@ am Ende fällt beides weg.
 Eine Region kostet 19 464 Byte, eine Welt mit 2,5 Millionen Chunks also
 mindestens rund 47 MB je Baum. Alles in Little Endian, `Stand::als_bytes` in
 [`renderer/src/render/stand.rs`](../../renderer/src/render/stand.rs).
+
+## Das offene Gebiet
+
+Ein Update und ein Ausschnitt legen vor der ersten Kachel ihr Gebiet als
+`gebiet-offen.bin` neben `stand.bin` ab: die Kacheln der gröbsten nativen
+Stufe, die sie zeichnen können, vereinigt mit denen, die schon darin
+stehen. Entschieden in [0112](../entscheidungen/0112-abgebrochene-laeufe-legen-ihr-gebiet-ab.md), #314.
+
+- **Das nächste Update** zeichnet diese Kacheln noch einmal, dazu das Gebiet
+  seiner Änderungen. Die Zeile `Update:` nennt sie:
+
+  ```
+  Update:     2 Chunks geändert, dazu 6 Kacheln aus abgebrochenen Läufen und Ausschnitten, 6 Kacheln von 256x256 px bei scale 4 im Gebiet, in 0.0 s
+  ```
+
+- **Ein Chunk, der zurückwechselt,** wie ein Ofen, der wieder ausgeht,
+  gleicht wieder dem Stand. Die Kacheln, die ein abgebrochener Lauf mit dem
+  brennenden Ofen zeichnete, zeichnet das Update trotzdem neu, weil sie
+  offen liegen (`zurueckgewechselter_chunk_wird_gezeichnet`, nach einem
+  abgebrochenen Update und nach einem Ausschnitt). Eine Kachel darin, in die
+  kein Block mehr reicht, zeichnet es wie eine über einem abgerissenen Turm
+  und entfernt sie leer, siehe [Kacheln exportieren](kacheln.md), „Leer
+  gewordene Kacheln“.
+- **Es wächst nicht:** Bricht auch das nächste Update ab, liegen danach
+  dieselben Kacheln offen und die seiner neuen Änderungen, nicht mehr.
+  Bis v0.13.0 machte jeder Lauf stattdessen im alten Stand jeden Chunk
+  unbekannt, den er las, samt Strahlen zur Sonne und Nachbarn. Das nächste
+  Update las um jeden davon wieder so viel. Mit Cinematic wuchs es so mit
+  jedem Abbruch um ein Vielfaches
+  (`abbrueche_blaehen_das_naechste_update_nicht_auf`).
+- **Am Ende** eines vollen Laufs und eines Updates fällt die Datei weg,
+  zusammen mit `stand-neu.bin`.
+- **Lässt sich die Datei nicht lesen** oder gilt sie für eine andere Zahl
+  nativer Stufen, bricht `--update` ab und verlangt einen vollen Lauf.
+- **Aus älteren Versionen** stehen in `stand.bin` vielleicht noch viele
+  Chunks als unbekannt. Das erste Update, das fertig wird, räumt sie weg.
+
+| Teil | Bytes |
+|---|---|
+| Kopf: `HMROFFEN`, Fassung 1 | 12 |
+| die Zahl der nativen Stufen über der Basis, die Zahl der Kacheln, je als u32 | 8 |
+| je Kachel x und y als i32 | 8 |
+
+Alles in Little Endian, `lege_offen_ab` in
+[`renderer/src/cli.rs`](../../renderer/src/cli.rs).
 
 ## Was als geändert gilt
 
@@ -255,9 +300,9 @@ Alles in Little Endian, nach Platz geordnet.
 
 ## Abbruch und `--resume`
 
-Bricht ein Update ab, bleibt der alte Stand, sein Gebiet darin unbekannt,
-siehe „Der Stand“. Ein neues Update zeichnet das Gebiet noch einmal, dazu
-neuere Änderungen (`abgebrochenes_update_macht_sein_gebiet_unbekannt`). Wer
+Bricht ein Update ab, bleibt der alte Stand, wie er war, und sein Gebiet
+liegt offen, siehe „Das offene Gebiet“. Ein neues Update zeichnet es noch
+einmal, dazu neuere Änderungen (`abgebrochenes_update_legt_sein_gebiet_ab`). Wer
 zusieht, sieht während des Laufs alte neben neuen Kacheln, jede ganz, wie
 bei einem vollen Lauf.
 
@@ -291,9 +336,10 @@ und schriebe keinen Stand: Das nächste `--update` zeichnete alles noch
 einmal.
 
 Fehlt der angefangene Stand eines vollen Laufs, oder passt der eines Updates
-nicht, schreibt der Lauf keinen Stand und sagt es. In `stand.bin` ist sein
-Gebiet dann unbekannt: Das nächste `--update` zeichnet es noch einmal, nach
-einem vollen Lauf also alles. Ohne `stand.bin` braucht `--update` einen
+nicht, schreibt der Lauf keinen Stand und sagt es. Ein Update legt sein
+Gebiet dann offen ab, ein voller Lauf macht in `stand.bin` alles unbekannt:
+Das nächste `--update` zeichnet es noch einmal, nach einem vollen Lauf also
+alles. Ohne `stand.bin` braucht `--update` einen
 vollen Lauf.
 
 ## Anderer Renderer, andere Assets
@@ -382,8 +428,8 @@ An der Testwelt bei scale 8, gemessen in
 - **Unbekannte Chunks** zeichnet ein Update über die volle Höhe mit ihren
   Nachbarn. Das erste Update nach einem langen vollen Lauf auf einem Server
   mit Spielern ist darum grösser: Jeder Chunk, den der Server während des
-  Laufs schrieb, ist unbekannt. Ebenso das erste nach einem Ausschnitt oder
-  einem Abbruch, über dessen Gebiet.
+  Laufs schrieb, ist unbekannt. Nach einem Ausschnitt oder einem Abbruch
+  zeichnet das erste dessen Gebiet noch einmal, siehe „Das offene Gebiet“.
 - **Ein Gebiet** kostet, was ein Ausschnitt dieser Grösse kostet, dazu rund
   2 s für Assets und Sprites.
 - **`stand.bin`** hat rund 24 Bytes je Chunk, an der Testwelt 7,5 MB.

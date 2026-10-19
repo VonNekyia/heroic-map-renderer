@@ -179,7 +179,9 @@ er weiss, dass ein Chunk dorthin reichte, der noch da ist: Ein Update weiss
 es aus dem Stand, ein voller Lauf, wenn der Baum schon einen Stand hat. Er
 zeichnet dann die vorhandenen Kacheln im Gebiet jedes geänderten Chunks,
 der noch etwas zeichnet, wie ein Update, siehe [Updates](updates.md), „Wo
-ein Update zeichnet“; leer verschwinden sie. Ohne Stand bleibt so eine
+ein Update zeichnet“; leer verschwinden sie. Ebenso zeichnet ein Update
+die vorhandenen Kacheln im offenen Gebiet eines abgebrochenen Laufs oder
+Ausschnitts, siehe [Updates](updates.md), „Das offene Gebiet“. Ohne Stand bleibt so eine
 Kachel stehen wie eine ohne Chunk, siehe unten
 (`voller_lauf_mit_stand_raeumt_abgerissenes_weg`). Ebenso bleibt eine
 Kachel stehen, die im Gebiet eines gelöschten Chunks leer wird: Der Lauf

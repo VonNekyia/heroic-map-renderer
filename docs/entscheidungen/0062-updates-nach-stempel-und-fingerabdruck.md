@@ -17,6 +17,8 @@ code:
 Im Fingerabdruck des Renderers abgelöst durch
 [0098](0098-der-zeichenstand-statt-des-builds.md): Er hängt am
 Zeichenstand und den eingebauten Tabellen statt an der ausführbaren Datei.
+Bei „Kacheln ohne neuen Stand“ für Updates und Ausschnitte abgelöst durch
+[0112](0112-abgebrochene-laeufe-legen-ihr-gebiet-ab.md): Sie legen ihr Gebiet ab, statt Chunks unbekannt zu machen.
 
 ## Anlass
 

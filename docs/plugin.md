@@ -390,6 +390,9 @@ Zahlen ohne Vorzeichen, in Big Endian.
   je mit `gueltig` und `ungueltig` wie oben; die Gründe sind dort nur
   `inhalt`, `abgelaufen` und `unterschrift`, die übrigen prüfen die
   Vektoren des Downloads.
+- **Fassung 4 und 5,** Tausch und lesende Sitzung, stellt nur der Server
+  aus und prüft nur er; das Plugin sieht sie nie. Siehe
+  [Server](benutzung/server.md), „Erkennen über IPv4“.
 
 ## Erkennung per IP
 
@@ -420,6 +423,11 @@ so: [0110](entscheidungen/0110-erkennung-per-ip.md).
   Abschalten leer.
 - **Der Proxy:** `webserver.trusted-proxy` in `config.yml` gibt das Plugin
   als `--trusted-proxy` weiter, einzelne Adressen, keine Netze.
+- **Der Name nur mit IPv4:** Mit `webserver.erkennen-url` gibt das Plugin
+  den Ursprung daraus als `--recognize-url` weiter und den Ursprung von
+  `webserver.url` als `--recognize-origin`, beide klein, ohne Pfad und
+  ohne `/` am Ende, nur zusammen. Ohne den Schlüssel keins von beiden.
+  Siehe [Server](benutzung/server.md), „Erkennen über IPv4“.
 
 ### `Web:` und `sicht.json`
 

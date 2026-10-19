@@ -81,4 +81,8 @@ export default [
   { name: 'px-faellt-aus-der-adresse', datei: 'src/main.ts', alt: 'void ansicht(baum?.path, px).then', neu: 'void ansicht(baum?.path, undefined).then', spec: 'tests/smoke.spec.ts', titel: 'Ansichten mit 2 und 1 px je Block' },
   // Abgebrochene Kacheln unter der CSP.
   { name: 'abbruch-mit-data', datei: 'src/main.ts', alt: "      el.removeAttribute('src');\n      el.remove();", neu: "      el.src = L.Util.emptyImageUrl;\n      el.remove();", spec: 'tests/smoke.spec.ts', titel: 'Zoomen bricht laufende Kacheln ab' },
+  // Erstes Zeichnen und Fokus der Flächen.
+  { name: 'nachfragen-startet-neu', datei: 'src/ebenen.ts', alt: ' && laeuft.get(e.id) !== e.version);', neu: ');', spec: 'tests/ebenen.spec.ts', titel: 'dauert das Laden einer Ebene länger' },
+  { name: 'fokus-mit-kasten', datei: 'src/style.css', alt: '.leaflet-pane path[tabindex]:focus {\n  outline: none;\n}\n', neu: '', spec: 'tests/formen.spec.ts', titel: 'nach einem Klick auf eine Fläche mit Tafel kein Rahmen' },
+  { name: 'fokus-ohne-strich', datei: 'src/style.css', alt: '  stroke: var(--ui-markiert);\n  stroke-width: 2px;\n', neu: '', spec: 'tests/formen.spec.ts', titel: 'nach einem Klick auf eine Fläche mit Tafel kein Rahmen' },
 ];

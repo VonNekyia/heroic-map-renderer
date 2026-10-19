@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs::File;
 use std::hash::{BuildHasher, RandomState};
 use std::io::Write;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Mutex, PoisonError};
@@ -269,7 +269,7 @@ pub struct Args {
         "biome_blend", "render", "cinematic", "center", "area", "tiles", "size", "scan", "prune",
         "native_levels", "resume", "update", "gpu", "progress", "estimate", "defender_exclusion", "heights",
         "serve", "web", "listen", "max_connections", "header_timeout", "max_header_bytes", "max_headers",
-        "write_timeout", "exit_with_stdin", "tls_cert", "tls_key", "secret_file", "player_dir", "site_url",
+        "write_timeout", "exit_with_stdin", "tls_cert", "tls_key", "secret_file", "player_dir", "trusted_proxy", "site_url",
         "site_title", "site_description", "site_image", "download_client_jar", "client_version",
         "cache_dir", "compact", "compact_tree", "flat", "banners", "out",
     ])]
@@ -284,7 +284,7 @@ pub struct Args {
         "biome_blend", "render", "cinematic", "center", "area", "tiles", "size", "scan", "prune",
         "native_levels", "resume", "update", "gpu", "progress", "estimate", "defender_exclusion", "heights",
         "serve", "web", "listen", "max_connections", "header_timeout", "max_header_bytes", "max_headers",
-        "write_timeout", "exit_with_stdin", "tls_cert", "tls_key", "secret_file", "player_dir", "site_url",
+        "write_timeout", "exit_with_stdin", "tls_cert", "tls_key", "secret_file", "player_dir", "trusted_proxy", "site_url",
         "site_title", "site_description", "site_image", "download_client_jar", "client_version",
         "cache_dir", "compact", "pyramid", "flat", "banners", "out",
     ])]
@@ -380,6 +380,11 @@ pub struct Args {
     #[arg(long, value_name = "VERZEICHNIS", requires_all = ["serve", "secret_file"])]
     player_dir: Option<PathBuf>,
 
+    /// Mit --player-dir: Proxys, deren X-Real-IP für die Erkennung per IP gilt,
+    /// einzelne Adressen mit Komma, keine Netze
+    #[arg(long, value_name = "IP[,IP]", requires_all = ["serve", "player_dir"], value_parser = parse_proxys)]
+    trusted_proxy: Option<Proxys>,
+
     /// Mit --web die Adresse der Seite, für canonical, og:url und robots.txt;
     /// nur zusammen mit --site-title und --site-description
     #[arg(long, value_name = "URL", requires_all = ["web", "site_title", "site_description"])]
@@ -405,6 +410,26 @@ pub struct Args {
 
 /// Mindestens [`NATIVE_MIN_SCALE`]. Ob der scale zur Kamera passt, prüft
 /// [`projektion`].
+/// Die Proxys aus `--trusted-proxy`, siehe [`server::Einstellung::vertraut`].
+#[derive(Debug, Clone)]
+struct Proxys(Vec<IpAddr>);
+
+/// Einzelne Adressen mit Komma; ein Netz wie `10.0.0.0/8` nicht: Dann gälte
+/// der `X-Real-IP` jedes Rechners darin.
+fn parse_proxys(text: &str) -> std::result::Result<Proxys, String> {
+    text.split(',')
+        .map(|teil| {
+            let teil = teil.trim();
+            if teil.contains('/') {
+                return Err(format!("{teil} ist ein Netz; nur einzelne Adressen"));
+            }
+            teil.parse::<IpAddr>()
+                .map_err(|_| format!("{teil} ist keine IP-Adresse"))
+        })
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map(Proxys)
+}
+
 fn parse_scale(text: &str) -> std::result::Result<u32, String> {
     let scale: u32 = text.parse().map_err(|e| format!("{e}"))?;
     if scale < NATIVE_MIN_SCALE {
@@ -603,6 +628,7 @@ pub fn run() -> Result<()> {
             tls: args.tls_cert.zip(args.tls_key),
             geheimnis: args.secret_file,
             spieler: args.player_dir,
+            vertraut: args.trusted_proxy.map(|p| p.0).unwrap_or_default(),
             angaben: match &args.site_url {
                 Some(url) => Some(server::Angaben::neu(
                     url,
@@ -5983,6 +6009,7 @@ mod tests {
             "tls_key",
             "secret_file",
             "player_dir",
+            "trusted_proxy",
             "site_url",
             "site_title",
             "site_description",

@@ -683,6 +683,13 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
   const auftrag = new Map<string, number>();
   /** Je Ebene die `version` mit `permission` oder `web: false`; die holt die Karte nicht noch einmal. */
   const abgewiesen = new Map<string, string>();
+  /**
+   * Je Ebene die `version`, die das Nachfragen gerade lädt. Dauert ein Laden
+   * länger als der Takt, etwa auf einem ausgelasteten Rechner, startete
+   * sonst jedes Nachfragen es neu und verwürfe das laufende: Die Ebene
+   * erschiene nie.
+   */
+  const laeuft = new Map<string, string>();
   let eintraege: Eintrag[] = [];
   /** Die Einträge aus `layers.json`, wie zuletzt gelesen, auch Aktionsebenen ohne Anmeldung. */
   let roh: unknown[] = [];
@@ -1374,8 +1381,17 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     // Auch, wenn der Betreiber `visible` ändert und der Betrachter nie gewählt hat.
     for (const id of [...geladen.keys()]) if (!eintraege.some((e) => e.id === id && an(e))) entferne(id);
     // Eine Aktionsebene fragt jedes Mal; neu zeichnet sie nur mit neuem Inhalt.
-    const zuLaden = eintraege.filter((e) => an(e) && (e.player || geladen.get(e.id)?.version !== e.version));
-    await Promise.all(zuLaden.map((e) => ladeEbene(e).catch((fehler: unknown) => console.error(e.id, fehler))));
+    const zuLaden = eintraege.filter((e) => an(e) && (e.player || geladen.get(e.id)?.version !== e.version) && laeuft.get(e.id) !== e.version);
+    await Promise.all(
+      zuLaden.map((e) => {
+        laeuft.set(e.id, e.version);
+        return ladeEbene(e)
+          .catch((fehler: unknown) => console.error(e.id, fehler))
+          .finally(() => {
+            if (laeuft.get(e.id) === e.version) laeuft.delete(e.id);
+          });
+      }),
+    );
   };
 
   /** Die Ebenen aus `layers.json`, oder `undefined`, wenn sie fehlt oder kaputt ist. */

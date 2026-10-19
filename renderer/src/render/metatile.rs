@@ -115,13 +115,13 @@ pub fn render_area(
 /// Siehe docs/renderer/renderpfad.md, „Grosse Ausschnitte“.
 pub const STUECK: u32 = 1024;
 
-/// Wie hoch die einfarbige Ansicht ein Band zeichnet, in Pixeln: zwei
-/// Zeilen Chunks. Jedes Band beginnt in [`ChunkCache`] wie eine Kachel. Mit
+/// Wie hoch die einfarbige Ansicht ein Band zeichnet, in Pixeln: eine
+/// Zeile Chunks. Jedes Band beginnt in [`ChunkCache`] wie eine Kachel. Mit
 /// `--tiles`, wo eine Kachel bei scale 1 16 × 16 Chunks deckt, behält der
 /// Cache so nur das laufende und das vorige Band; in [`render_area`] so
 /// viele Bänder, wie eine Zeile Stücke hat.
 /// Siehe docs/renderer/renderpfad.md, „Speicher“.
-const FLACH_BAND: u32 = 32;
+const FLACH_BAND: u32 = 16;
 
 /// Wie [`render_area`], mit einem Cache, der über Kacheln hinweg lebt:
 /// Kacheln, die nacheinander kommen, teilen sich fast alle Chunks.

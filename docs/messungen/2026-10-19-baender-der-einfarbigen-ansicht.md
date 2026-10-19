@@ -60,6 +60,7 @@ diese Reihe nicht.
   Thread hält das laufende und das vorige Band samt Rand im Cache.
 - **Mit 32 Pixeln** liegt `--flat` an der Spitze beim 1,07-Fachen der Karte
   statt beim 1,34-Fachen.
-- **Offen ist die Zeit,** für den ersten Render und für ein Update: Bei 16
-  Pixeln lag die Wanduhr in beiden Läufen etwas höher, ohne Ruhe am
-  Rechner. Das klärt eine Reihe unter der Sperre.
+- **Die Zeit** für den ersten Render und für ein Update misst eine eigene
+  Reihe unter der Sperre:
+  [2026-10-19, Zeit der Bänder](2026-10-19-zeit-der-baender-der-einfarbigen-ansicht.md).
+  Gewählt sind danach 16 Pixel.

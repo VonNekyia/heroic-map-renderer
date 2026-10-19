@@ -10,7 +10,7 @@ use std::convert::Infallible;
 use std::fs::File;
 use std::future::Future;
 use std::io::{Read, Write};
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -42,6 +42,7 @@ use super::manifest::{MANIFEST, etag};
 use super::token::{self, Token};
 
 mod api;
+mod ip;
 mod strom;
 
 /// Unter diesem Pfad liegen die Kacheln, wie die Karte sie neben sich sucht.
@@ -79,6 +80,9 @@ pub(super) struct Einstellung {
     /// Der Ordner des Plugins mit einem Ordner je Spieler, für [`api`];
     /// ohne gibt es keine Webkarte je Spieler.
     pub spieler: Option<PathBuf>,
+    /// Proxys, deren `X-Real-IP` für die Erkennung per IP gilt, siehe
+    /// [`ip::adresse`].
+    pub vertraut: Vec<IpAddr>,
     /// Adresse, Titel, Beschreibung und Bild für die Seite; ohne liefert der
     /// Server sie, wie der Build sie schrieb.
     pub angaben: Option<Angaben>,
@@ -364,6 +368,7 @@ async fn lausche(
         spieler: e.spieler.map(api::Spieler::neu),
         tls: tls.is_some(),
         kopf_zeit: e.kopf_zeit,
+        vertraut: e.vertraut,
         angaben: e.angaben,
         liste: Mutex::default(),
         stroeme: Mutex::default(),
@@ -372,8 +377,8 @@ async fn lausche(
     loop {
         // Ist jeder Platz belegt, wartet die Annahme.
         let platz = Arc::clone(&plaetze).acquire_owned().await?;
-        let strom = match lauscher.accept().await {
-            Ok((strom, _)) => strom,
+        let (strom, gegenstelle) = match lauscher.accept().await {
+            Ok(verbindung) => verbindung,
             Err(_) => {
                 // Etwa zu viele offene Dateien: kurz warten, nicht enden.
                 tokio::time::sleep(Duration::from_millis(100)).await;
@@ -391,7 +396,8 @@ async fn lausche(
             zeit: e.schreib_zeit,
             uhr: None,
         };
-        let dienst = service_fn(move |anfrage| antwort(Arc::clone(&zustand), anfrage));
+        let gegenstelle = gegenstelle.ip();
+        let dienst = service_fn(move |anfrage| antwort(Arc::clone(&zustand), anfrage, gegenstelle));
         let tls = tls.clone();
         let kopf_zeit = e.kopf_zeit;
         tokio::spawn(async move {
@@ -625,6 +631,8 @@ struct Zustand {
     /// So lange darf der Körper eines `POST` unter `/api/` brauchen, wie der
     /// Kopf, `--header-timeout`.
     kopf_zeit: Duration,
+    /// `--trusted-proxy`, siehe [`ip::adresse`].
+    vertraut: Vec<IpAddr>,
     angaben: Option<Angaben>,
     liste: Mutex<Liste>,
     /// Die Zufälle der Token, deren Strom gerade läuft.
@@ -760,9 +768,10 @@ fn karte(z: &Zustand, h: &mut HeaderMap) {
 async fn antwort(
     z: Arc<Zustand>,
     anfrage: Request<Incoming>,
+    gegenstelle: IpAddr,
 ) -> Result<Response<Koerper>, Infallible> {
     if anfrage.uri().path().starts_with(api::API) {
-        return Ok(voll(api_antwort(z, anfrage).await));
+        return Ok(voll(api_antwort(z, anfrage, gegenstelle).await));
     }
     let kopf = anfrage.method() == Method::HEAD;
     let zip = anfrage
@@ -789,7 +798,11 @@ async fn antwort(
 /// [`api::KOERPER`], sonst `413`, und so lange wie den Kopf, sonst `408`:
 /// Ein langsamer Körper hielte sonst einen Platz der Verbindungen. Dann die
 /// Antwort aus einem Thread, der Dateien lesen darf.
-async fn api_antwort(z: Arc<Zustand>, anfrage: Request<Incoming>) -> Response<Full<Bytes>> {
+async fn api_antwort(
+    z: Arc<Zustand>,
+    anfrage: Request<Incoming>,
+    gegenstelle: IpAddr,
+) -> Response<Full<Bytes>> {
     if z.spieler.is_none() || z.freigabe.is_none() {
         return api::privat(leer(&z, StatusCode::NOT_FOUND));
     }
@@ -807,6 +820,7 @@ async fn api_antwort(z: Arc<Zustand>, anfrage: Request<Incoming>) -> Response<Fu
         _ => Bytes::new(),
     };
     let a = api::Anfrage {
+        ip: ip::adresse(gegenstelle, &z.vertraut, &teile.headers),
         methode: teile.method,
         rest,
         felder: teile.headers,
@@ -1832,6 +1846,7 @@ mod tests {
             spieler: None,
             tls: false,
             kopf_zeit: Duration::from_secs(10),
+            vertraut: Vec::new(),
             angaben: None,
             liste: Mutex::default(),
             stroeme: Mutex::default(),

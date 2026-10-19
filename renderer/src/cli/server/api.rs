@@ -3,7 +3,8 @@
 //! Mitspieler aus den Dateien des Plugins, Klicks als Zeile `Aktion:` und
 //! Zuschauer als Zeile `Web:` auf stdout.
 //! Siehe docs/benutzung/server.md, „Aktionsebenen“.
-//! Siehe docs/benutzung/server.md, „Erkennung per IP“ und „Erkennen über IPv4“.
+//! Siehe docs/benutzung/server.md, „Erkennung per IP“.
+//! Siehe docs/benutzung/server.md, „Erkennen über IPv4“.
 
 use std::collections::HashMap;
 use std::io::Write;

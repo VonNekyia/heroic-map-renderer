@@ -21,8 +21,9 @@ pub(super) struct Token {
     pub baum: String,
 }
 
-/// Eine Anmeldung oder Sitzung der Webkarte, Fassung 2 oder 3.
-/// Siehe docs/plugin.md, „Anmeldung und Sitzung“.
+/// Eine Anmeldung oder Sitzung der Webkarte, Fassung 2 bis 5.
+/// Siehe docs/plugin.md, „Anmeldung und Sitzung“, und
+/// docs/benutzung/server.md, „Erkennen über IPv4“.
 #[derive(Debug, PartialEq, Eq)]
 pub(super) struct Sitzung {
     /// Die UUID des Spielers, 16 Byte nach RFC 4122.
@@ -32,14 +33,35 @@ pub(super) struct Sitzung {
     /// Der Zähler des Spielers fürs Abmelden.
     pub zaehler: u32,
     pub zufall: [u8; 16],
+    /// Bei Fassung 4 und 5 das HMAC der IP, an der der Server den Spieler
+    /// erkannt hat; sonst keins.
+    pub ip: Option<[u8; 32]>,
 }
 
 /// Welche Art von [`Sitzung`] eine Prüfung verlangt; der Wert ist die
 /// Fassung.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Art {
+    /// Aus dem Spiel, `/karte anmelden`.
     Anmeldung = 2,
+    /// Vom Server nach einer Anmeldung, alle Rechte.
     Sitzung = 3,
+    /// Vom Server bei `api/erkennen`, zum Tausch gegen eine lesende Sitzung.
+    Tausch = 4,
+    /// Vom Server nach einem Tausch, nur lesend.
+    Lesend = 5,
+}
+
+impl Art {
+    /// Trägt die Fassung das HMAC der IP?
+    fn mit_ip(self) -> bool {
+        matches!(self, Art::Tausch | Art::Lesend)
+    }
+
+    /// Bytes des Inhalts: 45, mit dem HMAC der IP 77.
+    fn laenge(self) -> usize {
+        if self.mit_ip() { 77 } else { 45 }
+    }
 }
 
 /// Warum ein Token nicht gilt, wie in den Testvektoren.
@@ -76,7 +98,7 @@ pub(super) fn pruefe_sitzung(
     art: Art,
 ) -> Result<Sitzung, Grund> {
     let inhalt = unterschrieben(text, geheimnis)?;
-    if inhalt.len() != 45 || inhalt[0] != art as u8 {
+    if inhalt.len() != art.laenge() || inhalt[0] != art as u8 {
         return Err(Grund::Inhalt);
     }
     let sitzung = Sitzung {
@@ -84,6 +106,9 @@ pub(super) fn pruefe_sitzung(
         ablauf: u64::from_be_bytes(inhalt[17..25].try_into().expect("8 Byte")),
         zaehler: u32::from_be_bytes(inhalt[25..29].try_into().expect("4 Byte")),
         zufall: inhalt[29..45].try_into().expect("16 Byte"),
+        ip: art
+            .mit_ip()
+            .then(|| inhalt[45..77].try_into().expect("32 Byte")),
     };
     if jetzt >= sitzung.ablauf {
         return Err(Grund::Abgelaufen);
@@ -92,14 +117,21 @@ pub(super) fn pruefe_sitzung(
 }
 
 /// Stellt eine Sitzung als Token in der Fassung von `art` aus, wie es
-/// [`pruefe_sitzung`] annimmt.
+/// [`pruefe_sitzung`] annimmt. Das HMAC der IP gehört genau zu Fassung 4
+/// und 5.
 pub(super) fn stelle_aus(sitzung: &Sitzung, art: Art, geheimnis: &hmac::Key) -> String {
-    let mut inhalt = Vec::with_capacity(45);
+    assert_eq!(
+        sitzung.ip.is_some(),
+        art.mit_ip(),
+        "HMAC der IP und {art:?}"
+    );
+    let mut inhalt = Vec::with_capacity(art.laenge());
     inhalt.push(art as u8);
     inhalt.extend(sitzung.spieler);
     inhalt.extend(sitzung.ablauf.to_be_bytes());
     inhalt.extend(sitzung.zaehler.to_be_bytes());
     inhalt.extend(sitzung.zufall);
+    inhalt.extend(sitzung.ip.iter().flatten());
     let unterschrift = hmac::sign(geheimnis, &inhalt);
     format!("{}.{}", kodiere(&inhalt), kodiere(unterschrift.as_ref()))
 }
@@ -299,15 +331,15 @@ mod tests {
                     "{name}"
                 );
                 // Keine Art gilt als eine andere, auch nicht als Download.
-                let andere = match art {
-                    Art::Anmeldung => Art::Sitzung,
-                    Art::Sitzung => Art::Anmeldung,
-                };
-                assert_eq!(
-                    pruefe_sitzung(text, &geheimnis, jetzt, andere).err(),
-                    Some(Grund::Inhalt),
-                    "{name}"
-                );
+                for andere in [Art::Anmeldung, Art::Sitzung, Art::Tausch, Art::Lesend] {
+                    if andere != art {
+                        assert_eq!(
+                            pruefe_sitzung(text, &geheimnis, jetzt, andere).err(),
+                            Some(Grund::Inhalt),
+                            "{name} als {andere:?}"
+                        );
+                    }
+                }
                 assert_eq!(
                     pruefe(text, &geheimnis, jetzt).err(),
                     Some(Grund::Inhalt),
@@ -325,6 +357,55 @@ mod tests {
                 let ergebnis = pruefe_sitzung(u["token"].as_str().unwrap(), &geheimnis, jetzt, art);
                 assert_eq!(ergebnis.err(), Some(erwartet), "{schluessel}: {name}");
             }
+        }
+    }
+
+    /// Fassung 4 und 5 tragen das HMAC der IP, 77 Byte, als Token 147
+    /// Zeichen; keine Fassung gilt als eine andere.
+    #[test]
+    fn tausch_und_lesend_mit_dem_hmac_der_ip() {
+        let geheimnis = hmac::Key::new(hmac::HMAC_SHA256, &[9; 32]);
+        let mit = Sitzung {
+            spieler: [1; 16],
+            ablauf: 2000,
+            zaehler: 3,
+            zufall: [4; 16],
+            ip: Some([5; 32]),
+        };
+        let ohne = Sitzung { ip: None, ..mit };
+        for art in [Art::Tausch, Art::Lesend] {
+            let text = stelle_aus(&mit, art, &geheimnis);
+            assert_eq!(text.len(), 147, "{art:?}");
+            assert_eq!(
+                pruefe_sitzung(&text, &geheimnis, 1000, art).as_ref(),
+                Ok(&mit)
+            );
+            for andere in [Art::Anmeldung, Art::Sitzung, Art::Tausch, Art::Lesend] {
+                if andere != art {
+                    assert_eq!(
+                        pruefe_sitzung(&text, &geheimnis, 1000, andere).err(),
+                        Some(Grund::Inhalt),
+                        "{art:?} als {andere:?}"
+                    );
+                }
+            }
+            assert_eq!(pruefe(&text, &geheimnis, 1000).err(), Some(Grund::Inhalt));
+            assert_eq!(
+                pruefe_sitzung(&text, &geheimnis, 2000, art).err(),
+                Some(Grund::Abgelaufen)
+            );
+        }
+        for art in [Art::Anmeldung, Art::Sitzung] {
+            let text = stelle_aus(&ohne, art, &geheimnis);
+            assert_eq!(text.len(), 104);
+            assert_eq!(
+                pruefe_sitzung(&text, &geheimnis, 1000, art).unwrap().ip,
+                None
+            );
+            assert_eq!(
+                pruefe_sitzung(&text, &geheimnis, 1000, Art::Lesend).err(),
+                Some(Grund::Inhalt)
+            );
         }
     }
 

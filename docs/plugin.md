@@ -432,7 +432,7 @@ so: [0110](entscheidungen/0110-erkennung-per-ip.md).
   Dimension der Wurzel, Lagen auf ganze Blöcke gerundet:
 
   ```json
-  {"jetzt":1760000000,"ich":{"x":12,"z":-40},"spieler":[{"uuid":"…","name":"…","x":0,"z":0}]}
+  {"jetzt":1760012345,"ich":{"x":12,"z":-40},"spieler":[{"uuid":"…","name":"…","x":0,"z":0}]}
   ```
 
   - Offline `{"jetzt":…,"spieler":[]}` ohne `ich`.

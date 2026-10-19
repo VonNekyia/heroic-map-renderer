@@ -418,6 +418,28 @@ test('wird eine Ebene ausgeschaltet, während die Höhen für ihre Nadeln laden,
   await expect(page.locator('.leaflet-marker-icon')).toHaveCount(0);
 });
 
+test('dauert das Laden einer Ebene länger als bis zum nächsten Nachfragen, startet es nicht neu, und die Ebene erscheint', async ({ page }) => {
+  await welt(page, staedte([HAFEN]));
+  // Die erste Anfrage hängt, bis der Test sie freigibt; jede weitere hängt für immer.
+  let anfragen = 0;
+  let frei: (() => void) | undefined;
+  await page.route('**/tiles-demo/layers/beispiel/staedte.json', async (route) => {
+    anfragen++;
+    const erste = anfragen === 1;
+    await new Promise<void>((weiter) => {
+      if (erste) frei = weiter;
+    });
+    await route.fulfill({ json: { ...STAEDTE, objects: [HAFEN] } });
+  });
+  await page.goto(DEMO);
+  await expect.poll(() => anfragen).toBe(1);
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  await page.waitForTimeout(500);
+  frei!();
+  await expect(page.locator('.nadel-icon[title="Hafenstadt"]')).toHaveCount(1);
+  expect(anfragen).toBe(1);
+});
+
 test('an, aus, an: es steht genau eine Gruppe, die des letzten Einschaltens, auch wenn das erste Laden zuletzt fertig wird', async ({ page }) => {
   let freigeben = () => {};
   const frei = new Promise<void>((los) => (freigeben = los));

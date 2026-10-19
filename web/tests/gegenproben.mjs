@@ -79,4 +79,8 @@ export default [
   { name: 'kacheln-nicht-gekappt', datei: 'src/main.ts', alt: '    maxNativeZoom: feinste,', neu: '    maxNativeZoom: info.maxZoom + 0 * feinste,', spec: 'tests/smoke.spec.ts', titel: 'Ansichten mit 2 und 1 px je Block' },
   { name: 'grenze-nach-scale', datei: 'src/main.ts', alt: 'const hoechste = feinste + extraZoom(px ?? info.scale);', neu: 'const hoechste = feinste + extraZoom(info.scale);', spec: 'tests/smoke.spec.ts', titel: 'Ansichten mit 2 und 1 px je Block' },
   { name: 'px-faellt-aus-der-adresse', datei: 'src/main.ts', alt: 'void ansicht(baum?.path, px).then', neu: 'void ansicht(baum?.path, undefined).then', spec: 'tests/smoke.spec.ts', titel: 'Ansichten mit 2 und 1 px je Block' },
+  // Erstes Zeichnen und Fokus der Flächen.
+  { name: 'nachfragen-startet-neu', datei: 'src/ebenen.ts', alt: ' && laeuft.get(e.id) !== e.version);', neu: ');', spec: 'tests/ebenen.spec.ts', titel: 'dauert das Laden einer Ebene länger' },
+  { name: 'fokus-mit-kasten', datei: 'src/style.css', alt: '.leaflet-pane path[tabindex]:focus {\n  outline: none;\n}\n', neu: '', spec: 'tests/formen.spec.ts', titel: 'nach einem Klick auf eine Fläche mit Tafel kein Rahmen' },
+  { name: 'fokus-ohne-strich', datei: 'src/style.css', alt: '  stroke: var(--ui-markiert);\n  stroke-width: 2px;\n', neu: '', spec: 'tests/formen.spec.ts', titel: 'nach einem Klick auf eine Fläche mit Tafel kein Rahmen' },
 ];

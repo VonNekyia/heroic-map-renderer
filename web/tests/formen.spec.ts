@@ -478,6 +478,24 @@ test('eine Fläche mit Tafel erreicht die Tastatur: Enter öffnet die Tafel mit 
   await expect(ziel).toBeFocused();
 });
 
+test('nach einem Klick auf eine Fläche mit Tafel kein Rahmen; im Fokus der Tastatur ihr Umriss als Strich, kein Kasten', async ({ page }) => {
+  const gebiet = { ...GEBIET, name: 'Gebiet', panel: { blocks: [{ type: 'title', text: 'Gebietstafel' }] } };
+  await welt(page, staedte([gebiet]));
+  await page.goto(DEMO);
+  const ziel = page.locator('path[tabindex="0"]');
+  const stil = () => ziel.evaluate((e) => ({ outline: getComputedStyle(e).outlineStyle, strich: getComputedStyle(e).stroke }));
+  await ziel.click();
+  await expect(page.locator('.tafel .tafel-titel')).toHaveText('Gebietstafel');
+  await expect(ziel).toBeFocused();
+  expect(await stil()).toEqual({ outline: 'none', strich: 'none' });
+  // Mit der Tastatur: erst weg, dann zurück, so zählt der Fokus als sichtbar.
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Shift+Tab');
+  await page.keyboard.press('Tab');
+  await expect(ziel).toBeFocused();
+  expect(await stil()).toEqual({ outline: 'none', strich: 'rgb(0, 0, 0)' });
+});
+
 test('Flächen liegen nach order übereinander; eine ohne Namen und Tafel lässt Klicks zu den Flächen darunter durch', async ({ page }) => {
   const oben = { ...STAEDTE, id: 'beispiel:oben', name: { de: 'Oben' }, order: 2 };
   const mitte = { ...STAEDTE, id: 'beispiel:mitte', name: { de: 'Mitte' }, order: 1 };

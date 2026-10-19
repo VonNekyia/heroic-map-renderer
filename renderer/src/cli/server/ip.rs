@@ -249,9 +249,15 @@ mod tests {
             serde_json::from_str(&std::fs::read_to_string(pfad).unwrap()).unwrap();
         let hex = |t: &str| bytes::<32>(t).unwrap();
         let geheimnis: Vec<u8> = (0..32).collect();
-        assert_eq!(v["geheimnis_hex"].as_str().unwrap(), "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
+        assert_eq!(
+            v["geheimnis_hex"].as_str().unwrap(),
+            "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+        );
         let schluessel = hmac::Key::new(hmac::HMAC_SHA256, &geheimnis);
-        assert_eq!(v["ips"]["vorsatz_hex"].as_str().unwrap().len(), 2 * VORSATZ.len());
+        assert_eq!(
+            v["ips"]["vorsatz_hex"].as_str().unwrap().len(),
+            2 * VORSATZ.len()
+        );
         let vektoren = v["ips"]["vektoren"].as_array().unwrap();
         assert!(!vektoren.is_empty());
         for vektor in vektoren {

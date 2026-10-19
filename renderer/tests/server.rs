@@ -1793,7 +1793,8 @@ fn webkarte_je_spieler() {
     assert_eq!(ich.header("cache-control"), Some("private, no-store"));
     assert_eq!(ich.header("content-type"), Some("application/json"));
     assert!(String::from_utf8_lossy(&ich.koerper).contains("Anna"));
-    assert_eq!(lies("/api/ich", None).status, 401);
+    // Ohne Cookie ein Gast, siehe „Erkennung per IP“; ein ungültiges ohne IP 401.
+    assert_eq!(lies("/api/ich", None).status, 204);
     assert_eq!(lies("/api/ich", Some("hm_sitzung=AAAA.BBBB")).status, 401);
     let mit_anderen = format!("theme=dunkel; {cookie}; x=1");
     assert_eq!(lies("/api/ich", Some(&mit_anderen)).status, 200);

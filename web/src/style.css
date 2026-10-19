@@ -292,9 +292,15 @@ body {
   display: none;
 }
 
-/* Eine Fläche mit Tafel im Fokus der Tastatur. */
+/* Eine Fläche mit Tafel im Fokus: nach einem Klick kein Rahmen, für die
+   Tastatur ihr Umriss als Strich, nicht der Kasten um sie. */
+.leaflet-pane path[tabindex]:focus {
+  outline: none;
+}
+
 .leaflet-pane path[tabindex]:focus-visible {
-  outline: 2px solid var(--ui-markiert);
+  stroke: var(--ui-markiert);
+  stroke-width: 2px;
 }
 
 /* Kartenschrift: ein SVG je Schriftzug, nicht anklickbar. */

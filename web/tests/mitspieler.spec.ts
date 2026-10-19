@@ -3,7 +3,7 @@ import { server, TAUSCH } from './api-server';
 import { DEMO, HAFEN, STAEDTE, welt } from './ebenen-welt';
 
 const nurStaedte = { liste: () => [STAEDTE], datei: (name: string) => (name === 'staedte' ? { objects: [HAFEN] } : undefined) };
-const ALEX = { uuid: '5f3c2b6e-0d4a-4c1e-9b7a-2e5f6a1d3c90', name: 'Alex', x: 20, z: -30 };
+const ALEX = { uuid: '5f3c2b6e-0d4a-4c1e-9b7a-2e5f6a1d3c90', name: 'Alex<b>!</b>', x: 20, z: -30 };
 /** Eine Sicht des Plugins, mit `jetzt` in Sekunden. */
 const sichtMit = (jetzt: number, alex = ALEX) => ({ jetzt, ich: { x: 35, z: -15 }, spieler: [alex] });
 
@@ -19,7 +19,8 @@ test('über die IP erkannt: „Erkannt als … (über die IP)“, kein Abmelden,
   const knopf = page.locator('.tafel .tafel-knopf');
   await expect(knopf).toHaveAttribute('aria-disabled', 'true');
   await expect(page.locator('.tafel-hinweis')).toHaveText('Zum Schalten im Spiel /karte anmelden');
-  await knopf.click();
+  // Wie ein Mensch: aria-disabled hält den Klick nicht auf, die Seite muss es selbst tun.
+  await knopf.click({ force: true });
   await page.waitForTimeout(300);
   expect(z.anfragen.filter((a) => a.pfad === 'aktion')).toEqual([]);
 });
@@ -88,14 +89,16 @@ test('Mitspieler: erkannt alle 2 s aus api/sicht.json, der Betrachter hervorgeho
   await expect(figuren).toHaveCount(2);
   await expect(page.locator('.mitspieler.ich .mitspieler-name')).toHaveText('Steve');
   const alex = page.locator('.mitspieler:not(.ich)');
-  await expect(alex.locator('.mitspieler-name')).toHaveText('Alex');
+  // Der Name nur als Text, auch mit Zeichen wie Markup.
+  await expect(alex.locator('.mitspieler-name')).toHaveText('Alex<b>!</b>');
+  expect(await alex.locator('b').count()).toBe(0);
   const vorher = await alex.boundingBox();
   await alex.evaluate((e) => ((e as HTMLElement & { probe?: number }).probe = 1));
-  z.sicht = sichtMit(1001, { ...ALEX, x: 40, z: -10, name: '<b>Alex</b>' });
+  // Nur x ändert sich: Im Blick aus Südost wandert die Figur dann nach rechts unten.
+  z.sicht = sichtMit(1001, { ...ALEX, x: 40 });
   await expect.poll(async () => (await alex.boundingBox())!.x, { timeout: 4000 }).not.toBe(vorher!.x);
-  // Dasselbe Element, nur verschoben; der Name bleibt Text.
+  // Dasselbe Element, nur verschoben.
   expect(await alex.evaluate((e) => (e as HTMLElement & { probe?: number }).probe)).toBe(1);
-  expect(await alex.locator('b').count()).toBe(0);
   expect(z.anfragen.filter((a) => a.pfad === 'sicht.json').length).toBeGreaterThanOrEqual(2);
 });
 

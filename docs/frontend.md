@@ -571,7 +571,18 @@ Banner, feste Grösse und die Tafel beim Zeigen folgen
     kleinen Formen. Der Cache für `ground` hält 8 Regionen, der für
     `heights` 64. Die Grenze gilt nur für die Webkarte;
   - die Wand am Rand einer Fläche im iso, siehe [Ebenen](benutzung/ebenen.md),
-    „Die Wand“; im iso füllt eine Fläche nicht, siehe „Flächen“;
+    „Die Wand“; im iso füllt eine Fläche nicht, siehe „Flächen“. Die Karte
+    zeigt die Wand nur, solange sie auf dem Schirm mindestens 1 px hoch ist;
+    darunter nimmt sie ihre Pfade von der Karte und hängt sie beim
+    Hineinzoomen wieder an, vor die Ränder;
+  - **ohne Gelände,** wenn eine Ebene ganz auf `seaLevel` liegt, ohne Höhen
+    oder über der Grenze oben: Flächen und Ränder sind ihre Ringe, ohne Netz,
+    ohne Abtasten und ohne Wand; ein Kreis ist ein 128-Eck. Es ist nichts
+    verdeckt, und es gibt nichts zu glätten;
+  - **gedeckelt:** Ein Kreis hat Seiten von einer Zelle, höchstens 512. Ein
+    Zug über mehr als 512 Zellen tastet an Linien im Abstand Länge / 512 ab
+    statt an jeder Zelle. Sonst gäbe ein grosser Kreis Millionen Punkte,
+    siehe [Ebenen im weiten Blick](messungen/2026-10-19-ebenen-im-weiten-blick.md);
   - ausserhalb von `area` wird nichts gezeichnet: Flächen und Züge werden
     vorher beschnitten;
   - Flächen: Felder zwischen den Mitten der Zellen; welche sichtbar sind,

@@ -83,4 +83,11 @@ export default [
   { name: 'nachfragen-startet-neu', datei: 'src/ebenen.ts', alt: ' && laeuft.get(e.id) !== e.version);', neu: ');', spec: 'tests/ebenen.spec.ts', titel: 'dauert das Laden einer Ebene länger' },
   { name: 'fokus-mit-kasten', datei: 'src/style.css', alt: '.leaflet-pane path[tabindex]:focus {\n  outline: none;\n}\n', neu: '', spec: 'tests/formen.spec.ts', titel: 'nach einem Klick auf eine Fläche mit Tafel kein Rahmen' },
   { name: 'fokus-ohne-strich', datei: 'src/style.css', alt: '  stroke: var(--ui-markiert);\n  stroke-width: 2px;\n', neu: '', spec: 'tests/formen.spec.ts', titel: 'nach einem Klick auf eine Fläche mit Tafel kein Rahmen' },
+  // Kreise ohne Gelände, Deckel, Wand ab 1 px.
+  { name: 'eben-mit-netz', datei: 'src/formen.ts', alt: '        eben && blick.p.y > 0\n', neu: '        eben && blick.p.y < 0\n', spec: 'tests/formen.spec.ts', titel: 'ohne Gelände im iso' },
+  { name: 'eben-mit-wand', datei: 'src/formen.ts', alt: 'if (blick.p.y === 0 || eben || !hatFlaeche(f)) continue;', neu: 'if (blick.p.y === 0 || !hatFlaeche(f)) continue;', spec: 'tests/formen.spec.ts', titel: 'ohne Gelände im iso' },
+  { name: 'kreis-ohne-deckel', datei: 'src/gelaende.ts', alt: '(eben ? KREIS.ohneGelaende : KREIS.seiten)', neu: '(eben ? KREIS.ohneGelaende : Infinity)', spec: 'tests/gelaende.spec.ts', titel: 'kreisRing:' },
+  { name: 'proben-ohne-deckel', datei: 'src/gelaende.ts', alt: 'const c = Math.max(zelle, laenge / PROBEN);', neu: 'const c = Math.max(zelle, laenge / PROBEN / 1e9);', spec: 'tests/gelaende.spec.ts', titel: 'abtasten: Ein Zug über 512 Zellen' },
+  { name: 'wand-immer', datei: 'src/ebenen.ts', alt: 'const mitWand = (): boolean => wandHoehe(blick) * faktor() >= 1;', neu: 'const mitWand = (): boolean => wandHoehe(blick) * faktor() >= 0;', spec: 'tests/formen.spec.ts', titel: 'die Wand fällt weg' },
+  { name: 'wand-ueber-rand', datei: 'src/ebenen.ts', alt: '    for (const s of g.striche) g.formen.removeLayer(s.linie);\n', neu: '', spec: 'tests/formen.spec.ts', titel: 'die Wand fällt weg' },
 ];

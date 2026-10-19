@@ -190,8 +190,9 @@ Belegt per `javap` am Client von 26.2 in `MapItem.update`,
   Speicher, siehe
   [2026-10-10, Licht je Spalte](../messungen/2026-10-10-licht-je-spalte.md).
 - **Platz:** ×0,087.
-- **Arbeitsspeicher:** an der Spitze 1,55 GiB, rund 1,3-mal die Karte. Eine
-  Kachel deckt 16 × 16 Chunks; gezeichnet wird sie in Bändern, siehe
+- **Arbeitsspeicher:** an der Spitze 1,22 GiB, rund 1,07-mal die Karte,
+  am 19.10. auf der Testwelt. Eine Kachel deckt 16 × 16 Chunks; gezeichnet
+  wird sie in Bändern von zwei Zeilen Chunks, siehe
   [Der Weg einer Kachel](renderpfad.md), „Speicher“.
 
 ## Was bleibt eine Näherung

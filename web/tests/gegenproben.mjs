@@ -85,6 +85,17 @@ export default [
   { name: 'nachfragen-startet-neu', datei: 'src/ebenen.ts', alt: ' && laeuft.get(e.id) !== e.version);', neu: ');', spec: 'tests/ebenen.spec.ts', titel: 'dauert das Laden einer Ebene länger' },
   { name: 'fokus-mit-kasten', datei: 'src/style.css', alt: '.leaflet-pane path[tabindex]:focus {\n  outline: none;\n}\n', neu: '', spec: 'tests/formen.spec.ts', titel: 'nach einem Klick auf eine Fläche mit Tafel kein Rahmen' },
   { name: 'fokus-ohne-strich', datei: 'src/style.css', alt: '  stroke: var(--ui-markiert);\n  stroke-width: 2px;\n', neu: '', spec: 'tests/formen.spec.ts', titel: 'nach einem Klick auf eine Fläche mit Tafel kein Rahmen' },
+  // Mitspieler und Erkennung per IP, #305.
+  { name: 'ip-darf-klicken', datei: 'src/ebenen.ts', alt: '|| spieler?.nurLesen) return;', neu: ') return;', spec: 'tests/mitspieler.spec.ts', titel: 'über die IP erkannt' },
+  { name: 'ip-knopf-frei', datei: 'src/ebenen.ts', alt: 'String(busy || spieler?.nurLesen === true)', neu: 'String(busy)', spec: 'tests/mitspieler.spec.ts', titel: 'über die IP erkannt' },
+  { name: 'kein-tausch', datei: 'src/ebenen.ts', alt: "if (antwort.art === 'gast' && antwort.erkennen) {", neu: "if (antwort.art === 'gast' && antwort.erkennen && !antwort.erkennen) {", spec: 'tests/mitspieler.spec.ts', titel: 'über IPv6 mit X-Heroic-Erkennen' },
+  { name: 'tausch-mit-cookie', datei: 'src/konto.ts', alt: "method: 'POST', credentials: 'omit',", neu: "method: 'POST', credentials: 'include',", spec: 'tests/mitspieler.spec.ts', titel: 'über IPv6 mit X-Heroic-Erkennen' },
+  { name: 'tausch-jede-adresse', datei: 'src/konto.ts', alt: "url.pathname !== '/api/erkennen' || ", neu: '', spec: 'tests/mitspieler.spec.ts', titel: 'X-Heroic-Erkennen geht nur an' },
+  { name: 'sicht-nie-alt', datei: 'src/ebenen.ts', alt: 'performance.now() - zuletzt.seit > SICHT.alt', neu: 'performance.now() - zuletzt.seit > SICHT.alt * 1e9', spec: 'tests/mitspieler.spec.ts', titel: 'ändert sich jetzt 15 s nicht' },
+  { name: 'figur-neu-statt-wandern', datei: 'src/ebenen.ts', alt: '        if (m) m.setLatLng(L.latLng(py, px));', neu: '        if (m && p.x < -1e9) m.setLatLng(L.latLng(py, px));', spec: 'tests/mitspieler.spec.ts', titel: 'eine Figur wandert' },
+  { name: 'ohne-layers-niemand', datei: 'src/ebenen.ts', alt: '  else await pruefe();', neu: '  else if (erste) await pruefe();', spec: 'tests/mitspieler.spec.ts', titel: 'Mitspieler auch ohne layers.json' },
+  { name: 'gast-fragt-sicht', datei: 'src/ebenen.ts', alt: 'if (!mitspielerAn() || sichtLaeuft) return;', neu: 'if (sichtLaeuft) return;', spec: 'tests/mitspieler.spec.ts', titel: 'Mitspieler auch ohne layers.json' },
+  { name: 'name-als-markup', datei: 'src/ebenen.ts', alt: "L.DomUtil.create('span', 'mitspieler-name', html).textContent = name;", neu: "L.DomUtil.create('span', 'mitspieler-name', html).innerHTML = name;", spec: 'tests/mitspieler.spec.ts', titel: 'eine Figur wandert' },
   // Kreise ohne Gelände, Deckel, Wand ab 1 px.
   { name: 'eben-mit-netz', datei: 'src/formen.ts', alt: '        eben && blick.p.y > 0\n', neu: '        eben && blick.p.y < 0\n', spec: 'tests/formen.spec.ts', titel: 'ohne Gelände im iso' },
   { name: 'eben-mit-wand', datei: 'src/formen.ts', alt: 'if (blick.p.y === 0 || eben || !hatFlaeche(f)) continue;', neu: 'if (blick.p.y === 0 || !hatFlaeche(f)) continue;', spec: 'tests/formen.spec.ts', titel: 'ohne Gelände im iso' },

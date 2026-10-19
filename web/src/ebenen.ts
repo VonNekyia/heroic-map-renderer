@@ -15,7 +15,7 @@ import { bereich, form, hatFlaeche, versetze, wandHoehe, zeichne, zuege, type Fo
 import { bildpunkt, oberflaeche as hoeheAuf, rechteck, schriftPfad, zurKamera, type Blick, type Gelaende, type Rechteck } from './gelaende';
 import { FRISCH, LEER, type Hoehenkarten } from './hoehen';
 import { REGION } from './pick';
-import { abmelden, aktion, anmelden, ebene as spielerEbene, ich, knoepfe as holeKnoepfeVomServer, nimmToken, objektSchluessel, type Knopf, type Spieler } from './konto';
+import { abmelden, aktion, anmelden, ebene as spielerEbene, erkennen, ich, knoepfe as holeKnoepfeVomServer, nimmToken, objektSchluessel, sicht, type Knopf, type Spieler } from './konto';
 import { farbe, istObjekt, istText, istZahl, punkt } from './pruefen';
 import { KAPPE, ladeSchrift, Schrift, schriftzug, SVG, type Schriftzug } from './schrift';
 
@@ -105,6 +105,9 @@ const GROESSEN: Groesse[] = ['large', 'medium', 'small'];
 
 /** So oft fragt die Karte `layers.json` nach, in ms. */
 const TAKT = 30_000;
+
+/** So oft fragt die Karte nach den Mitspielern, und nach so langer Zeit ohne neues `jetzt` gelten sie als veraltet, in ms. */
+const SICHT = { takt: 2000, alt: 15_000 };
 
 /** Grenzen aus docs/benutzung/ebenen.md, „Grenzen“. */
 const GRENZEN = { liste: 64 * 1024, datei: 4 * 1024 * 1024, ebenen: 64, objekte: 10_000, nadeln: 1000, bausteine: 64, bild: 512, punkte: 20, banner: [32, 64] };
@@ -551,17 +554,19 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
   const eben: Gelaende = { c, grund, zelle: () => undefined, max: grund + 1 };
 
   /** Die Oberseite des Geländes je Punkt, einmal gerechnet; siehe ebenen.md, „Die Oberfläche im iso“. */
+  /** Die Oberseite des Geländes an einem Punkt, ohne Cache, etwa für Mitspieler, die laufen. */
+  const oberflaecheJetzt = async (x: number, z: number): Promise<number> => {
+    if (!iso || !karten || !heightsCell) return grund + 1;
+    // Vier Zellen um den Punkt und für den Ersatz zwei weitere in jede Richtung.
+    await karten.lade([-3 * c, 3 * c].flatMap((dx) => [-3 * c, 3 * c].map((dz) => [Math.floor(x + dx), 0, Math.floor(z + dz)] as [number, number, number])));
+    return hoeheAuf({ ...eben, zelle: (i, j) => karten.hoehe(i * c, j * c) }, x, z);
+  };
   const oberflaechen = new Map<string, Promise<number>>();
   const oberflaeche = (x: number, z: number): Promise<number> => {
     const schluessel = `${x},${z}`;
     let wert = oberflaechen.get(schluessel);
     if (!wert) {
-      wert = (async () => {
-        if (!iso || !karten || !heightsCell) return grund + 1;
-        // Vier Zellen um den Punkt und für den Ersatz zwei weitere in jede Richtung.
-        await karten.lade([-3 * c, 3 * c].flatMap((dx) => [-3 * c, 3 * c].map((dz) => [Math.floor(x + dx), 0, Math.floor(z + dz)] as [number, number, number])));
-        return hoeheAuf({ ...eben, zelle: (i, j) => karten.hoehe(i * c, j * c) }, x, z);
-      })();
+      wert = oberflaecheJetzt(x, z);
       oberflaechen.set(schluessel, wert);
     }
     return wert;
@@ -696,14 +701,18 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
   let eintraege: Eintrag[] = [];
   /** Die Einträge aus `layers.json`, wie zuletzt gelesen, auch Aktionsebenen ohne Anmeldung. */
   let roh: unknown[] = [];
-  let mitAktionsebene = false;
 
   // Anmeldung und Knöpfe, siehe docs/frontend.md, „Aktionsebenen“.
   let spieler: Spieler | undefined;
   /** Ob unter `api/` ein Server des Renderers antwortet; erst nach der ersten Frage bekannt. */
   let mitServer = false;
-  /** Ob die Seite schon gefragt hat, wer angemeldet ist. */
-  let gefragt = false;
+  /** Ein Gast über IPv6, den der Server ohne zweiten Namen nicht erkennen kann. */
+  let ipv6 = false;
+  /** Der Hinweis an gesperrten Knöpfen: über die IP erkannt, oder der Server sagt 403. */
+  const NUR_LESEN = 'Zum Schalten im Spiel /karte anmelden';
+  /** Die eingebaute Ansicht der Mitspieler, gemerkt wie eine Ebene. */
+  const MITSPIELER = 'heroicmap:mitspieler';
+  const mitspielerAn = (): boolean => spieler !== undefined && (wahl.lies()[MITSPIELER] ?? true);
   /** Was beim letzten Anmelden schiefging, für die Liste. */
   let meldung = '';
   /** Die Knöpfe je Objekt, nach `objektSchluessel`. */
@@ -713,23 +722,6 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
   /** Je Objekt ein Hinweis unter den Knöpfen, etwa „noch keine Antwort“. */
   const hinweise = new Map<string, string>();
   const knopfSchluessel = (k: Knopf) => JSON.stringify([k.ebene, k.objekt, k.knopf]);
-  /** Ob dieser Browser zuletzt angemeldet war; nur, damit die Seite auch ohne Aktionsebene nach Knöpfen fragt. */
-  const merkName = `angemeldet:${location.pathname}`;
-  const merke = (an: boolean): void => {
-    try {
-      if (an) localStorage.setItem(merkName, '1');
-      else localStorage.removeItem(merkName);
-    } catch {
-      // Ohne Speicher fragt die Seite nur mit Aktionsebene.
-    }
-  };
-  const warAngemeldet = (): boolean => {
-    try {
-      return localStorage.getItem(merkName) === '1';
-    } catch {
-      return false;
-    }
-  };
 
   /** Die Tafel, die gerade offen ist, das Element ihres Ziels, das den Fokus zurückbekommt, und ob sie gehalten ist. */
   let offen: { popup: L.Popup; element: () => Element | undefined; gehalten: () => boolean } | undefined;
@@ -1187,10 +1179,23 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
   let gezeigteListe = '';
   /** Baut die Liste nur, wenn sich Ebenen, Namen oder Reihenfolge ändern; so bleibt der Fokus. */
   const zeigeListe = (): void => {
-    const stand = JSON.stringify(eintraege.map((e) => [e.id, e.name, e.order]));
+    const stand = JSON.stringify([spieler !== undefined, eintraege.map((e) => [e.id, e.name, e.order])]);
     if (stand !== gezeigteListe) {
       gezeigteListe = stand;
       inhalt.replaceChildren();
+      // Die Mitspieler, eingebaut, nur erkannt; siehe docs/frontend.md, „Mitspieler“.
+      if (spieler) {
+        const zeile = L.DomUtil.create('label', '', inhalt);
+        const box = L.DomUtil.create('input', '', zeile);
+        box.type = 'checkbox';
+        box.dataset.id = MITSPIELER;
+        zeile.append(' Mitspieler');
+        box.addEventListener('change', () => {
+          wahl.setze(MITSPIELER, box.checked);
+          if (box.checked) void holeSicht();
+          else leereSicht();
+        });
+      }
       for (const e of eintraege) {
         const zeile = L.DomUtil.create('label', '', inhalt);
         const box = L.DomUtil.create('input', '', zeile);
@@ -1207,6 +1212,7 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     for (const box of inhalt.querySelectorAll<HTMLInputElement>('input')) {
       const e = eintraege.find((x) => x.id === box.dataset.id);
       if (e) box.checked = an(e);
+      else if (box.dataset.id === MITSPIELER) box.checked = mitspielerAn();
     }
   };
 
@@ -1215,18 +1221,24 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
   let gezeigtesKonto = '';
   /** Baut die Zeile nur, wenn sich etwas ändert; so bleibt der Fokus auf „Abmelden“. */
   const zeigeKonto = (): void => {
-    const stand = JSON.stringify([spieler?.uuid, spieler?.name, mitServer && mitAktionsebene, meldung]);
+    const stand = JSON.stringify([spieler?.uuid, spieler?.name, spieler?.nurLesen, mitServer, ipv6, meldung]);
     if (stand !== gezeigtesKonto) {
       gezeigtesKonto = stand;
       konto.replaceChildren();
-      if (spieler) {
+      if (spieler?.nurLesen) {
+        // Über die IP gibt es nichts abzumelden; klicken geht nur angemeldet.
+        L.DomUtil.create('span', '', konto).textContent = spieler.name ? `Erkannt als ${spieler.name} (über die IP)` : 'Erkannt (über die IP)';
+        L.DomUtil.create('div', 'ebenen-klein', konto).textContent = 'Nicht du? Im Spiel /karte anmelden';
+      } else if (spieler) {
         L.DomUtil.create('span', '', konto).textContent = spieler.name ? `Angemeldet als ${spieler.name} ` : 'Angemeldet ';
         const knopf = L.DomUtil.create('button', 'ebenen-abmelden', konto);
         knopf.type = 'button';
         knopf.textContent = 'Abmelden';
         knopf.addEventListener('click', () => void abmelden().then(abgemeldet));
-      } else if (mitServer && mitAktionsebene) {
-        konto.textContent = 'Anmelden für eigene Ebenen: im Spiel /karte anmelden';
+      } else if (mitServer) {
+        konto.textContent = ipv6
+          ? 'Über IPv6 erkennt die Karte dich nicht. Für eigene Ebenen und Mitspieler: im Spiel /karte anmelden'
+          : 'Anmelden für eigene Ebenen und Mitspieler: im Spiel /karte anmelden';
       }
       if (meldung) {
         const zeile = L.DomUtil.create('div', 'ebenen-meldung', konto);
@@ -1267,7 +1279,7 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
       b.setAttribute('aria-pressed', String(k.on));
       const busy = laufend.has(knopfSchluessel(k));
       b.setAttribute('aria-busy', String(busy));
-      b.setAttribute('aria-disabled', String(busy));
+      b.setAttribute('aria-disabled', String(busy || spieler?.nurLesen === true));
       return b;
     });
     let hinweis = leiste.querySelector<HTMLElement>('.tafel-hinweis');
@@ -1275,7 +1287,7 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
       hinweis = L.DomUtil.create('div', 'tafel-hinweis');
       hinweis.setAttribute('role', 'status');
     }
-    hinweis.textContent = hinweise.get(schluessel) ?? '';
+    hinweis.textContent = hinweise.get(schluessel) ?? (spieler?.nurLesen && neu.length ? NUR_LESEN : '');
     neu.push(hinweis);
     leiste.hidden = neu.length === 1 && !hinweis.textContent;
     if (neu.length !== leiste.children.length || neu.some((b, i) => leiste.children[i] !== b)) leiste.replaceChildren(...neu);
@@ -1314,21 +1326,34 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
   const abgemeldet = (): void => {
     if (!spieler) return;
     spieler = undefined;
-    merke(false);
     setzeKnoepfe([]);
+    leereSicht();
+    zeigeListe();
+    zeigeKonto();
     void abgleichen(roh);
   };
 
-  /** Fragt, wer angemeldet ist, und holt dann die Knöpfe. */
+  /**
+   * Fragt, wer angemeldet oder über die IP erkannt ist, und holt dann die
+   * Knöpfe. Kommt die Seite über IPv6 und kennt der Server einen Namen nur
+   * mit IPv4, erkennt sie sich dort und tauscht das Token gegen eine
+   * lesende Sitzung. Siehe docs/benutzung/server.md, „Erkennen über IPv4“.
+   */
   const pruefe = async (): Promise<void> => {
-    gefragt = true;
-    const antwort = await ich();
-    mitServer = antwort !== 'fehlt';
-    spieler = typeof antwort === 'object' ? antwort : undefined;
-    merke(spieler !== undefined);
+    let antwort = await ich();
+    if (antwort.art === 'gast' && antwort.erkennen) {
+      const tausch = await erkennen(antwort.erkennen);
+      if (tausch && (await anmelden(tausch)) === 204) antwort = await ich();
+    }
+    mitServer = antwort.art !== 'fehlt';
+    ipv6 = antwort.art === 'gast' && antwort.ipv6;
+    spieler = antwort.art === 'erkannt' ? antwort.spieler : undefined;
     if (spieler) await holeKnoepfe();
     else setzeKnoepfe([]);
+    zeigeListe();
     zeigeKonto();
+    if (spieler) void holeSicht();
+    else leereSicht();
   };
 
   /** Löst ein Anmelde-Token ein; danach ist die Liste offen, mit „Angemeldet als …“. */
@@ -1351,7 +1376,8 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
   const klick = async (ebeneId: string, objekt: string, knopfId: string): Promise<void> => {
     const schluessel = objektSchluessel(ebeneId, objekt);
     const k = knoepfe.get(schluessel)?.find((x) => x.knopf === knopfId);
-    if (!k || laufend.has(knopfSchluessel(k))) return;
+    // Über die IP nur sehen: Der Knopf ist gesperrt, sein Hinweis sagt, wie man schaltet.
+    if (!k || laufend.has(knopfSchluessel(k)) || spieler?.nurLesen) return;
     laufend.add(knopfSchluessel(k));
     hinweise.delete(schluessel);
     fuelleAlle();
@@ -1374,6 +1400,8 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     } else if (status === 404) {
       // Den Knopf gibt es nicht mehr.
       await holeKnoepfe();
+    } else if (status === 403) {
+      hinweis = NUR_LESEN;
     } else {
       hinweis = 'Klick nicht angenommen';
     }
@@ -1382,6 +1410,60 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     fuelleAlle();
     // Der Klick ändert womöglich Inhalte je Spieler, auch in anderen Ebenen.
     if (status === 202 && !hinweis) for (const e of eintraege) if (e.player && geladen.has(e.id)) void ladeEbene(e).catch((fehler: unknown) => console.error(e.id, fehler));
+  };
+
+  // Die Mitspieler auf der Karte, siehe docs/frontend.md, „Mitspieler“.
+  map.createPane('mitspieler').style.zIndex = '590';
+  /** Je Spieler seine Figur; `ich:` vor der UUID für den Betrachter selbst. */
+  const figuren = new Map<string, L.Marker>();
+  /** Das zuletzt gesehene `jetzt` und wann es kam, nach der Uhr der Seite. */
+  let zuletzt: { jetzt?: number; seit: number } = { seit: 0 };
+  let sichtLaeuft = false;
+  const leereSicht = (): void => {
+    for (const m of figuren.values()) m.remove();
+    figuren.clear();
+  };
+  /** Eine Figur: ein Punkt, darunter der Name, nur als Text. */
+  const figur = (name: string, selbst: boolean): L.DivIcon => {
+    const html = L.DomUtil.create('div', 'mitspieler-figur');
+    L.DomUtil.create('span', 'mitspieler-punkt', html);
+    L.DomUtil.create('span', 'mitspieler-name', html).textContent = name;
+    return L.divIcon({ html, className: selbst ? 'mitspieler ich' : 'mitspieler', iconSize: [12, 12], iconAnchor: [6, 6] });
+  };
+  /**
+   * Holt die Sicht und stellt die Figuren: neue dazu, bekannte verschoben,
+   * fehlende weg. Ändert sich `jetzt` 15 s lang nicht, nach der Uhr der Seite,
+   * nie der des Browsers gegen die des Servers, gelten alle als veraltet.
+   */
+  const holeSicht = async (): Promise<void> => {
+    if (!mitspielerAn() || sichtLaeuft) return;
+    sichtLaeuft = true;
+    try {
+      const s = await sicht();
+      if (s === 'abgemeldet') return abgemeldet();
+      if (s !== 'fehlt' && s.jetzt !== zuletzt.jetzt) zuletzt = { jetzt: s.jetzt, seit: performance.now() };
+      if (s === 'fehlt' || s.jetzt === undefined || performance.now() - zuletzt.seit > SICHT.alt) return leereSicht();
+      const selbst = spieler;
+      const alle = [...(s.ich && selbst ? [{ uuid: `ich:${selbst.uuid}`, name: selbst.name ?? 'Ich', ...s.ich, selbst: true }] : []), ...s.spieler.map((p) => ({ ...p, selbst: false }))];
+      // Die Mitte des Blocks, auf der Oberfläche wie eine Nadel ohne y.
+      const lagen = await Promise.all(alle.map(async ({ x, z }) => bildpunkt(x + 0.5, iso ? await oberflaecheJetzt(x + 0.5, z + 0.5) : 0, z + 0.5, blick)));
+      if (!mitspielerAn()) return;
+      const da = new Set<string>();
+      alle.forEach((p, i) => {
+        const [px, py] = lagen[i]!;
+        da.add(p.uuid);
+        const m = figuren.get(p.uuid);
+        if (m) m.setLatLng(L.latLng(py, px));
+        else figuren.set(p.uuid, L.marker(L.latLng(py, px), { icon: figur(p.name, p.selbst), pane: 'mitspieler', interactive: false, keyboard: false }).addTo(map));
+      });
+      for (const [k, m] of figuren) {
+        if (da.has(k)) continue;
+        m.remove();
+        figuren.delete(k);
+      }
+    } finally {
+      sichtLaeuft = false;
+    }
   };
 
   /** Liest die Liste; nimmt weg, was nicht mehr an ist, und lädt neu, was an ist und sich geändert hat. */
@@ -1393,7 +1475,6 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
       .map(eintrag)
       .filter((e): e is Eintrag => e !== undefined)
       .sort((a, b) => b.order - a.order || a.id.localeCompare(b.id));
-    mitAktionsebene = alle.some((e) => e.player);
     // Aktionsebenen nur angemeldet; siehe docs/frontend.md, „Aktionsebenen“.
     eintraege = alle.filter((e) => !e.player || spieler);
     zeigeListe();
@@ -1420,27 +1501,31 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     const liste = await json(`${wurzel}/layers.json`, GRENZEN.liste).catch(() => undefined);
     return istObjekt(liste) && Array.isArray(liste.layers) ? liste.layers : undefined;
   };
-  /** Ob eine Liste eine Aktionsebene nennt, ohne sie ganz zu lesen. */
-  const nenntAktionsebene = (liste: unknown[]) => liste.some((e) => istObjekt(e) && e.player === true);
   const nachfragen = async (): Promise<void> => {
     const liste = await holeListe();
     // Erst die Knöpfe, dann die Ebenen: So zeichnet eine Ebene schon mit ihnen.
     if (spieler) await holeKnoepfe();
-    else if (!gefragt && liste && nenntAktionsebene(liste)) await pruefe();
     if (liste) await abgleichen(liste);
   };
 
-  // Ohne layers.json beim Laden fragt die Karte bis zum Neuladen nicht nach.
   const erste = await holeListe();
-  if (!erste) return;
-  // Gäste ohne Aktionsebene fragen nie nach einer Sitzung, so sehen sie keine 401.
+  // Bei jedem Laden, auch ohne layers.json: Erkannt über die IP sieht man
+  // Mitspieler; ein Gast bekommt 204, keinen Fehler in der Konsole.
   if (umgebung.token) await meldeAn(umgebung.token);
-  else if (nenntAktionsebene(erste) || warAngemeldet()) await pruefe();
+  else await pruefe();
   // Ein Anmeldelink in einem Tab, in dem die Karte schon offen ist, lädt die Seite nicht neu.
   addEventListener('hashchange', () => {
     const token = nimmToken();
     if (token) void meldeAn(token).then(() => abgleichen(roh));
   });
+  setInterval(() => {
+    if (document.visibilityState === 'visible') void holeSicht();
+  }, SICHT.takt);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') void holeSicht();
+  });
+  // Ohne layers.json beim Laden fragt die Karte bis zum Neuladen nicht nach Ebenen.
+  if (!erste) return;
   if (iso && !karten) console.warn(`${wurzel}: Ebenen ohne Höhen, im iso auf seaLevel`);
   // Erst anmelden, dann abgleichen: Ein Fehler beim ersten Abgleich hält das
   // Nachfragen nicht auf.

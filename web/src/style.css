@@ -468,3 +468,39 @@ body {
 .ebenen-abmelden {
   font: inherit;
 }
+
+.ebenen-klein {
+  font-size: 12px;
+}
+
+/* Die Mitspieler: ein Punkt, darunter der Name in der UI-Schrift; der
+   Betrachter selbst grösser und gelb. Siehe docs/frontend.md, „Mitspieler“. */
+.mitspieler {
+  overflow: visible;
+}
+
+.mitspieler-punkt {
+  display: block;
+  box-sizing: border-box;
+  width: 12px;
+  height: 12px;
+  border: 2px solid #2b2b2b;
+  border-radius: 50%;
+  background: #f2e8d0;
+}
+
+.mitspieler.ich .mitspieler-punkt {
+  background: #ffd84a;
+}
+
+.mitspieler-name {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: #2b2b2b;
+  font: bold 12px/1 var(--ui-schrift-text);
+  white-space: nowrap;
+  -webkit-text-stroke: 3px #f2e8d0;
+  paint-order: stroke fill;
+}

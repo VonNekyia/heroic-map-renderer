@@ -408,8 +408,6 @@ pub struct Args {
     exit_with_stdin: bool,
 }
 
-/// Mindestens [`NATIVE_MIN_SCALE`]. Ob der scale zur Kamera passt, prüft
-/// [`projektion`].
 /// Die Proxys aus `--trusted-proxy`, siehe [`server::Einstellung::vertraut`].
 #[derive(Debug, Clone)]
 struct Proxys(Vec<IpAddr>);
@@ -430,6 +428,8 @@ fn parse_proxys(text: &str) -> std::result::Result<Proxys, String> {
         .map(Proxys)
 }
 
+/// Mindestens [`NATIVE_MIN_SCALE`]. Ob der scale zur Kamera passt, prüft
+/// [`projektion`].
 fn parse_scale(text: &str) -> std::result::Result<u32, String> {
     let scale: u32 = text.parse().map_err(|e| format!("{e}"))?;
     if scale < NATIVE_MIN_SCALE {

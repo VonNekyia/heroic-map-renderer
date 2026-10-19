@@ -74,4 +74,9 @@ export default [
   { name: 'doppelklick-zweimal', datei: 'src/ebenen.ts', alt: 'if (!k || laufend.has(knopfSchluessel(k))) return;', neu: 'if (!k) return;', spec: 'tests/aktionsebenen.spec.ts', titel: 'ein Knopf in der Tafel' },
   { name: 'nach-1-5-s-frei', datei: 'src/ebenen.ts', alt: 'const NACH_KLICK = [300, 500, 700, 1500];', neu: 'const NACH_KLICK = [300, 500, 700];', spec: 'tests/aktionsebenen.spec.ts', titel: 'kommt nach einem Klick 3 s kein' },
   { name: 'knopf-ohne-tafel-fehlt', datei: 'src/ebenen.ts', alt: '&& mitKnopf(o.id)) o.panel = [];', neu: '&& mitKnopf(o.id) && !o.id) o.panel = [];', spec: 'tests/aktionsebenen.spec.ts', titel: 'ein Objekt ohne Tafel bekommt' },
+  // Ansichten mit 2 und 1 px je Block, #293.
+  { name: 'kappe-ohne-downscale', datei: 'src/main.ts', alt: "const kappe = baum && info.downscale === 'nearest' && STUFEN_PX", neu: 'const kappe = baum && STUFEN_PX', spec: 'tests/smoke.spec.ts', titel: 'ohne downscale nearest' },
+  { name: 'kacheln-nicht-gekappt', datei: 'src/main.ts', alt: '    maxNativeZoom: feinste,', neu: '    maxNativeZoom: info.maxZoom + 0 * feinste,', spec: 'tests/smoke.spec.ts', titel: 'Ansichten mit 2 und 1 px je Block' },
+  { name: 'grenze-nach-scale', datei: 'src/main.ts', alt: 'const hoechste = feinste + extraZoom(px ?? info.scale);', neu: 'const hoechste = feinste + extraZoom(info.scale);', spec: 'tests/smoke.spec.ts', titel: 'Ansichten mit 2 und 1 px je Block' },
+  { name: 'px-faellt-aus-der-adresse', datei: 'src/main.ts', alt: 'void ansicht(baum?.path, px).then', neu: 'void ansicht(baum?.path, undefined).then', spec: 'tests/smoke.spec.ts', titel: 'Ansichten mit 2 und 1 px je Block' },
 ];

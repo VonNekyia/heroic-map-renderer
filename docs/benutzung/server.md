@@ -1,6 +1,6 @@
 ---
 title: "Server: --serve"
-description: Wie der Renderer Karte und Kacheln selbst ausliefert, für Plugin, EXE und von Hand; Schalter, Pfade, Header, ETag und 304, MIME, 404, die Grenzen am offenen Netz, HTTPS aus PEM, das Ende mit stdin, den Download mit Token für den Mod, einzeln und als ein Strom im ZIP, die Webkarte je Spieler mit Anmeldung oder Erkennung per IP, Aktionsebenen, Knöpfen und Mitspielern unter /api/ und die Angaben der Seite zur Laufzeit.
+description: Wie der Renderer Karte und Kacheln selbst ausliefert, für Plugin, EXE und von Hand; Schalter, Pfade, Header, ETag und 304, MIME, 404, die Grenzen am offenen Netz, HTTPS aus PEM, das Ende mit stdin, den Download mit Token für den Mod, einzeln und als ein Strom im ZIP, die Webkarte je Spieler mit Anmeldung oder Erkennung per IP, auch über einen Namen nur mit IPv4, Aktionsebenen, Knöpfen und Mitspielern unter /api/ und die Angaben der Seite zur Laufzeit.
 code:
   - renderer/src/cli/server.rs
   - renderer/src/cli/server/strom.rs
@@ -44,6 +44,7 @@ heroic-map-renderer --serve ./tiles --web ./web/dist --listen 0.0.0.0:8080
 | `--secret-file DATEI` | ohne: kein Download | das Geheimnis der Token, genau 32 Byte; der Download unter `/download/` |
 | `--player-dir DIR` | ohne: kein `/api/` | nur mit `--secret-file`: die Webkarte je Spieler, siehe „Aktionsebenen“ |
 | `--trusted-proxy IP[,IP]` | ohne: nur die Gegenstelle | nur mit `--player-dir`: einzelne Proxys, deren `X-Real-IP` für die Erkennung gilt, siehe „Erkennung per IP“ |
+| `--recognize-origin URSPRUNG`, `--recognize-url URSPRUNG` | ohne: kein `api/erkennen` | nur zusammen und mit `--player-dir`: der Ursprung der Karte und die Karte unter einem Namen nur mit IPv4, siehe „Erkennen über IPv4“ |
 | `--site-url URL`, `--site-title TEXT`, `--site-description TEXT` | ohne: die Seite des Builds | Adresse, Titel und Beschreibung der Seite, nur zusammen, siehe „Angaben der Seite“ |
 | `--site-image PFAD` | ohne: kein Vorschaubild | das Vorschaubild, relativ zur Adresse oder absolut |
 
@@ -131,7 +132,9 @@ Server:     http://127.0.0.1:8080 mit ./tiles unter /tiles/ und ./web/dist unter
   `vite preview` sie nimmt: Content-Security-Policy,
   Cross-Origin-Opener-Policy, Permissions-Policy, Referrer-Policy,
   X-Content-Type-Options, X-Frame-Options. Der Renderer bindet die Datei
-  beim Bauen ein.
+  beim Bauen ein. Mit `--recognize-url` hängt er an die
+  Content-Security-Policy `; connect-src 'self' <URSPRUNG>` an, siehe
+  „Erkennen über IPv4“.
 - **`ETag`** aus Grösse und letzter Änderung in ns, wörtlich wie im
   Manifest, siehe [Plugin](../plugin.md), „Manifest“. Weil gleiche Kacheln
   liegen bleiben, behält eine Kachel ihr ETag über volle Läufe, siehe
@@ -415,13 +418,14 @@ Relativ zur Karte, hinter dem Proxy einer Website also etwa unter
 
 | Pfad | Methode | Antwort |
 |---|---|---|
-| `api/anmelden` | `POST` mit `Authorization: Bearer <anmeldung>` | `204` mit dem Cookie einer neuen Sitzung |
+| `api/anmelden` | `POST` mit `Authorization: Bearer <anmeldung>` oder `<tausch>` | `204` mit dem Cookie einer neuen Sitzung, aus einem Tausch einer lesenden |
 | `api/abmelden` | `POST` | `204`, löscht das Cookie und sperrt die Sitzung |
 | `api/ich` | `GET` | `ich.json` mit `ueber`, siehe „Erkennung per IP“ |
 | `api/knoepfe.json` | `GET` | `knoepfe.json` |
 | `api/sicht.json` | `GET` | `sicht.json` |
 | `api/ebenen/<modname>/<ebene>.json` | `GET` | die Fassung des Spielers, `<modname>` und `<ebene>` nach der Regel der Kennung |
 | `api/aktion` | `POST` mit `{"ebene","objekt","knopf"}` | `202`, dazu die Zeile `Aktion:` |
+| `api/erkennen` | `OPTIONS`, `POST` | am Namen nur mit IPv4 ein Tausch, siehe „Erkennen über IPv4“ |
 
 - **Ohne Erkennung,** über Cookie oder IP, `401`, nur `api/ich` dann
   `204`; ein anderer Pfad `404`, eine andere Methode `405` mit `Allow`.
@@ -448,8 +452,9 @@ Relativ zur Karte, hinter dem Proxy einer Website also etwa unter
 3. **Gültig** ist eine Sitzung, solange sie nicht abgelaufen ist, nicht
    abgemeldet und ihr Zähler nicht unter dem der Datei liegt.
    `/karte abmelden` im Spiel erhöht den Zähler und beendet so jede. Von
-   mehreren Cookies `hm_sitzung` zählt das erste gültige: Cookies trennen
-   nicht nach Port, zwei Server auf einem Host setzen beide eins.
+   mehreren Cookies `hm_sitzung` zählt eine volle Sitzung vor einer
+   lesenden, sonst die erste gültige: Cookies trennen nicht nach Port, zwei
+   Server auf einem Host setzen beide eins.
 4. **Abmelden** sperrt den Zufall der Sitzung bis zu ihrem Ablauf und
    löscht das Cookie mit `Max-Age=0`, auch ohne gültige Sitzung.
 5. **Nur im Speicher,** je Spieler begrenzt, damit keiner die anderen
@@ -466,11 +471,12 @@ Relativ zur Karte, hinter dem Proxy einer Website also etwa unter
 
 ### Nur von der Karte
 
-Jedes `POST` unter `/api/` muss von der Karte selbst kommen, sonst `403`:
+Jedes `POST` unter `/api/` muss von der Karte selbst kommen, sonst `403`;
+für `api/erkennen` gilt „Erkennen über IPv4“:
 
 - `Content-Type: application/json` und `X-Heroic-Map: 1`. Beide erzwingen
-  von einer fremden Seite einen Preflight, den der Server nie mit CORS
-  beantwortet.
+  von einer fremden Seite einen Preflight, den der Server nur unter
+  `api/erkennen` und nur dem Ursprung der Karte beantwortet.
 - `Origin`, dessen Host gleich dem ersten Wert von `X-Forwarded-Host` ist,
   sonst gleich `Host`. Den öffentlichen Ursprung hinter dem Proxy kennt
   der Server nicht; der Proxy muss `Host` oder `X-Forwarded-Host`
@@ -479,8 +485,8 @@ Jedes `POST` unter `/api/` muss von der Karte selbst kommen, sonst `403`:
 
 ### Ein Klick
 
-- **Nur mit Sitzung** aus `/karte anmelden`; erkannt über die IP `403`,
-  sonst `401`.
+- **Nur mit Sitzung** aus `/karte anmelden`; erkannt über die IP oder mit
+  einer lesenden Sitzung `403`, sonst `401`.
 - **Geprüft:** `ebene` und `knopf` nach der Regel der Kennung, `objekt`
   mit 1 bis 64 Zeichen ohne Steuerzeichen, auch die aus C1, und ohne
   U+2028 und U+2029, sonst `400`; ein anderes Feld
@@ -547,7 +553,7 @@ dieser, ohne Anmeldung: Er sieht seine Mitspieler und seine Aktionsebenen
 
 | Cookie | IP erkannt | Antwort |
 |---|---|---|
-| gültig | egal | `200`, `"ueber":"sitzung"` |
+| gültig | egal | `200`, `"ueber":"sitzung"`, mit einer lesenden Sitzung `"ip"` |
 | keins | ja | `200`, `"ueber":"ip"` |
 | keins | nein | `204` |
 | ungültig oder abgelaufen | ja | `200`, `"ueber":"ip"` |
@@ -557,6 +563,11 @@ dieser, ohne Anmeldung: Er sieht seine Mitspieler und seine Aktionsebenen
   `uuid` und `ueber`.
 - **`204` nur hier:** Gäste fragen `api/ich` bei jedem Laden, ohne Fehler in
   der Konsole. Jeder andere Pfad unter `/api/` gibt ohne Erkennung `401`.
+- **Über IPv6** tragen `204` und `401` einen Kopf, damit die Karte weiss,
+  wie es weitergeht: mit `--recognize-url`
+  `X-Heroic-Erkennen: <URSPRUNG>/api/erkennen`, siehe „Erkennen über
+  IPv4“, sonst `X-Heroic-Ip: 6`; dann nennt die Karte den Grund und
+  `/karte anmelden`. Über IPv4 oder ohne Adresse hinter dem Proxy kein Kopf.
 - **Das gelöschte Cookie** macht den nächsten Aufruf zu einem Gast; das
   Cookie ist `HttpOnly`, die Seite kann es nicht selbst löschen.
 
@@ -582,10 +593,98 @@ Dateien eines Spielers nur, solange er so gemeldet ist, siehe
   dieses Spielers, klicken kann er nicht. Abschalten kann der Spieler das
   im Spiel mit `/karte ip aus`.
 - **Dual-Stack:** Das Spiel kommt meist über IPv4, der Browser über IPv6,
-  wo es geht. Dann passt die IP nie, und es bleibt `/karte anmelden`. Den
-  Weg über einen eigenen Namen nur mit IPv4 bringt der zweite Teil von
-  #305.
+  wo es geht. Dann passt die IP am Namen der Karte nie; es hilft ein
+  eigener Name nur mit IPv4, siehe „Erkennen über IPv4“, sonst bleibt
+  `/karte anmelden`.
 - **Wechselnde IP,** etwa im Mobilfunk: erkannt wird nur mit der aktuellen.
+
+## Erkennen über IPv4
+
+Kommt die Karte über IPv6 und das Spiel über IPv4, erkennt der Server den
+Spieler über einen zweiten Namen der Karte, der nur einen A-Eintrag hat
+(#305). Er gibt dort ein kurzes Token, das die Karte am eigenen Namen gegen
+eine lesende Sitzung tauscht. Warum so:
+[0110](../entscheidungen/0110-erkennung-per-ip.md).
+
+1. **`api/ich`** am Namen der Karte über IPv6 ohne Erkennung: `204` mit
+   `X-Heroic-Erkennen: https://v4.karte.example/api/erkennen`.
+2. **`POST`** dorthin, ohne Cookie, mit `Content-Type: application/json`
+   und `X-Heroic-Map: 1`. Der Browser geht über IPv4, der Server erkennt
+   ihn über `ips` und gibt `200` mit `{"token":"<tausch>"}`; ohne Erkennung
+   `204`.
+3. **`POST api/anmelden`** am Namen der Karte mit
+   `Authorization: Bearer <tausch>`, wie mit einer Anmeldung: `204` mit dem
+   Cookie einer lesenden Sitzung.
+
+### Schalter
+
+- **`--recognize-origin URSPRUNG`:** der Ursprung der Karte, wie der Browser
+  ihn als `Origin` sendet, etwa `https://karte.example`.
+- **`--recognize-url URSPRUNG`:** die Karte unter dem Namen nur mit IPv4,
+  etwa `https://v4.karte.example`. Dort muss `/api/` ohne Präfix beim
+  Server ankommen.
+- **Beide** nur zusammen und mit `--player-dir`. Ein Ursprung ist `http://`
+  oder `https://` mit einem Host und, wenn er nicht der übliche ist, einem
+  Port, ohne Pfad und ohne `/` am Ende; sonst lehnt der Start ihn ab. Der
+  Server schreibt ihn klein, wie der Browser ihn schickt.
+- **Ohne sie** gibt `api/erkennen` mit jeder Methode `404`.
+
+### `api/erkennen`
+
+- **Zuerst der Ursprung:** `Origin` muss genau `--recognize-origin` sein,
+  sonst `403` ohne CORS, vor jeder anderen Arbeit.
+- **`OPTIONS`,** der Preflight: `204` mit
+  `Access-Control-Allow-Origin: <URSPRUNG>`,
+  `Access-Control-Allow-Methods: POST` und
+  `Access-Control-Allow-Headers: content-type, x-heroic-map`.
+- **`POST`** nur mit `Content-Type: application/json` und
+  `X-Heroic-Map: 1`, sonst `403`. Die Adresse wie unter „Die Adresse der
+  Anfrage“; kennt `ips` sie, `200` mit dem Tausch, sonst `204`, beides mit
+  `Access-Control-Allow-Origin`. Lässt sich `zaehler` des Spielers nicht
+  lesen, gilt keine Sitzung, also auch kein Tausch: `204`.
+- **Eine andere Methode** `405` mit `Allow: OPTIONS, POST`.
+- **Jede Antwort** mit `Vary: origin` und `Cache-Control: private, no-store`.
+- **Ohne Credentials:** kein `Access-Control-Allow-Credentials`. Der Tausch
+  braucht kein Cookie und setzt keins; so geht kein Zustand des Browsers
+  über den fremden Ursprung.
+- **Nur hier CORS:** Jeder andere Pfad antwortet weiter ohne.
+
+### Tausch und lesende Sitzung
+
+Beide stellt nur der Server aus und prüft nur er, in der Form der Token,
+mit dem Geheimnis aus `--secret-file`. Der Inhalt ist der von Anmeldung und
+Sitzung, siehe [Plugin](../plugin.md), „Anmeldung und Sitzung“, dazu ab
+Byte 45 das HMAC der IP aus `ips`, 32 Byte: zusammen 77 Byte, als Token
+147 Zeichen.
+
+| Fassung | Art | gilt | Cookie |
+|---|---|---|---|
+| 4 | Tausch | 60 s, einmal, wie eine Anmeldung | nie |
+| 5 | lesende Sitzung | höchstens 12 h | `hm_sitzung` mit `Max-Age=43200`, sonst wie die Sitzung |
+
+- **Der Tausch** gilt bei `api/anmelden` nur, solange `ips` sein HMAC noch
+  auf seinen Spieler führt; sonst `401`. Er zählt zu den 20 offenen
+  Anmeldungen je Spieler.
+- **Die lesende Sitzung** gilt wie eine Sitzung, solange sie nicht
+  abgelaufen, nicht abgemeldet und ihr Zähler nicht unter dem der Datei
+  ist, und dazu nur, solange `ips` ihr HMAC auf ihren Spieler führt. Geht
+  der Spieler offline, teilt er die IP oder schaltet er `/karte ip aus`,
+  endet sie mit der nächsten Datei `ips`; kommt der Eintrag zurück, gilt
+  sie wieder.
+- **Nur lesend** wie die Erkennung über die IP: `api/ich` mit
+  `"ueber":"ip"`, ein Klick `403`, `Web:` wie dort. Als Anmeldung gilt sie
+  nicht.
+
+### Seite und Proxy
+
+- **Content-Security-Policy:** `default-src 'self'` verböte der Karte das
+  Fragen am zweiten Namen. Mit `--recognize-url` erlaubt der Server es mit
+  `connect-src 'self' <URSPRUNG>`. Setzt ein Proxy davor eigene Header,
+  braucht seine Policy dasselbe.
+- **Der zweite Name** hat nur einen A-Eintrag und ein eigenes Zertifikat
+  und zeigt auf denselben Server. Hinter nginx gilt dort dasselbe wie am
+  Namen der Karte: `proxy_set_header X-Real-IP $remote_addr;` und die
+  Adresse des Proxys in `--trusted-proxy`.
 
 ## HTTP und das Token
 
@@ -629,11 +728,21 @@ doppelte und fehlende `ips`, `sicht.json` über 64 KiB, `Web:` einmal je
 `X-Forwarded-For`, kein Netz in `--trusted-proxy`; in
 [`renderer/src/cli/server/ip.rs`](../../renderer/src/cli/server/ip.rs) die
 Adresse der Anfrage, das HMAC mit IPv4, IPv6 und gemappt, die Tabelle und
-ihr Neulesen. In
+ihr Neulesen. Das Erkennen über IPv4 prüft `erkennen_ueber_ipv4` gegen den
+echten Prozess: die Köpfe von `api/ich` über IPv6 und IPv4, die Policy der
+Seite, der Preflight nur für genau den Ursprung, ohne Credentials, der
+Tausch nur mit Ursprung und Marke, `204` ohne Erkennung, `405`, der Tausch
+nicht als Cookie und nur einmal, die lesende Sitzung mit `"ueber":"ip"`,
+ohne Klick und nicht als Anmeldung, ihr Ende mit `ips`, mit dem Abmelden
+und dem Zähler, ein Tausch nach dem Ende in `ips`, keine IP im Log, ohne
+die Schalter `404` und `X-Heroic-Ip: 6`; in `cli.rs` die Schalter nur
+zusammen und die Form des Ursprungs. In
 [`renderer/src/cli/server.rs`](../../renderer/src/cli/server.rs)
 prüfen Tests das Tauschen, die Pfade, die Zeit, das Schreiben ohne
 Fortschritt, das Zählen bis zum Deckel, dass sich `web/headers.json`
 lesen lässt, das Füllen und Prüfen der Angaben und das Füllen der echten
 `web/index.html`. In [`renderer/src/cli/token.rs`](../../renderer/src/cli/token.rs)
 prüft ein Test jedes Token aus
-[`token.json`](../../renderer/tests/fixtures/token.json).
+[`token.json`](../../renderer/tests/fixtures/token.json), ein zweiter
+Tausch und lesende Sitzung mit dem HMAC der IP; keine Fassung gilt als
+eine andere.

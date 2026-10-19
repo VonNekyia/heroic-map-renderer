@@ -83,9 +83,22 @@ pub(super) struct Einstellung {
     /// Proxys, deren `X-Real-IP` für die Erkennung per IP gilt, siehe
     /// [`ip::adresse`].
     pub vertraut: Vec<IpAddr>,
+    /// `--recognize-origin` und `--recognize-url`; ohne gibt es kein
+    /// `api/erkennen`.
+    pub erkennen: Option<Erkennen>,
     /// Adresse, Titel, Beschreibung und Bild für die Seite; ohne liefert der
     /// Server sie, wie der Build sie schrieb.
     pub angaben: Option<Angaben>,
+}
+
+/// Die Erkennung über IPv4 für eine Karte, die über IPv6 kommt, siehe
+/// [`api`]. Beide Ursprünge klein, ohne Pfad, wie `parse_ursprung` in
+/// `cli.rs` sie prüft.
+pub(super) struct Erkennen {
+    /// Der Ursprung der Karte, wie der Browser ihn als `Origin` sendet.
+    pub ursprung: String,
+    /// Der Ursprung der Karte unter dem Namen nur mit IPv4.
+    pub url: String,
 }
 
 /// Die Vorlage der Seite und von `robots.txt`, die der Build neben
@@ -226,20 +239,26 @@ fn html(text: &str) -> String {
 /// Siehe docs/frontend.md, „Ausliefern“.
 const HEADER: &str = include_str!("../../../web/headers.json");
 
-/// Die Header aus [`HEADER`], geprüft.
-fn header_der_karte() -> Result<Vec<(HeaderName, HeaderValue)>> {
+/// Die Header aus [`HEADER`], geprüft. Mit `erkennen` darf die Seite
+/// zudem den Namen nur mit IPv4 fragen: `connect-src` in der
+/// Content-Security-Policy.
+fn header_der_karte(erkennen: Option<&Erkennen>) -> Result<Vec<(HeaderName, HeaderValue)>> {
     let werte: serde_json::Map<String, serde_json::Value> =
         serde_json::from_str(HEADER).context("web/headers.json lesen")?;
     werte
         .into_iter()
         .map(|(name, wert)| {
-            let wert = wert
+            let mut wert = wert
                 .as_str()
-                .context("web/headers.json: ein Wert ist kein Text")?;
-            Ok((
-                HeaderName::from_bytes(name.as_bytes())?,
-                HeaderValue::from_str(wert)?,
-            ))
+                .context("web/headers.json: ein Wert ist kein Text")?
+                .to_string();
+            let name = HeaderName::from_bytes(name.as_bytes())?;
+            if let Some(e) = erkennen
+                && name == header::CONTENT_SECURITY_POLICY
+            {
+                wert = format!("{wert}; connect-src 'self' {}", e.url);
+            }
+            Ok((name, HeaderValue::from_str(&wert)?))
         })
         .collect()
 }
@@ -363,12 +382,13 @@ async fn lausche(
     let zustand = Arc::new(Zustand {
         kacheln: e.kacheln,
         seite: e.seite,
-        header: header_der_karte()?,
+        header: header_der_karte(e.erkennen.as_ref())?,
         freigabe,
         spieler: e.spieler.map(api::Spieler::neu),
         tls: tls.is_some(),
         kopf_zeit: e.kopf_zeit,
         vertraut: e.vertraut,
+        erkennen: e.erkennen,
         angaben: e.angaben,
         liste: Mutex::default(),
         stroeme: Mutex::default(),
@@ -633,6 +653,7 @@ struct Zustand {
     kopf_zeit: Duration,
     /// `--trusted-proxy`, siehe [`ip::adresse`].
     vertraut: Vec<IpAddr>,
+    erkennen: Option<Erkennen>,
     angaben: Option<Angaben>,
     liste: Mutex<Liste>,
     /// Die Zufälle der Token, deren Strom gerade läuft.
@@ -1668,16 +1689,30 @@ mod tests {
     }
 
     /// `web/headers.json` lässt sich lesen, und jeder Name und Wert taugt als
-    /// Header; sonst startete der Server nicht.
+    /// Header; sonst startete der Server nicht. Mit der Erkennung über IPv4
+    /// erlaubt die Content-Security-Policy dazu genau den Namen nur mit IPv4.
     #[test]
     fn header_aus_der_datei() {
-        let header = header_der_karte().unwrap();
-        assert!(
-            header
-                .iter()
-                .any(|(name, _)| name == header::CONTENT_SECURITY_POLICY)
+        let csp = |erkennen| {
+            let header = header_der_karte(erkennen).unwrap();
+            assert!(header.len() >= 6, "{header:?}");
+            let (_, wert) = header
+                .into_iter()
+                .find(|(name, _)| name == header::CONTENT_SECURITY_POLICY)
+                .unwrap();
+            wert.to_str().unwrap().to_string()
+        };
+        let ohne = csp(None);
+        // Stünde `connect-src` schon da, gälte das zweite nicht.
+        assert!(!ohne.contains("connect-src"), "{ohne}");
+        let erkennen = Erkennen {
+            ursprung: "https://karte.example".into(),
+            url: "https://v4.karte.example".into(),
+        };
+        assert_eq!(
+            csp(Some(&erkennen)),
+            format!("{ohne}; connect-src 'self' https://v4.karte.example")
         );
-        assert!(header.len() >= 6, "{header:?}");
     }
 
     /// Die Marker in einem Gang: Ein Wert, der selbst wie ein Marker
@@ -1847,6 +1882,7 @@ mod tests {
             tls: false,
             kopf_zeit: Duration::from_secs(10),
             vertraut: Vec::new(),
+            erkennen: None,
             angaben: None,
             liste: Mutex::default(),
             stroeme: Mutex::default(),

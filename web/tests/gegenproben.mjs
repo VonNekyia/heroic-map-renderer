@@ -96,4 +96,11 @@ export default [
   { name: 'ohne-layers-niemand', datei: 'src/ebenen.ts', alt: '  else await pruefe();', neu: '  else if (erste) await pruefe();', spec: 'tests/mitspieler.spec.ts', titel: 'Mitspieler auch ohne layers.json' },
   { name: 'gast-fragt-sicht', datei: 'src/ebenen.ts', alt: 'if (!mitspielerAn() || sichtLaeuft) return;', neu: 'if (sichtLaeuft) return;', spec: 'tests/mitspieler.spec.ts', titel: 'Mitspieler auch ohne layers.json' },
   { name: 'name-als-markup', datei: 'src/ebenen.ts', alt: "L.DomUtil.create('span', 'mitspieler-name', html).textContent = name;", neu: "L.DomUtil.create('span', 'mitspieler-name', html).innerHTML = name;", spec: 'tests/mitspieler.spec.ts', titel: 'eine Figur wandert' },
+  // Kreise ohne Gelände, Deckel, Wand ab 1 px.
+  { name: 'eben-mit-netz', datei: 'src/formen.ts', alt: '        eben && blick.p.y > 0\n', neu: '        eben && blick.p.y < 0\n', spec: 'tests/formen.spec.ts', titel: 'ohne Gelände im iso' },
+  { name: 'eben-mit-wand', datei: 'src/formen.ts', alt: 'if (blick.p.y === 0 || eben || !hatFlaeche(f)) continue;', neu: 'if (blick.p.y === 0 || !hatFlaeche(f)) continue;', spec: 'tests/formen.spec.ts', titel: 'ohne Gelände im iso' },
+  { name: 'kreis-ohne-deckel', datei: 'src/gelaende.ts', alt: '(eben ? KREIS.ohneGelaende : KREIS.seiten)', neu: '(eben ? KREIS.ohneGelaende : Infinity)', spec: 'tests/gelaende.spec.ts', titel: 'kreisRing:' },
+  { name: 'proben-ohne-deckel', datei: 'src/gelaende.ts', alt: 'const c = Math.max(zelle, laenge / PROBEN);', neu: 'const c = Math.max(zelle, laenge / PROBEN / 1e9);', spec: 'tests/gelaende.spec.ts', titel: 'abtasten: Ein Zug über 512 Zellen' },
+  { name: 'wand-immer', datei: 'src/ebenen.ts', alt: 'const mitWand = (): boolean => wandHoehe(blick) * faktor() >= 1;', neu: 'const mitWand = (): boolean => wandHoehe(blick) * faktor() >= 0;', spec: 'tests/formen.spec.ts', titel: 'die Wand fällt weg' },
+  { name: 'wand-ueber-rand', datei: 'src/ebenen.ts', alt: '    for (const s of g.striche) g.formen.removeLayer(s.linie);\n', neu: '', spec: 'tests/formen.spec.ts', titel: 'die Wand fällt weg' },
 ];

@@ -496,6 +496,40 @@ test('nach einem Klick auf eine Fläche mit Tafel kein Rahmen; im Fokus der Tast
   expect(await stil()).toEqual({ outline: 'none', strich: 'rgb(0, 0, 0)' });
 });
 
+/** Die Punkte im Pfad eines SVG-Elements: jedes M und L. */
+const punkteIn = (pfad: Locator) => pfad.evaluate((p) => p.getAttribute('d')?.match(/[ML]/g)?.length ?? 0);
+
+test('ohne Gelände im iso: ein gefüllter Kreis ist ein 128-Eck, ohne Netz und ohne Wand', async ({ page }) => {
+  // Radius 100: auf Zoom −3 200 px, ganz im Bild, so schneidet Leaflet nichts ab. Mit Gelände hätte er 158 Seiten von 4 Blöcken.
+  const kreis = { id: 'gross', type: 'circle', center: [32, -16], radius: 100, fill: '#AA5500AA', stroke: { color: '#AA5500' } };
+  await welt(page, staedte([kreis], { mehr: { heights: null } }));
+  await page.goto(`${DEMO}&at=32,0,-16&zoom=-3`);
+  const flaeche = page.locator('path[data-fill="#AA5500AA"]');
+  await expect(flaeche).toHaveCount(1);
+  // Die Fläche vereinfacht Leaflet nicht (smoothFactor 0), so zählt der Pfad die Ecken; den Rand vereinfacht es auf dem Schirm.
+  expect(await punkteIn(flaeche)).toBe(128);
+  await expect(page.locator('path[fill="#AA5500"]')).toHaveCount(0);
+});
+
+test('die Wand fällt weg, solange sie auf dem Schirm unter 1 px hoch ist, und kommt beim Hineinzoomen unter dem Rand wieder', async ({ page }) => {
+  // maxZoom 6: auf Zoom −6 ist die Wand 6 · 8 / 64 = 0,75 px hoch, auf −5 1,5 px.
+  await welt(page, staedte([{ ...GEBIET, stroke: { color: '#40E53FCC' } }], { hoehe: () => 10, mehr: { maxZoom: 6 } }));
+  await page.goto(`${DEMO}&at=32,10,-16&zoom=-6`);
+  await expect(page.locator('path[stroke="#40E53FCC"]').first()).toBeAttached();
+  await expect(page.locator('path[fill="#40E53F"]')).toHaveCount(0);
+  await page.locator('.leaflet-control-zoom-in').click();
+  await expect(page.locator('path[fill="#40E53F"]')).toHaveCount(12);
+  // Die Ränder liegen über der Wand: im SVG nach ihr.
+  const ueber = await page.evaluate(() => {
+    const wand = document.querySelector('path[fill="#40E53F"]')!;
+    const rand = document.querySelector('path[stroke="#40E53FCC"]')!;
+    return (wand.compareDocumentPosition(rand) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+  });
+  expect(ueber).toBe(true);
+  await page.locator('.leaflet-control-zoom-out').click();
+  await expect(page.locator('path[fill="#40E53F"]')).toHaveCount(0);
+});
+
 test('Flächen liegen nach order übereinander; eine ohne Namen und Tafel lässt Klicks zu den Flächen darunter durch', async ({ page }) => {
   const oben = { ...STAEDTE, id: 'beispiel:oben', name: { de: 'Oben' }, order: 2 };
   const mitte = { ...STAEDTE, id: 'beispiel:mitte', name: { de: 'Mitte' }, order: 1 };

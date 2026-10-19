@@ -5,10 +5,12 @@
  */
 import L from 'leaflet';
 import {
+  bildpunkt,
+  kreisRing,
   netz,
+  oberflaeche,
   rechteck,
   ringImRechteck,
-  vieleck,
   wand,
   zug,
   zugImRechteck,
@@ -50,6 +52,10 @@ const GRENZEN = { punkte: 10_000, loecher: 100, radius: 100_000 };
  * nach oben linear bis 0, in Bändern. Gewählt in 0104.
  */
 const WAND = { hoehe: 6, unten: 0.6, baender: 12 };
+
+/** Wie hoch die Wand auf der feinsten Stufe ist, in Pixeln. */
+export const wandHoehe = (blick: Blick): number => WAND.hoehe * blick.p.y;
+
 
 /** Ohne Farbe am Rand: die Füllung ohne Alpha, sonst die der Kartenschrift. */
 const RANDFARBE = '#2B2B2B';
@@ -130,6 +136,13 @@ export interface Zeichnen {
   blick: Blick;
   /** Die Höhen aller Formen der Ebene, einmal geladen. */
   gelaende: Gelaende;
+  /**
+   * Ob die Ebene ohne Gelände auf `seaLevel` liegt, ohne Höhen oder über der
+   * Grenze der Webkarte. Dann ist nichts verdeckt, und es gibt nichts
+   * abzutasten: Flächen und Ränder liegen als Ringe da, ein Kreis hat 128
+   * Seiten, und es gibt keine Wand. Siehe docs/frontend.md, „Ebenen“.
+   */
+  eben: boolean;
   /** `area` aus map.json: Ausserhalb gibt es weder Kacheln noch Höhen. */
   area?: Rechteck;
   /** Die Tafel aus ihren Bausteinen, für das Objekt mit dieser `id`. */
@@ -193,12 +206,12 @@ export function bereich(f: Form): Rechteck {
   return rechteck(f.linie ?? f.polygone.flatMap((q) => q.aussen));
 }
 
-/** Die Polygone einer Region oder eines Kreises; ein Kreis ist ein Vieleck mit Seiten von höchstens `c` Blöcken. */
-export const polygone = (f: Form, c: number): Polygon[] => (f.kreis ? [{ aussen: vieleck(f.kreis.mitte, f.kreis.radius, c), loecher: [] }] : f.polygone);
+/** Die Polygone einer Region oder eines Kreises; ein Kreis ist ein Vieleck nach `kreisRing`. */
+export const polygone = (f: Form, c: number, eben = false): Polygon[] => (f.kreis ? [{ aussen: kreisRing(f.kreis.mitte, f.kreis.radius, c, eben), loecher: [] }] : f.polygone);
 
 /** Die Linienzüge eines Rands oder einer Linie, in `area` beschnitten; jedes Stück offen. */
-export function zuege(f: Form, c: number, area: Rechteck | undefined): Punkt[][] {
-  const ganz: [Punkt[], boolean][] = f.linie ? [[f.linie, false]] : polygone(f, c).flatMap((p) => [p.aussen, ...p.loecher].map((r): [Punkt[], boolean] => [r, true]));
+export function zuege(f: Form, c: number, area: Rechteck | undefined, eben = false): Punkt[][] {
+  const ganz: [Punkt[], boolean][] = f.linie ? [[f.linie, false]] : polygone(f, c, eben).flatMap((p) => [p.aussen, ...p.loecher].map((r): [Punkt[], boolean] => [r, true]));
   return ganz.flatMap(([punkte, geschlossen]) =>
     area ? zugImRechteck(punkte, geschlossen, area) : [geschlossen ? [...punkte, punkte[0]!] : punkte],
   );
@@ -210,21 +223,27 @@ export function zuege(f: Form, c: number, area: Rechteck | undefined): Punkt[][]
  * mit Namen oder Tafel ist ein Ziel, auch ohne Füllung. Was ausserhalb von
  * `area` liegt, fällt vorher weg.
  */
-export function zeichne(formen: readonly Form[], z: Zeichnen): { flaechen: L.Layer[]; striche: Strich[] } {
+export function zeichne(formen: readonly Form[], z: Zeichnen): { flaechen: L.Layer[]; waende: L.Layer[]; striche: Strich[] } {
   // Ausgepackt, und keine Closure greift auf z oder das Gelände: Sonst hielte
   // die Tafel einer Fläche die Höhen am Leben.
-  const { renderer, blick, gelaende: g, area, tafel, bediene } = z;
+  const { renderer, blick, gelaende: g, area, tafel, bediene, eben } = z;
+  // Ohne Gelände auf der Höhe von seaLevel, wie oberflaeche sie dann gibt.
+  const flach = ([x, zz]: Punkt): Punkt => bildpunkt(x, oberflaeche(g, x, zz), zz, blick);
   const flaechen: L.Layer[] = [];
+  const wandLagen: L.Layer[] = [];
   const striche: Strich[] = [];
   /** Je Farbe die Ringe der Wände, je Band von unten nach oben. */
   const waende = new Map<string, Punkt[][][]>();
   for (const f of formen) {
     if (hatFlaeche(f)) {
-      const beschnitten = polygone(f, g.c).map((p) => {
+      const beschnitten = polygone(f, g.c, eben).map((p) => {
         const im = (r: Punkt[]) => (area ? ringImRechteck(r, area) : r);
         return { aussen: im(p.aussen), loecher: p.loecher.map(im) };
       });
-      const ringe = netz(beschnitten, g, blick);
+      const ringe =
+        eben && blick.p.y > 0
+          ? beschnitten.flatMap((p) => [p.aussen, ...p.loecher]).filter((r) => r.length >= 3).map((r) => r.map(flach))
+          : netz(beschnitten, g, blick);
       // Ganz verdeckt oder ausserhalb von area: keine Fläche, also auch kein Ziel.
       if (ringe.length) {
         // Im iso füllt die Fläche nicht, sie ist nur Ziel für Name und Tafel; siehe ebenen.md, „Flächen“.
@@ -254,24 +273,25 @@ export function zeichne(formen: readonly Form[], z: Zeichnen): { flaechen: L.Lay
       }
     }
     if (f.rand.breite === 0) continue;
-    for (const stueck of zuege(f, g.c, area)) {
-      const z = zug(stueck, false, g, blick);
+    for (const stueck of zuege(f, g.c, area, eben)) {
+      const nie = stueck.map(() => false);
+      const z = eben && blick.p.y > 0 ? { punkte: stueck.map(flach), verdeckt: nie, gestrichelt: nie } : zug(stueck, false, g, blick);
       striche.push(...laeufe(z, f.rand, renderer));
-      // Die Wand nur im iso und nur am Rand einer Fläche, nicht an einer Linie oder einem Kreis ohne Füllung, Namen und Tafel.
-      if (blick.p.y === 0 || !hatFlaeche(f)) continue;
+      // Die Wand nur im iso, mit Gelände und nur am Rand einer Fläche, nicht an einer Linie oder einem Kreis ohne Füllung, Namen und Tafel.
+      if (blick.p.y === 0 || eben || !hatFlaeche(f)) continue;
       const farbeWand = f.rand.farbe.slice(0, 7);
       const baender = waende.get(farbeWand) ?? Array.from({ length: WAND.baender }, (): Punkt[][] => []);
       waende.set(farbeWand, baender);
       wand(z, WAND.hoehe * blick.p.y, WAND.baender).forEach((ringe, k) => baender[k]!.push(...ringe));
     }
   }
-  // Die Wände über den Flächen der Ebene, je Farbe und Band ein Pfad.
+  // Die Wände über den Flächen der Ebene, je Farbe und Band ein Pfad; die Ebene zeigt sie nur, wo sie mindestens 1 px hoch sind.
   for (const [farbeWand, baender] of waende) {
     baender.forEach((ringe, k) => {
       if (!ringe.length) return;
       const deckkraft = WAND.unten * (1 - (k + 0.5) / WAND.baender);
-      flaechen.push(L.polygon(ringe.map((r) => [r.map(latLng)]), { renderer, stroke: false, fillColor: farbeWand, fillOpacity: deckkraft, fillRule: 'nonzero', interactive: false, smoothFactor: 0 }));
+      wandLagen.push(L.polygon(ringe.map((r) => [r.map(latLng)]), { renderer, stroke: false, fillColor: farbeWand, fillOpacity: deckkraft, fillRule: 'nonzero', interactive: false, smoothFactor: 0 }));
     });
   }
-  return { flaechen, striche };
+  return { flaechen, waende: wandLagen, striche };
 }

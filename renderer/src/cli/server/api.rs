@@ -492,6 +492,7 @@ fn anmelden(
         ablauf: jetzt.saturating_add(SITZUNG_S),
         zaehler: anmeldung.zaehler,
         zufall,
+        ip: None,
     };
     let text = token::stelle_aus(&sitzung, Art::Sitzung, &freigabe.geheimnis);
     let mut antwort = leer(z, StatusCode::NO_CONTENT);

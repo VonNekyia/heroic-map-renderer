@@ -120,7 +120,11 @@ pub(super) fn pruefe_sitzung(
 /// [`pruefe_sitzung`] annimmt. Das HMAC der IP gehört genau zu Fassung 4
 /// und 5.
 pub(super) fn stelle_aus(sitzung: &Sitzung, art: Art, geheimnis: &hmac::Key) -> String {
-    assert_eq!(sitzung.ip.is_some(), art.mit_ip(), "HMAC der IP und {art:?}");
+    assert_eq!(
+        sitzung.ip.is_some(),
+        art.mit_ip(),
+        "HMAC der IP und {art:?}"
+    );
     let mut inhalt = Vec::with_capacity(art.laenge());
     inhalt.push(art as u8);
     inhalt.extend(sitzung.spieler);
@@ -327,15 +331,15 @@ mod tests {
                     "{name}"
                 );
                 // Keine Art gilt als eine andere, auch nicht als Download.
-                let andere = match art {
-                    Art::Anmeldung => Art::Sitzung,
-                    Art::Sitzung => Art::Anmeldung,
-                };
-                assert_eq!(
-                    pruefe_sitzung(text, &geheimnis, jetzt, andere).err(),
-                    Some(Grund::Inhalt),
-                    "{name}"
-                );
+                for andere in [Art::Anmeldung, Art::Sitzung, Art::Tausch, Art::Lesend] {
+                    if andere != art {
+                        assert_eq!(
+                            pruefe_sitzung(text, &geheimnis, jetzt, andere).err(),
+                            Some(Grund::Inhalt),
+                            "{name} als {andere:?}"
+                        );
+                    }
+                }
                 assert_eq!(
                     pruefe(text, &geheimnis, jetzt).err(),
                     Some(Grund::Inhalt),
@@ -372,7 +376,10 @@ mod tests {
         for art in [Art::Tausch, Art::Lesend] {
             let text = stelle_aus(&mit, art, &geheimnis);
             assert_eq!(text.len(), 147, "{art:?}");
-            assert_eq!(pruefe_sitzung(&text, &geheimnis, 1000, art).as_ref(), Ok(&mit));
+            assert_eq!(
+                pruefe_sitzung(&text, &geheimnis, 1000, art).as_ref(),
+                Ok(&mit)
+            );
             for andere in [Art::Anmeldung, Art::Sitzung, Art::Tausch, Art::Lesend] {
                 if andere != art {
                     assert_eq!(
@@ -391,7 +398,10 @@ mod tests {
         for art in [Art::Anmeldung, Art::Sitzung] {
             let text = stelle_aus(&ohne, art, &geheimnis);
             assert_eq!(text.len(), 104);
-            assert_eq!(pruefe_sitzung(&text, &geheimnis, 1000, art).unwrap().ip, None);
+            assert_eq!(
+                pruefe_sitzung(&text, &geheimnis, 1000, art).unwrap().ip,
+                None
+            );
             assert_eq!(
                 pruefe_sitzung(&text, &geheimnis, 1000, Art::Lesend).err(),
                 Some(Grund::Inhalt)

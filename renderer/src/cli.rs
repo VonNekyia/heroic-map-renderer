@@ -269,7 +269,7 @@ pub struct Args {
         "biome_blend", "render", "cinematic", "center", "area", "tiles", "size", "scan", "prune",
         "native_levels", "resume", "update", "gpu", "progress", "estimate", "defender_exclusion", "heights",
         "serve", "web", "listen", "max_connections", "header_timeout", "max_header_bytes", "max_headers",
-        "write_timeout", "exit_with_stdin", "tls_cert", "tls_key", "secret_file", "player_dir", "trusted_proxy", "site_url",
+        "write_timeout", "exit_with_stdin", "tls_cert", "tls_key", "secret_file", "player_dir", "trusted_proxy", "recognize_origin", "recognize_url", "site_url",
         "site_title", "site_description", "site_image", "download_client_jar", "client_version",
         "cache_dir", "compact", "compact_tree", "flat", "banners", "out",
     ])]
@@ -284,7 +284,7 @@ pub struct Args {
         "biome_blend", "render", "cinematic", "center", "area", "tiles", "size", "scan", "prune",
         "native_levels", "resume", "update", "gpu", "progress", "estimate", "defender_exclusion", "heights",
         "serve", "web", "listen", "max_connections", "header_timeout", "max_header_bytes", "max_headers",
-        "write_timeout", "exit_with_stdin", "tls_cert", "tls_key", "secret_file", "player_dir", "trusted_proxy", "site_url",
+        "write_timeout", "exit_with_stdin", "tls_cert", "tls_key", "secret_file", "player_dir", "trusted_proxy", "recognize_origin", "recognize_url", "site_url",
         "site_title", "site_description", "site_image", "download_client_jar", "client_version",
         "cache_dir", "compact", "pyramid", "flat", "banners", "out",
     ])]
@@ -385,6 +385,17 @@ pub struct Args {
     #[arg(long, value_name = "IP[,IP]", requires_all = ["serve", "player_dir"], value_parser = parse_proxys)]
     trusted_proxy: Option<Proxys>,
 
+    /// Mit --player-dir und --recognize-url: der Ursprung der Karte, wie der
+    /// Browser ihn als Origin sendet, etwa https://karte.example; nur von
+    /// ihm aus gilt api/erkennen
+    #[arg(long, value_name = "URSPRUNG", requires_all = ["serve", "player_dir", "recognize_url"], value_parser = parse_ursprung)]
+    recognize_origin: Option<String>,
+
+    /// Mit --recognize-origin: die Karte unter einem Namen nur mit IPv4, etwa
+    /// https://v4.karte.example; dort fragt eine Karte über IPv6 api/erkennen
+    #[arg(long, value_name = "URSPRUNG", requires_all = ["serve", "player_dir", "recognize_origin"], value_parser = parse_ursprung)]
+    recognize_url: Option<String>,
+
     /// Mit --web die Adresse der Seite, für canonical, og:url und robots.txt;
     /// nur zusammen mit --site-title und --site-description
     #[arg(long, value_name = "URL", requires_all = ["web", "site_title", "site_description"])]
@@ -426,6 +437,30 @@ fn parse_proxys(text: &str) -> std::result::Result<Proxys, String> {
         })
         .collect::<std::result::Result<Vec<_>, _>>()
         .map(Proxys)
+}
+
+/// Ein Ursprung wie `https://karte.example:8443`, klein geschrieben: HTTP
+/// oder HTTPS, ein Host aus Buchstaben, Ziffern, `-`, `.`, `:`, `[` und `]`,
+/// ohne Pfad. So taugt er wörtlich für `Origin`, CORS und die
+/// Content-Security-Policy.
+fn parse_ursprung(text: &str) -> std::result::Result<String, String> {
+    let klein = text.to_ascii_lowercase();
+    let host = klein
+        .strip_prefix("https://")
+        .or_else(|| klein.strip_prefix("http://"));
+    match host {
+        Some(host)
+            if !host.is_empty()
+                && host
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b"-.:[]".contains(&b)) =>
+        {
+            Ok(klein)
+        }
+        _ => Err(format!(
+            "{text} ist kein Ursprung wie https://karte.example: ohne Pfad, ohne / am Ende"
+        )),
+    }
 }
 
 /// Mindestens [`NATIVE_MIN_SCALE`]. Ob der scale zur Kamera passt, prüft
@@ -629,6 +664,10 @@ pub fn run() -> Result<()> {
             geheimnis: args.secret_file,
             spieler: args.player_dir,
             vertraut: args.trusted_proxy.map(|p| p.0).unwrap_or_default(),
+            erkennen: args
+                .recognize_origin
+                .zip(args.recognize_url)
+                .map(|(ursprung, url)| server::Erkennen { ursprung, url }),
             angaben: match &args.site_url {
                 Some(url) => Some(server::Angaben::neu(
                     url,
@@ -5927,6 +5966,42 @@ mod tests {
         assert!(geht(&["--world", "w", "--tiles", "t", "--gpu", "on"]));
     }
 
+    /// `--recognize-origin` und `--recognize-url` nur zusammen, mit
+    /// `--player-dir`, und nur als Ursprung: klein, ohne Pfad.
+    #[test]
+    fn ursprung_der_erkennung() {
+        let geht = |args: &[&str]| Args::try_parse_from([&["x"], args].concat()).is_ok();
+        let api = ["--serve", "k", "--secret-file", "g", "--player-dir", "p"];
+        let beide = [
+            "--recognize-origin",
+            "https://karte.example",
+            "--recognize-url",
+            "https://v4.karte.example:8443",
+        ];
+        assert!(geht(&[&api[..], &beide[..]].concat()));
+        assert!(!geht(&[&api[..], &beide[..2]].concat()));
+        assert!(!geht(&[&api[..], &beide[2..]].concat()));
+        assert!(!geht(&[&api[..4], &beide[..]].concat()));
+        assert_eq!(
+            parse_ursprung("HTTPS://Karte.Example").as_deref(),
+            Ok("https://karte.example")
+        );
+        assert!(parse_ursprung("http://[2001:db8::1]:8080").is_ok());
+        for falsch in [
+            "https://karte.example/",
+            "https://karte.example/karte",
+            "karte.example",
+            "ftp://karte.example",
+            "https://",
+            "https://karte.example?x",
+            "https://a@karte.example",
+            "https://karte.example; script-src *",
+            "https://*.example",
+        ] {
+            assert!(parse_ursprung(falsch).is_err(), "{falsch}");
+        }
+    }
+
     /// Der Vorlauf meldet je neuem Prozent der Regionen: höchstens 100 Mal,
     /// bei wenigen Regionen jede, und die letzte immer.
     #[test]
@@ -6010,6 +6085,8 @@ mod tests {
             "secret_file",
             "player_dir",
             "trusted_proxy",
+            "recognize_origin",
+            "recognize_url",
             "site_url",
             "site_title",
             "site_description",

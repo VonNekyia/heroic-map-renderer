@@ -3,7 +3,7 @@
 //! Mitspieler aus den Dateien des Plugins, Klicks als Zeile `Aktion:` und
 //! Zuschauer als Zeile `Web:` auf stdout.
 //! Siehe docs/benutzung/server.md, „Aktionsebenen“.
-//! Siehe docs/benutzung/server.md, „Erkennung per IP“.
+//! Siehe docs/benutzung/server.md, „Erkennung per IP“ und „Erkennen über IPv4“.
 
 use std::collections::HashMap;
 use std::io::Write;
@@ -21,7 +21,7 @@ use ring::rand::{SecureRandom, SystemRandom};
 
 use super::super::token::{self, Art, Sitzung};
 use super::ip::{self, Ips};
-use super::{Freigabe, Zustand, jetzt, karte, leer, uuid};
+use super::{Erkennen, Freigabe, Zustand, jetzt, karte, leer, uuid};
 
 /// Unter diesem Pfad antwortet die API.
 pub(super) const API: &str = "/api/";
@@ -34,6 +34,12 @@ const SITZUNG_S: u64 = 7 * 24 * 3600;
 
 /// Länger gilt keine Anmeldung, in s.
 const ANMELDUNG_S: u64 = 5 * 60;
+
+/// So lange gilt ein Tausch aus `api/erkennen`, in s.
+const TAUSCH_S: u64 = 60;
+
+/// So lange gilt eine lesende Sitzung höchstens, in s: 12 h.
+const LESEND_S: u64 = 12 * 3600;
 
 /// Höchstens so viele Spieler hält jede Menge im Speicher.
 const HOECHSTENS: usize = 10_000;
@@ -113,7 +119,8 @@ pub(super) struct Anfrage {
 enum Erkannt {
     /// Über ein gültiges Cookie aus `/karte anmelden`.
     Sitzung(Sitzung),
-    /// Über die IP: nur lesen, siehe docs/entscheidungen/0110-erkennung-per-ip.md.
+    /// Über die IP oder eine lesende Sitzung aus `api/erkennen`: nur lesen,
+    /// siehe docs/entscheidungen/0110-erkennung-per-ip.md.
     Ip([u8; 16]),
 }
 
@@ -138,7 +145,10 @@ impl Erkannt {
 /// sonst über die IP in `ips`. Dazu, ob ein Cookie da war, das nicht gilt.
 /// Erkannt meldet es dem Plugin, siehe [`melde`].
 fn erkenne(sp: &Spieler, freigabe: &Freigabe, a: &Anfrage, jetzt: u64) -> (Option<Erkannt>, bool) {
-    let erkannt = match sitzung(sp, freigabe, &a.felder, jetzt) {
+    let sitzung = sitzung(sp, freigabe, &a.felder, jetzt);
+    let ungueltig = sitzung.is_none() && cookies(&a.felder).next().is_some();
+    let erkannt = match sitzung {
+        Some(s) if s.ip.is_some() => Some(Erkannt::Ip(s.spieler)),
         Some(s) => Some(Erkannt::Sitzung(s)),
         None => {
             a.ip.and_then(|ip| sp.ips.spieler(&ip::hmac_von(&freigabe.geheimnis, ip)))
@@ -148,8 +158,6 @@ fn erkenne(sp: &Spieler, freigabe: &Freigabe, a: &Anfrage, jetzt: u64) -> (Optio
     if let Some(e) = &erkannt {
         melde(sp, e.spieler());
     }
-    let ungueltig =
-        !matches!(erkannt, Some(Erkannt::Sitzung(_))) && cookies(&a.felder).next().is_some();
     (erkannt, ungueltig)
 }
 
@@ -182,6 +190,7 @@ pub(super) fn antwort(z: &Zustand, a: &Anfrage) -> Response<Full<Bytes>> {
     };
     let post = a.methode == Method::POST;
     let antwort = match (a.rest.as_str(), datei_der_api(&a.rest)) {
+        ("erkennen", _) => erkennen(z, sp, freigabe, a),
         ("anmelden" | "abmelden" | "aktion", _) if !post => nicht_erlaubt(z, "POST"),
         ("anmelden", _) => anmelden(z, sp, freigabe, &a.felder),
         ("abmelden", _) => abmelden(z, sp, freigabe, &a.felder),
@@ -189,7 +198,7 @@ pub(super) fn antwort(z: &Zustand, a: &Anfrage) -> Response<Full<Bytes>> {
         (_, Some(_)) if a.methode != Method::GET => nicht_erlaubt(z, "GET"),
         (_, Some(datei)) => {
             let (erkannt, ungueltig) = erkenne(sp, freigabe, a, jetzt());
-            lies_datei(z, sp, &a.felder, datei, erkannt, ungueltig)
+            lies_datei(z, sp, a, datei, erkannt, ungueltig)
         }
         (_, None) => leer(z, StatusCode::NOT_FOUND),
     };
@@ -253,27 +262,35 @@ fn nicht_erlaubt(z: &Zustand, erlaubt: &'static str) -> Response<Full<Bytes>> {
 
 /// `GET` einer Datei des erkannten Spielers, über Cookie oder IP; fehlt sie,
 /// gilt `ersatz`. Ohne Erkennung `401`, nur `api/ich` dann `204`, wenn kein
-/// ungültiges Cookie da war; sonst löscht es das Cookie.
+/// ungültiges Cookie da war; sonst löscht es das Cookie. Kam `api/ich` über
+/// IPv6, sagt dazu ein Kopf, wie es weitergeht, siehe [`ueber_ipv6`].
 fn lies_datei(
     z: &Zustand,
     sp: &Spieler,
-    felder: &HeaderMap,
+    a: &Anfrage,
     (datei, ersatz, grenze): (String, Ersatz, u64),
     erkannt: Option<Erkannt>,
     ungueltig: bool,
 ) -> Response<Full<Bytes>> {
     let Some(erkannt) = erkannt else {
-        return match (ersatz, ungueltig) {
-            (Ersatz::Ich, false) => leer(z, StatusCode::NO_CONTENT),
-            (Ersatz::Ich, true) => {
+        if ersatz != Ersatz::Ich {
+            return leer(z, StatusCode::UNAUTHORIZED);
+        }
+        let mut antwort = match ungueltig {
+            false => leer(z, StatusCode::NO_CONTENT),
+            true => {
                 let mut antwort = leer(z, StatusCode::UNAUTHORIZED);
                 antwort
                     .headers_mut()
-                    .insert(header::SET_COOKIE, cookie(z, felder, "", 0));
+                    .insert(header::SET_COOKIE, cookie(z, &a.felder, "", 0));
                 antwort
             }
-            _ => leer(z, StatusCode::UNAUTHORIZED),
         };
+        if matches!(a.ip, Some(IpAddr::V6(_))) {
+            let (name, wert) = ueber_ipv6(z.erkennen.as_ref());
+            antwort.headers_mut().insert(name, wert);
+        }
+        return antwort;
     };
     let pfad = sp.ordner(&erkannt.spieler()).join(datei);
     let inhalt = match (ersatz, klein(&pfad, grenze)) {
@@ -290,6 +307,22 @@ fn lies_datei(
         HeaderValue::from_static("application/json"),
     );
     antwort
+}
+
+/// Der Kopf an `api/ich` ohne Erkennung über IPv6: mit `--recognize-url`
+/// `X-Heroic-Erkennen` mit der Adresse von `api/erkennen` am Namen nur mit
+/// IPv4, sonst `X-Heroic-Ip: 6`, damit die Karte den Grund nennen kann.
+fn ueber_ipv6(erkennen: Option<&Erkennen>) -> (header::HeaderName, HeaderValue) {
+    match erkennen {
+        Some(e) => (
+            header::HeaderName::from_static("x-heroic-erkennen"),
+            HeaderValue::from_str(&format!("{}{API}erkennen", e.url)).expect("ein Ursprung"),
+        ),
+        None => (
+            header::HeaderName::from_static("x-heroic-ip"),
+            HeaderValue::from_static("6"),
+        ),
+    }
 }
 
 /// `api/ich`: `ich.json` des Plugins mit `ueber`; fehlt sie oder ist sie kein
@@ -323,24 +356,32 @@ fn klein(pfad: &Path, grenze: u64) -> Result<Option<Vec<u8>>, ()> {
     }
 }
 
-/// Die erste gültige Sitzung aus den Cookies `hm_sitzung`: unterschrieben,
-/// nicht abgelaufen, nicht abgemeldet und mit einem Zähler nicht unter dem
-/// der Datei. Alle zählen, denn Cookies trennen nicht nach Port: Zwei
-/// Server auf einem Host setzen beide eins.
+/// Die gültige Sitzung aus den Cookies `hm_sitzung`, eine volle vor einer
+/// lesenden, sonst die erste: unterschrieben, nicht abgelaufen, nicht
+/// abgemeldet und mit einem Zähler nicht unter dem der Datei. Eine lesende
+/// gilt nur, solange `ips` ihr HMAC auf ihren Spieler führt. Alle zählen,
+/// denn Cookies trennen nicht nach Port: Zwei Server auf einem Host setzen
+/// beide eins.
 fn sitzung(sp: &Spieler, freigabe: &Freigabe, felder: &HeaderMap, jetzt: u64) -> Option<Sitzung> {
     cookies(felder)
         .filter_map(|text| {
-            token::pruefe_sitzung(text, &freigabe.geheimnis, jetzt, Art::Sitzung).ok()
+            [Art::Sitzung, Art::Lesend]
+                .into_iter()
+                .find_map(|art| token::pruefe_sitzung(text, &freigabe.geheimnis, jetzt, art).ok())
         })
-        .find(|s| {
+        .filter(|s| {
             let abgemeldet = sp
                 .abgemeldet
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
                 .get(&s.spieler)
                 .is_some_and(|sperren| sperren.contains_key(&s.zufall));
-            !abgemeldet && s.zaehler >= zaehler(&sp.ordner(&s.spieler))
+            !abgemeldet
+                && s.zaehler >= zaehler(&sp.ordner(&s.spieler))
+                && s.ip
+                    .is_none_or(|hmac| sp.ips.spieler(&hmac) == Some(s.spieler))
         })
+        .min_by_key(|s| s.ip.is_some())
 }
 
 /// Die Werte aller Cookies `hm_sitzung` der Anfrage.
@@ -372,17 +413,11 @@ fn zaehler(ordner: &Path) -> u32 {
     }
 }
 
-/// Kommt ein `POST` von der Karte selbst? `Content-Type: application/json`
-/// und `X-Heroic-Map: 1` erzwingen von fremden Seiten einen Preflight, den
-/// der Server nie beantwortet. Dazu muss der Host von `Origin` der sein, an
-/// den die Anfrage ging: der erste aus `X-Forwarded-Host`, sonst `Host`.
+/// Kommt ein `POST` von der Karte selbst? [`mit_marke`], und der Host von
+/// `Origin` muss der sein, an den die Anfrage ging: der erste aus
+/// `X-Forwarded-Host`, sonst `Host`.
 fn von_der_karte(felder: &HeaderMap) -> bool {
     let wert = |name| felder.get(name).and_then(|w: &HeaderValue| w.to_str().ok());
-    let json = wert(header::CONTENT_TYPE).is_some_and(|typ| {
-        typ.split(';')
-            .next()
-            .is_some_and(|art| art.trim().eq_ignore_ascii_case("application/json"))
-    });
     let host = match wert(header::HeaderName::from_static("x-forwarded-host")) {
         Some(liste) => liste.split(',').next().map(str::trim),
         None => wert(header::HOST),
@@ -390,8 +425,21 @@ fn von_der_karte(felder: &HeaderMap) -> bool {
     let ursprung = wert(header::ORIGIN)
         .and_then(|o| o.split_once("://"))
         .map(|(_, h)| h);
-    json && wert(header::HeaderName::from_static("x-heroic-map")) == Some("1")
+    mit_marke(felder)
         && matches!((ursprung, host), (Some(u), Some(h)) if !u.is_empty() && u.eq_ignore_ascii_case(h))
+}
+
+/// `Content-Type: application/json` und `X-Heroic-Map: 1`: Das erzwingt von
+/// fremden Seiten einen Preflight, den der Server nur unter `api/erkennen`
+/// und nur dem Ursprung der Karte beantwortet.
+fn mit_marke(felder: &HeaderMap) -> bool {
+    let wert = |name| felder.get(name).and_then(|w: &HeaderValue| w.to_str().ok());
+    let json = wert(header::CONTENT_TYPE).is_some_and(|typ| {
+        typ.split(';')
+            .next()
+            .is_some_and(|art| art.trim().eq_ignore_ascii_case("application/json"))
+    });
+    json && wert(header::HeaderName::from_static("x-heroic-map")) == Some("1")
 }
 
 /// Setzt das Cookie der Sitzung, `Secure`, wenn die Karte über HTTPS läuft.
@@ -447,10 +495,12 @@ fn merke(
     Ok(())
 }
 
-/// `POST anmelden`: Das Token aus dem Spiel im Header `Authorization`,
-/// Fassung 2, höchstens [`ANMELDUNG_S`] gültig, jedes nur einmal, je Spieler
-/// höchstens [`ANMELDUNGEN_JE_SPIELER`] offen. Gibt `204` mit dem Cookie
-/// einer neuen Sitzung, Fassung 3.
+/// `POST anmelden`: Das Token im Header `Authorization`, jedes nur einmal, je
+/// Spieler höchstens [`ANMELDUNGEN_JE_SPIELER`] offen. Eine Anmeldung aus dem
+/// Spiel, Fassung 2, höchstens [`ANMELDUNG_S`] gültig, gibt eine volle
+/// Sitzung, Fassung 3. Ein Tausch aus [`erkennen`], Fassung 4, höchstens
+/// [`TAUSCH_S`] gültig und nur, solange `ips` sein HMAC auf den Spieler
+/// führt, gibt eine lesende, Fassung 5. Beides als Cookie mit `204`.
 fn anmelden(
     z: &Zustand,
     sp: &Spieler,
@@ -461,15 +511,22 @@ fn anmelden(
         return leer(z, StatusCode::FORBIDDEN);
     }
     let jetzt = jetzt();
-    let Some(anmeldung) = felder
+    let text = felder
         .get(header::AUTHORIZATION)
         .and_then(|wert| wert.to_str().ok())
-        .and_then(|wert| wert.strip_prefix("Bearer "))
-        .and_then(|text| {
-            token::pruefe_sitzung(text, &freigabe.geheimnis, jetzt, Art::Anmeldung).ok()
+        .and_then(|wert| wert.strip_prefix("Bearer "));
+    let gilt = |art, frist| {
+        text.and_then(|text| token::pruefe_sitzung(text, &freigabe.geheimnis, jetzt, art).ok())
+            .filter(|a| a.ablauf <= jetzt.saturating_add(frist))
+            .filter(|a| a.zaehler >= zaehler(&sp.ordner(&a.spieler)))
+    };
+    let Some((anmeldung, art, dauer)) = gilt(Art::Anmeldung, ANMELDUNG_S)
+        .map(|a| (a, Art::Sitzung, SITZUNG_S))
+        .or_else(|| {
+            gilt(Art::Tausch, TAUSCH_S)
+                .filter(|t| t.ip.and_then(|hmac| sp.ips.spieler(&hmac)) == Some(t.spieler))
+                .map(|t| (t, Art::Lesend, LESEND_S))
         })
-        .filter(|a| a.ablauf <= jetzt.saturating_add(ANMELDUNG_S))
-        .filter(|a| a.zaehler >= zaehler(&sp.ordner(&a.spieler)))
     else {
         return leer(z, StatusCode::UNAUTHORIZED);
     };
@@ -489,16 +546,102 @@ fn anmelden(
     }
     let sitzung = Sitzung {
         spieler: anmeldung.spieler,
-        ablauf: jetzt.saturating_add(SITZUNG_S),
+        ablauf: jetzt.saturating_add(dauer),
         zaehler: anmeldung.zaehler,
         zufall,
-        ip: None,
+        ip: anmeldung.ip,
     };
-    let text = token::stelle_aus(&sitzung, Art::Sitzung, &freigabe.geheimnis);
+    let text = token::stelle_aus(&sitzung, art, &freigabe.geheimnis);
     let mut antwort = leer(z, StatusCode::NO_CONTENT);
     antwort
         .headers_mut()
-        .insert(header::SET_COOKIE, cookie(z, felder, &text, SITZUNG_S));
+        .insert(header::SET_COOKIE, cookie(z, felder, &text, dauer));
+    antwort
+}
+
+/// `api/erkennen` am Namen nur mit IPv4, für eine Karte, die über IPv6
+/// kommt; ohne `--recognize-origin` und `--recognize-url` `404`. Vor allem
+/// anderen muss `Origin` genau der Ursprung der Karte sein, sonst `403` ohne
+/// CORS. `OPTIONS` beantwortet den Preflight, ohne Credentials. `POST` mit
+/// [`mit_marke`] gibt für eine IP, die `ips` kennt, `{"token": …}`, einen
+/// Tausch, Fassung 4, für [`anmelden`] am Namen der Karte; sonst `204`.
+fn erkennen(z: &Zustand, sp: &Spieler, freigabe: &Freigabe, a: &Anfrage) -> Response<Full<Bytes>> {
+    let Some(erkennen) = &z.erkennen else {
+        return leer(z, StatusCode::NOT_FOUND);
+    };
+    let ursprung = a.felder.get(header::ORIGIN).map(HeaderValue::as_bytes);
+    let mut antwort = if ursprung != Some(erkennen.ursprung.as_bytes()) {
+        leer(z, StatusCode::FORBIDDEN)
+    } else {
+        let mut antwort = match a.methode {
+            Method::OPTIONS => {
+                let mut antwort = leer(z, StatusCode::NO_CONTENT);
+                let h = antwort.headers_mut();
+                h.insert(
+                    header::ACCESS_CONTROL_ALLOW_METHODS,
+                    HeaderValue::from_static("POST"),
+                );
+                h.insert(
+                    header::ACCESS_CONTROL_ALLOW_HEADERS,
+                    HeaderValue::from_static("content-type, x-heroic-map"),
+                );
+                antwort
+            }
+            Method::POST if !mit_marke(&a.felder) => leer(z, StatusCode::FORBIDDEN),
+            Method::POST => tausch(z, sp, freigabe, a.ip),
+            _ => nicht_erlaubt(z, "OPTIONS, POST"),
+        };
+        antwort.headers_mut().insert(
+            header::ACCESS_CONTROL_ALLOW_ORIGIN,
+            HeaderValue::from_str(&erkennen.ursprung).expect("ein Ursprung"),
+        );
+        antwort
+    };
+    antwort
+        .headers_mut()
+        .insert(header::VARY, HeaderValue::from_static("origin"));
+    antwort
+}
+
+/// Der Tausch für die IP der Anfrage, wenn `ips` sie genau einem Spieler
+/// zuordnet und sich sein `zaehler` lesen lässt; sonst `204`.
+fn tausch(
+    z: &Zustand,
+    sp: &Spieler,
+    freigabe: &Freigabe,
+    ip: Option<IpAddr>,
+) -> Response<Full<Bytes>> {
+    let Some((hmac, spieler)) = ip.and_then(|ip| {
+        let hmac = ip::hmac_von(&freigabe.geheimnis, ip);
+        Some((hmac, sp.ips.spieler(&hmac)?))
+    }) else {
+        return leer(z, StatusCode::NO_CONTENT);
+    };
+    // Lässt sich die Datei nicht lesen, gilt keine Sitzung, also auch kein Tausch.
+    let zaehler = zaehler(&sp.ordner(&spieler));
+    if zaehler == u32::MAX {
+        return leer(z, StatusCode::NO_CONTENT);
+    }
+    let mut zufall = [0; 16];
+    if SystemRandom::new().fill(&mut zufall).is_err() {
+        return leer(z, StatusCode::INTERNAL_SERVER_ERROR);
+    }
+    let tausch = Sitzung {
+        spieler,
+        ablauf: jetzt().saturating_add(TAUSCH_S),
+        zaehler,
+        zufall,
+        ip: Some(hmac),
+    };
+    let text = token::stelle_aus(&tausch, Art::Tausch, &freigabe.geheimnis);
+    let mut antwort = Response::new(Full::new(Bytes::from(
+        serde_json::json!({ "token": text }).to_string(),
+    )));
+    karte(z, antwort.headers_mut());
+    antwort.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/json"),
+    );
     antwort
 }
 

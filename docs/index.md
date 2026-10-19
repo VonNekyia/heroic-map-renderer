@@ -137,7 +137,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0059](entscheidungen/0059-welten-aus-26-2-und-26-3.md): Welten und Packs aus 26.2 und 26.3, Tabellen aus 26.3; die Testwelt bleibt auf 26.2.
 - [0060](entscheidungen/0060-grenze-schatten-sonne-am-renderer.md): Grenze Schatten/Sonne am Renderer 0,35 bis 0,75 statt 0,66 aus 0058; der Look bleibt.
 - [0061](entscheidungen/0061-tablett-im-frontend.md): Tablett und Tisch zeichnet das Frontend aus ebenen Flächen, in zwei Ebenen um die Kacheln, mit der Welt wachsend, Licht über Höhenkarten, Schmuck als Sprites; nicht der Renderer, keine Bilder je Perspektive, keine gebrochenen Zoomstufen.
-- [0062](entscheidungen/0062-updates-nach-stempel-und-fingerabdruck.md): Updates nach Stempel und Fingerabdruck je Chunk, Stand je Baum, volle Höhe nach unten, ein anderer Build verlangt einen vollen Lauf.
+- [0062](entscheidungen/0062-updates-nach-stempel-und-fingerabdruck.md): Updates nach Stempel und Fingerabdruck je Chunk, Stand je Baum, volle Höhe nach unten, ein anderer Build verlangt einen vollen Lauf; bei Abbrüchen und Ausschnitten abgelöst durch 0112.
 - [0063](entscheidungen/0063-tablett-als-skin.md): Tablett als optionaler Skin: Schalter `SKIN` beim Build, Schnittstelle `skin-api.ts` mit Version, Grenze per ESLint, Ordner wie ein Paket, nur quadratische Karten, einmal für fitZoom; die Lilie an der nahen Ecke darf ins Bild ragen.
 - [0064](entscheidungen/0064-flaechen-im-innern-weich.md): Flächen im Innern weich wie das Spiel, sechs Plätze in der AO-Karte, die Ecken in der Instanz.
 - [0065](entscheidungen/0065-sicht-in-der-ecke-nach-der-version.md): Die Sicht in der Ecke der weichen Beleuchtung nach der Datenversion der Welt, aus einer Tabelle von 26.2; die Version gehört zum Baum.
@@ -186,6 +186,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0108](entscheidungen/0108-pflanzen-von-oben-flach.md): Bodenpflanzen liegen von oben flach, die Textur der ersten senkrechten Fläche über dem ganzen Block, Norden oben; nicht in Cinematic; halb so gross und wenige Punkte an der Vorschau verworfen.
 - [0109](entscheidungen/0109-1-und-2-px-als-stufen.md): Karten mit 1 und 2 px je Block sind die Stufen z − 2 und z − 1 des Baums aus `top-north` mit 4 px, keine eigenen Bäume; mehrere Massstäbe je Baum von selbst; eigene Bäume mit scale 2 und 1 verworfen.
 - [0110](entscheidungen/0110-erkennung-per-ip.md): Erkennung per IP für die Webkarte: genau ein Spieler online je IP, nur zum Ansehen, Klicks nur mit Anmeldung; `ips` als HMAC vom Plugin; `X-Real-IP` nur von einzelnen Proxys; IPv6 über einen Namen nur mit IPv4.
+- [0112](entscheidungen/0112-abgebrochene-laeufe-legen-ihr-gebiet-ab.md): Ein abgebrochenes Update und ein Ausschnitt legen ihr Gebiet als Kacheln in `gebiet-offen.bin` ab, statt im Stand Chunks unbekannt zu machen; das nächste Update zeichnet es noch einmal, und es wächst nicht mehr mit jedem Abbruch.
 
 ## Versuche
 

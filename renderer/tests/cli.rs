@@ -16,7 +16,7 @@ use heroic_map_renderer::assets::{Assets, DimensionType};
 use heroic_map_renderer::render::heights::{self, EMPTY, Heights};
 use heroic_map_renderer::render::look::LOOK;
 use heroic_map_renderer::render::rasterizer::{Light, Lightmap};
-use heroic_map_renderer::render::stand::{ALTE_BUILDS, Inhalt, Stand, ZEICHENSTAND_1};
+use heroic_map_renderer::render::stand::{ALTE_BUILDS, ZEICHENSTAND_1};
 use heroic_map_renderer::render::{
     BLEND_DEFAULT, BiomeTable, ChunkCache, Kamera, Packen, Projection, SpriteSet, TileId,
     Verkleinern, encode_webp, pyramid, render_area, render_area_with, streifenbreite, survey,
@@ -6054,19 +6054,19 @@ fn manifest_mit_nativer_stufe_und_ausschnitt() {
     );
 }
 
-/// Was der Stand des Baums `baum` über den Chunk (cx, cz) sagt.
-fn im_stand(baum: &Path, cx: i32, cz: i32) -> Inhalt {
-    let daten = std::fs::read(baum.join("stand.bin")).unwrap();
-    Stand::aus_bytes(&daten).unwrap().eintrag(cx, cz).inhalt
+/// Wie viele Kacheln `gebiet-offen.bin` des Baums nennt; 0 ohne die Datei.
+fn offen(baum: &Path) -> u32 {
+    std::fs::read(baum.join("gebiet-offen.bin"))
+        .map_or(0, |d| u32::from_le_bytes(d[16..20].try_into().unwrap()))
 }
 
-/// Bricht ein Update ab, nennt der alte Stand die Chunks, die es zeichnen
-/// konnte, unbekannt, die übrigen bleiben; daneben liegt der angefangene.
-/// Ein neues Update findet dieselbe Änderung wieder und kommt zum selben
-/// Ergebnis wie ein voller Lauf; danach ist der angefangene Stand weg.
-/// Siehe docs/benutzung/updates.md, „Der Stand“.
+/// Bricht ein Update ab, bleibt der alte Stand, wie er war; sein Gebiet
+/// liegt in `gebiet-offen.bin`, daneben der angefangene Stand. Ein neues
+/// Update findet dieselbe Änderung wieder und kommt zum selben Ergebnis wie
+/// ein voller Lauf; danach sind beide weg.
+/// Siehe docs/benutzung/updates.md, „Das offene Gebiet“.
 #[test]
-fn abgebrochenes_update_macht_sein_gebiet_unbekannt() {
+fn abgebrochenes_update_legt_sein_gebiet_ab() {
     for scale in ["16", "12"] {
         let welt = tempdir();
         baue_gelaende(welt.path());
@@ -6088,18 +6088,14 @@ fn abgebrochenes_update_macht_sein_gebiet_unbekannt() {
             .expect("eine Basiskachel ändert sich");
         std::fs::remove_file(&pfad).unwrap();
         std::fs::create_dir(&pfad).unwrap();
-        let fern = im_stand(baum.path(), 28, 0);
-        assert!(matches!(fern, Inhalt::Fertig(_)), "scale {scale}: {fern:?}");
         let ausgabe = tiles(welt.path(), baum.path(), &["--scale", scale, "--update"]);
         assert!(!ausgabe.status.success(), "scale {scale}: kein Abbruch");
-        for (cx, cz) in GEAENDERT {
-            assert_eq!(
-                im_stand(baum.path(), cx, cz),
-                Inhalt::Unbekannt,
-                "scale {scale}: ({cx}, {cz})"
-            );
-        }
-        assert_eq!(im_stand(baum.path(), 28, 0), fern, "scale {scale}: fern");
+        assert_eq!(
+            std::fs::read(&stand).unwrap(),
+            vorher,
+            "scale {scale}: der alte Stand bleibt"
+        );
+        assert!(offen(baum.path()) > 0, "scale {scale}: kein offenes Gebiet");
         assert!(baum.path().join("stand-neu.bin").is_file(), "scale {scale}");
 
         std::fs::remove_dir(&pfad).unwrap();
@@ -6110,8 +6106,100 @@ fn abgebrochenes_update_macht_sein_gebiet_unbekannt() {
         ));
         gleiche_baeume(baum.path(), voll.path(), &format!("scale {scale}"));
         assert!(!baum.path().join("stand-neu.bin").exists(), "scale {scale}");
+        assert_eq!(offen(baum.path()), 0, "scale {scale}: noch offen");
+        assert!(
+            !baum.path().join("gebiet-offen.bin").exists(),
+            "scale {scale}"
+        );
         assert_ne!(std::fs::read(&stand).unwrap(), vorher, "scale {scale}");
     }
+}
+
+/// Die Zahl der geänderten Chunks und der Kacheln im Gebiet aus der Zeile
+/// `Update:` eines Laufs.
+fn gebiet_des_updates(ausgabe: &Output) -> (usize, usize) {
+    let text = String::from_utf8_lossy(&ausgabe.stdout);
+    let zeile = text
+        .lines()
+        .find_map(|z| z.strip_prefix("Update:     "))
+        .unwrap_or_else(|| panic!("keine Zeile Update: in {text}"));
+    let zahl_vor = |wort: &str| -> usize {
+        let vorn = &zeile[..zeile
+            .find(wort)
+            .unwrap_or_else(|| panic!("{wort} fehlt in {zeile}"))];
+        vorn.trim_end()
+            .rsplit([' ', ','])
+            .next()
+            .unwrap()
+            .parse()
+            .unwrap()
+    };
+    (zahl_vor(" Chunks geändert"), zahl_vor(" Kacheln von"))
+}
+
+/// Mit Cinematic zweimal hintereinander abgebrochen: Das zweite und das
+/// dritte Update haben dasselbe Gebiet wie das erste. Es wächst nicht um die
+/// Strahlen zur Sonne und die Nachbarn dessen, was ein abgebrochener Lauf
+/// las. Das dritte gleicht einem vollen Lauf, danach ist nichts mehr offen,
+/// und ein viertes hat nichts zu zeichnen.
+/// Siehe docs/benutzung/updates.md, „Das offene Gebiet“.
+#[test]
+fn abbrueche_blaehen_das_naechste_update_nicht_auf() {
+    let extra = ["--scale", "12", "--cinematic"];
+    let update = ["--scale", "12", "--cinematic", "--update"];
+    let welt = tempdir();
+    baue_gelaende(welt.path());
+    let baum = neuer_baum("2x1-se-cinematic");
+    gelungen(&tiles(welt.path(), baum.path(), &extra));
+    baue_aenderungen(welt.path());
+    let voll = neuer_baum("2x1-se-cinematic");
+    gelungen(&tiles(welt.path(), voll.path(), &extra));
+
+    // Eine Basiskachel, die das Update neu schreibt, wird ein Ordner: dort
+    // scheitert es, solange er da ist.
+    let basis = max_zoom(baum.path());
+    let neu = kacheln(voll.path(), basis);
+    let (_, sperre) = kacheln(baum.path(), basis)
+        .into_iter()
+        .find(|(tile, pfad)| std::fs::read(pfad).unwrap() != std::fs::read(&neu[tile]).unwrap())
+        .expect("eine Basiskachel ändert sich");
+    std::fs::remove_file(&sperre).unwrap();
+    std::fs::create_dir(&sperre).unwrap();
+    let erstes = tiles(welt.path(), baum.path(), &update);
+    assert!(!erstes.status.success(), "erstes: kein Abbruch");
+    let (chunks, kacheln_im_gebiet) = gebiet_des_updates(&erstes);
+    assert!(chunks > 0 && kacheln_im_gebiet > 0);
+    let zweites = tiles(welt.path(), baum.path(), &update);
+    assert!(!zweites.status.success(), "zweites: kein Abbruch");
+    assert_eq!(
+        gebiet_des_updates(&zweites),
+        (chunks, kacheln_im_gebiet),
+        "zweites"
+    );
+    let text = String::from_utf8_lossy(&zweites.stdout);
+    assert!(
+        text.contains(&format!(
+            "dazu {kacheln_im_gebiet} Kacheln aus abgebrochenen Läufen und Ausschnitten"
+        )),
+        "{text}"
+    );
+    assert_eq!(offen(baum.path()) as usize, kacheln_im_gebiet);
+
+    std::fs::remove_dir(&sperre).unwrap();
+    let drittes = gelungen(&tiles(welt.path(), baum.path(), &update)).clone();
+    assert_eq!(
+        gebiet_des_updates(&drittes),
+        (chunks, kacheln_im_gebiet),
+        "drittes"
+    );
+    gleiche_baeume(baum.path(), voll.path(), "drittes");
+    assert_eq!(offen(baum.path()), 0, "nach dem dritten noch offen");
+    let viertes = gelungen(&tiles(welt.path(), baum.path(), &update)).clone();
+    assert!(
+        String::from_utf8_lossy(&viertes.stdout).contains("Update:     nichts zu zeichnen"),
+        "{}",
+        String::from_utf8_lossy(&viertes.stdout)
+    );
 }
 
 /// Jede Änderung, die weit reicht, allein in einem Chunk: Das Update gleicht
@@ -6471,13 +6559,14 @@ fn voller_lauf_mit_resume_raeumt_abgerissenes_weg() {
 /// Ein abgebrochenes Update und ein Ausschnitt zeichnen Kacheln, ohne einen
 /// Stand zu schreiben. Wechselt ein Chunk danach zurück, wie ein Ofen, der
 /// wieder ausgeht, gleicht sein Inhalt wieder dem Stand. Trotzdem zeichnet
-/// ihn das nächste Update: Der Stand nennt ihn seit dem Lauf unbekannt, und
-/// der Baum gleicht einem vollen Lauf über die Welt von jetzt.
+/// ihn das nächste Update: Das Gebiet des Laufs liegt offen, und der Baum
+/// gleicht einem vollen Lauf über die Welt von jetzt, auch wo der
+/// abgebrochene Lauf einen Turm zeichnete, den es nicht mehr gibt.
 ///
 /// Welche Kacheln das Update vor dem Abbruch schreibt, hängt an der
 /// Reihenfolge der Threads. Eine geänderte Kachel setzt der Test darum
 /// selbst, aus einem vollen Lauf über die geänderte Welt.
-/// Siehe docs/benutzung/updates.md, „Der Stand“.
+/// Siehe docs/benutzung/updates.md, „Das offene Gebiet“.
 #[test]
 fn zurueckgewechselter_chunk_wird_gezeichnet() {
     let extra = ["--scale", "12"];
@@ -6664,10 +6753,10 @@ fn update_setzt_mit_resume_fort() {
     );
     assert!(!baum.path().join("stand-neu.bin").exists());
 
-    // Ohne angefangenen Stand: nichts behalten, keinen Stand schreiben, im
-    // alten nur das Gebiet unbekannt. Zurück zur Welt ohne Türme, mit den
-    // Stempeln der Bauhilfe.
-    let fern = im_stand(baum.path(), 28, 0);
+    // Ohne angefangenen Stand: nichts behalten, keinen Stand schreiben, das
+    // Gebiet offen ablegen; der alte Stand bleibt. Zurück zur Welt ohne
+    // Türme, mit den Stempeln der Bauhilfe.
+    let stand = std::fs::read(baum.path().join("stand.bin")).unwrap();
     baue_gelaende(welt.path());
     altern(baum.path());
     let ausgabe = tiles(
@@ -6681,14 +6770,8 @@ fn update_setzt_mit_resume_fort() {
         "{}",
         String::from_utf8_lossy(&ausgabe.stdout)
     );
-    for (cx, cz) in GEAENDERT {
-        assert_eq!(
-            im_stand(baum.path(), cx, cz),
-            Inhalt::Unbekannt,
-            "({cx}, {cz})"
-        );
-    }
-    assert_eq!(im_stand(baum.path(), 28, 0), fern);
+    assert_eq!(std::fs::read(baum.path().join("stand.bin")).unwrap(), stand);
+    assert!(offen(baum.path()) > 0, "kein offenes Gebiet");
     let ohne = neuer_baum("2x1-se");
     gelungen(&tiles(welt.path(), ohne.path(), &["--scale", "12"]));
     gleiche_baeume(baum.path(), ohne.path(), "");

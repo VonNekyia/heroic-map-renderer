@@ -1861,9 +1861,9 @@ fn write_tiles(
         Angefangen::Passend(stand, seit) => Some((stand, seit)),
         Angefangen::Keiner | Angefangen::Fremd => None,
     };
-    let (gebiet, stand, aenderungen) = match bereich {
-        Bereich::Welt => (None, None, None),
-        Bereich::Ausschnitt(rect) => (Some(Gebiet::rechteck(rect, stufen)), None, None),
+    let (gebiet, stand, aenderungen, offen) = match bereich {
+        Bereich::Welt => (None, None, None, None),
+        Bereich::Ausschnitt(rect) => (Some(Gebiet::rechteck(rect, stufen)), None, None, None),
         Bereich::Update => {
             let started = Instant::now();
             let alt = stand_fuer_update(dir, abdruecke)?;
@@ -1872,8 +1872,17 @@ fn write_tiles(
             })?;
             let gebiet =
                 gebiet_der_aenderungen(projection, stufen, Y_RANGE.0, &aenderungen, look.as_ref());
+            // Was Läufe ohne neuen Stand zeichneten, zeichnet es noch einmal.
+            let offen = lies_offen(dir, stufen)?;
+            let dazu = match offen.len() {
+                0 => String::new(),
+                n => format!(", dazu {n} Kacheln aus abgebrochenen Läufen und Ausschnitten"),
+            };
+            let mut kacheln = gebiet.kacheln().clone();
+            kacheln.extend(offen.iter().copied());
+            let gebiet = Gebiet::aus(stufen, kacheln);
             println!(
-                "\nUpdate:     {} Chunks geändert, {} Kacheln von {TILE}x{TILE} px bei scale {} im Gebiet, in {:.1} s",
+                "\nUpdate:     {} Chunks geändert{dazu}, {} Kacheln von {TILE}x{TILE} px bei scale {} im Gebiet, in {:.1} s",
                 aenderungen.len(),
                 gebiet.kacheln().len(),
                 projection.scale() >> stufen,
@@ -1886,6 +1895,7 @@ fn write_tiles(
                     ..neu
                 }),
                 Some(aenderungen),
+                Some(Gebiet::aus(stufen, offen)),
             )
         }
     };
@@ -2023,8 +2033,9 @@ fn write_tiles(
         .collect();
     // Kacheln, die ein Chunk zeigte, der noch da ist, aber nicht mehr
     // dorthin reicht, etwa über einem abgerissenen Turm: Der Lauf zeichnet
-    // sie neu, leer verschwinden sie. Die eines Chunks, der ganz fehlt,
-    // bleiben ohne --prune stehen.
+    // sie neu, leer verschwinden sie. Ebenso im offenen Gebiet, wo ein
+    // abgebrochener Lauf einen Turm zeichnete, den es nicht mehr gibt. Die
+    // eines Chunks, der ganz fehlt, bleiben ohne --prune stehen.
     // Siehe docs/benutzung/kacheln.md, „Leer gewordene Kacheln“.
     if let Some(aenderungen) = &aenderungen {
         let (bleiben, fehlen): (Vec<Aenderung>, Vec<Aenderung>) =
@@ -2034,7 +2045,9 @@ fn write_tiles(
         let dazu: Vec<TileId> = bestehend
             .iter()
             .filter(|tile| {
-                !kandidaten.contains(tile) && da.enthaelt(**tile) && !weg.enthaelt(**tile)
+                !kandidaten.contains(tile)
+                    && (da.enthaelt(**tile) || offen.as_ref().is_some_and(|o| o.enthaelt(**tile)))
+                    && !weg.enthaelt(**tile)
             })
             .copied()
             .collect();
@@ -2089,7 +2102,11 @@ fn write_tiles(
     // ansieht, findet sie mit der ersten Kachel.
     schreibe_hoehen(std::mem::take(&mut survey.heights), wurzel)?;
     let hoehen_weg = if prune {
-        hoehen_ohne_region(world, Reach::im_gebiet(projection, Y_RANGE, gebiet), wurzel)?
+        hoehen_ohne_region(
+            world,
+            Reach::im_gebiet(projection, Y_RANGE, gebiet.clone()),
+            wurzel,
+        )?
     } else {
         Vec::new()
     };
@@ -2131,17 +2148,27 @@ fn write_tiles(
     // Ab jetzt lässt sich der Baum wählen, auch während seines ersten Laufs.
     schreibe_baeume(wurzel)?;
     let manifest = manifest::Lauf::beginne(dir, mit_manifest)?;
-    // Was dieser Lauf zeichnen kann, nennt der alte Stand ab jetzt
-    // unbekannt: Bricht er ab, zeigen Kacheln vielleicht, was der Stand
-    // nicht kennt. Ein voller Lauf liest alles.
-    // Siehe docs/benutzung/updates.md, „Der Stand“.
+    // Bricht der Lauf ab, zeigen Kacheln vielleicht, was der Stand nicht
+    // kennt. Ein voller Lauf macht darum im alten Stand alles unbekannt; ein
+    // Update und ein Ausschnitt legen ihr Gebiet ab, das nächste Update
+    // zeichnet es noch einmal.
+    // Siehe docs/benutzung/updates.md, „Das offene Gebiet“.
     if let Some(alt) = lies_stand(&dir.join(STAND)).ok().flatten() {
-        let alt = alt.unbekannt_wo(
-            &world.stempel()?,
-            |cx, cz| reach.liest(cx, cz),
-            |rx, rz| reach.region(rx, rz),
-        );
-        lege_stand_ab(&dir.join(STAND), &alt)?;
+        match &gebiet {
+            None => {
+                let alt = alt.unbekannt_wo(
+                    &world.stempel()?,
+                    |cx, cz| reach.liest(cx, cz),
+                    |rx, rz| reach.region(rx, rz),
+                );
+                lege_stand_ab(&dir.join(STAND), &alt)?;
+            }
+            Some(gebiet) => {
+                let mut offen = lies_offen(dir, stufen)?;
+                offen.extend(gebiet.kacheln().iter().copied());
+                lege_offen_ab(dir, stufen, &offen)?;
+            }
+        }
     }
     // Der angefangene Stand, ebenso vor der ersten Kachel: Bricht der Lauf
     // ab, setzt --resume mit ihm fort. Ein Fortsetzen behält den alten,
@@ -2454,6 +2481,61 @@ enum Bereich {
 const STAND: &str = "stand.bin";
 const STAND_NEU: &str = "stand-neu.bin";
 
+/// Die Kacheln, die Läufe ohne neuen Stand gezeichnet haben können, ein
+/// abgebrochenes Update oder ein Ausschnitt.
+/// Siehe docs/benutzung/updates.md, „Das offene Gebiet“.
+const OFFEN: &str = "gebiet-offen.bin";
+
+/// Der Kopf von [`OFFEN`]: Magie und Fassung.
+const OFFEN_KOPF: &[u8; 12] = b"HMROFFEN\x01\0\0\0";
+
+/// Die Kacheln aus [`OFFEN`], auf der gröbsten nativen Stufe, `stufen` über
+/// der Basis; leer, wenn es die Datei nicht gibt. Lässt sie sich nicht
+/// lesen oder gilt sie für andere Stufen, wüsste ein Update nicht, was es
+/// noch einmal zeichnen muss: dann ein Fehler.
+fn lies_offen(dir: &Path, stufen: u32) -> Result<BTreeSet<TileId>> {
+    let pfad = dir.join(OFFEN);
+    let daten = match std::fs::read(&pfad) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(BTreeSet::new()),
+        gelesen => gelesen.with_context(|| format!("{} lesen", pfad.display()))?,
+    };
+    let zahl = |b: &[u8]| u32::from_le_bytes([b[0], b[1], b[2], b[3]]);
+    let gut = daten.len() >= 20
+        && daten[..12] == OFFEN_KOPF[..]
+        && zahl(&daten[12..16]) == stufen
+        && daten.len() == 20 + 8 * zahl(&daten[16..20]) as usize;
+    ensure!(
+        gut,
+        "{} lässt sich nicht lesen. Erst ein voller Lauf zeichnet alles, danach geht --update wieder.",
+        pfad.display()
+    );
+    Ok(daten[20..]
+        .as_chunks::<8>()
+        .0
+        .iter()
+        .map(|e| TileId {
+            x: zahl(&e[..4]) as i32,
+            y: zahl(&e[4..]) as i32,
+        })
+        .collect())
+}
+
+/// Legt die Kacheln als [`OFFEN`] ab, wie den Stand vor dem Tausch ganz
+/// auf der Platte. Alles in Little Endian: der Kopf, `stufen` und die Zahl
+/// als u32, je Kachel x und y als i32.
+fn lege_offen_ab(dir: &Path, stufen: u32, kacheln: &BTreeSet<TileId>) -> Result<()> {
+    let mut daten = Vec::with_capacity(20 + 8 * kacheln.len());
+    daten.extend_from_slice(OFFEN_KOPF);
+    daten.extend_from_slice(&stufen.to_le_bytes());
+    daten.extend_from_slice(&(kacheln.len() as u32).to_le_bytes());
+    for tile in kacheln {
+        daten.extend_from_slice(&tile.x.to_le_bytes());
+        daten.extend_from_slice(&tile.y.to_le_bytes());
+    }
+    let pfad = dir.join(OFFEN);
+    tausche(&pfad, &daten, None, true).with_context(|| format!("{} schreiben", pfad.display()))
+}
+
 /// Neben dem angefangenen Stand: die Basiskacheln, die der Lauf liegen liess,
 /// weil sie schon dieselben Bytes hatten. Ihre Zeit ist alt, `--resume`
 /// erkennt sie hieran. Je Kachel 12 Byte in Little Endian: x und y als i32,
@@ -2623,7 +2705,8 @@ fn lies_inhalte(world: &World, rx: i32, rz: i32, lagen: &[[i32; 2]]) -> Result<V
 }
 
 /// Schreibt den Stand am Ende eines Laufs: Was der Server seit dem Beginn
-/// schrieb, ist darin unbekannt. Der angefangene Stand fällt weg.
+/// schrieb, ist darin unbekannt. Der angefangene Stand fällt weg, ebenso das
+/// offene Gebiet: Dieser Lauf hat es gezeichnet.
 fn schreibe_stand(dir: &Path, world: &World, stand: Stand) -> Result<()> {
     let stand = stand.am_ende(&world.stempel()?);
     let eintraege = stand.regionen.values().flatten();
@@ -2637,6 +2720,7 @@ fn schreibe_stand(dir: &Path, world: &World, stand: Stand) -> Result<()> {
     lege_stand_ab(&pfad, &stand)?;
     entferne(&dir.join(STAND_NEU))?;
     entferne(&dir.join(LIEGEN_NEU))?;
+    entferne(&dir.join(OFFEN))?;
     let waehrend = match unbekannt {
         0 => String::new(),
         n => format!(", {n} während des Laufs geschrieben"),

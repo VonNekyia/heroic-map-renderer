@@ -11,7 +11,7 @@ import feldKlein from './ebenen/schild_klein.png?url&no-inline';
 import rahmenKlein from './ebenen/schild_klein_rahmen.png?url&no-inline';
 import feldMittel from './ebenen/schild_mittel.png?url&no-inline';
 import rahmenMittel from './ebenen/schild_mittel_rahmen.png?url&no-inline';
-import { bereich, form, hatFlaeche, versetze, zeichne, zuege, type Form, type Strich } from './formen';
+import { bereich, form, hatFlaeche, versetze, wandHoehe, zeichne, zuege, type Form, type Strich } from './formen';
 import { bildpunkt, oberflaeche as hoeheAuf, rechteck, schriftPfad, zurKamera, type Blick, type Gelaende, type Rechteck } from './gelaende';
 import { FRISCH, LEER, type Hoehenkarten } from './hoehen';
 import { REGION } from './pick';
@@ -674,8 +674,11 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     stand: string;
     /** Nadeln und Banner. */
     gruppe: L.LayerGroup;
-    /** Flächen, Ränder, Linien und Schrift, in dieser Reihenfolge. */
+    /** Flächen, Wände, Ränder, Linien und Schrift, in dieser Reihenfolge. */
     formen: L.LayerGroup;
+    /** Die Wände; in `formen` nur, solange sie auf dem Schirm mindestens 1 px hoch sind. */
+    waende: L.Layer[];
+    mitWand: boolean;
     striche: Strich[];
   }
   const geladen = new Map<string, Geladen>();
@@ -683,6 +686,13 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
   const auftrag = new Map<string, number>();
   /** Je Ebene die `version` mit `permission` oder `web: false`; die holt die Karte nicht noch einmal. */
   const abgewiesen = new Map<string, string>();
+  /**
+   * Je Ebene die `version`, die das Nachfragen gerade lädt. Dauert ein Laden
+   * länger als der Takt, etwa auf einem ausgelasteten Rechner, startete
+   * sonst jedes Nachfragen es neu und verwürfe das laufende: Die Ebene
+   * erschiene nie.
+   */
+  const laeuft = new Map<string, string>();
   let eintraege: Eintrag[] = [];
   /** Die Einträge aus `layers.json`, wie zuletzt gelesen, auch Aktionsebenen ohne Anmeldung. */
   let roh: unknown[] = [];
@@ -1022,16 +1032,33 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     renderer: L.Renderer,
     formPane: string,
     tafelDerEbene: (bausteine: unknown[], objekt: string) => HTMLElement,
-  ): Promise<{ flaechen: L.Layer[]; striche: Strich[]; schriftLagen: Schrift[] }> => {
+  ): Promise<{ flaechen: L.Layer[]; waende: L.Layer[]; striche: Strich[]; schriftLagen: Schrift[] }> => {
     // Formen auf dem Boden ohne Laub, die Schrift auf der Oberfläche wie Nadeln und Banner.
     const [boden, oben] = await Promise.all([
       ladeGelaende(regionenFuer(formen, []), true),
       schriften.length ? ladeGelaende(regionenFuer([], schriften), false) : eben,
     ]);
-    const { flaechen, striche } = zeichne(formen, { renderer, blick, gelaende: boden, area: umgebung.area, tafel: tafelDerEbene, bediene });
+    const { flaechen, waende, striche } = zeichne(formen, { renderer, blick, gelaende: boden, eben: boden === eben, area: umgebung.area, tafel: tafelDerEbene, bediene });
     const schriftLagen: Schrift[] = [];
     for (const s of schriften) schriftLagen.push(new Schrift(s, schriftPfad(s.pfad, oben, blick), faktor, scale, formPane));
-    return { flaechen, striche, schriftLagen };
+    return { flaechen, waende, striche, schriftLagen };
+  };
+
+  /** Ob die Wände auf dem Schirm mindestens 1 px hoch sind; darunter sieht man sie nicht, und Leaflet spart sich die Pfade. */
+  const mitWand = (): boolean => wandHoehe(blick) * faktor() >= 1;
+
+  /** Nimmt die Wände einer Ebene von der Karte oder hängt sie an, vor die Ränder, so liegen die Ränder oben. */
+  const wandAnpassen = (g: Geladen): void => {
+    const an = mitWand();
+    if (!g.waende.length || an === g.mitWand) return;
+    g.mitWand = an;
+    if (!an) {
+      for (const w of g.waende) g.formen.removeLayer(w);
+      return;
+    }
+    for (const s of g.striche) g.formen.removeLayer(s.linie);
+    for (const w of g.waende) g.formen.addLayer(w);
+    for (const s of g.striche) g.formen.addLayer(s.linie);
   };
 
   /**
@@ -1101,7 +1128,7 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     }
     const { renderer, formen: formPane } = pane(e.id);
     // Formen und Schrift rechnen einmal je version, hier vor dem Tausch.
-    const { flaechen, striche, schriftLagen } = await formenUndSchrift(formen, schriften, renderer, formPane, tafelDerEbene);
+    const { flaechen, waende, striche, schriftLagen } = await formenUndSchrift(formen, schriften, renderer, formPane, tafelDerEbene);
     // Icons und Symbole gelten nur für dieses Laden und fallen danach weg.
     const icons = new Map<string, Promise<HTMLCanvasElement>>();
     const symbole = new Map<string, Promise<HTMLImageElement>>();
@@ -1135,10 +1162,11 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     if (!gilt()) return;
     weg(e.id);
     // Erst Flächen, dann Ränder und Linien, zuletzt Schrift.
-    const formGruppe = L.layerGroup([...flaechen, ...striche.map((s) => s.linie), ...schriftLagen]).addTo(map);
+    const wand = mitWand();
+    const formGruppe = L.layerGroup([...flaechen, ...(wand ? waende : []), ...striche.map((s) => s.linie), ...schriftLagen]).addTo(map);
     versetze(striche, faktor());
     const gruppe = L.layerGroup(marker.filter((m): m is L.Marker => m !== undefined)).addTo(map);
-    geladen.set(e.id, { version: e.version, stand, gruppe, formen: formGruppe, striche });
+    geladen.set(e.id, { version: e.version, stand, gruppe, formen: formGruppe, waende, mitWand: wand, striche });
   };
 
   const entferne = (id: string): void => {
@@ -1374,8 +1402,17 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     // Auch, wenn der Betreiber `visible` ändert und der Betrachter nie gewählt hat.
     for (const id of [...geladen.keys()]) if (!eintraege.some((e) => e.id === id && an(e))) entferne(id);
     // Eine Aktionsebene fragt jedes Mal; neu zeichnet sie nur mit neuem Inhalt.
-    const zuLaden = eintraege.filter((e) => an(e) && (e.player || geladen.get(e.id)?.version !== e.version));
-    await Promise.all(zuLaden.map((e) => ladeEbene(e).catch((fehler: unknown) => console.error(e.id, fehler))));
+    const zuLaden = eintraege.filter((e) => an(e) && (e.player || geladen.get(e.id)?.version !== e.version) && laeuft.get(e.id) !== e.version);
+    await Promise.all(
+      zuLaden.map((e) => {
+        laeuft.set(e.id, e.version);
+        return ladeEbene(e)
+          .catch((fehler: unknown) => console.error(e.id, fehler))
+          .finally(() => {
+            if (laeuft.get(e.id) === e.version) laeuft.delete(e.id);
+          });
+      }),
+    );
   };
 
   /** Die Ebenen aus `layers.json`, oder `undefined`, wenn sie fehlt oder kaputt ist. */
@@ -1408,7 +1445,10 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
   // Erst anmelden, dann abgleichen: Ein Fehler beim ersten Abgleich hält das
   // Nachfragen nicht auf.
   map.on('zoomend', () => {
-    for (const g of geladen.values()) versetze(g.striche, faktor());
+    for (const g of geladen.values()) {
+      wandAnpassen(g);
+      versetze(g.striche, faktor());
+    }
   });
   setInterval(() => {
     if (document.visibilityState === 'visible') void nachfragen();

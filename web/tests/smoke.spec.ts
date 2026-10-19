@@ -201,6 +201,37 @@ test('die Karte läuft unter strengen Headern', async ({ page }) => {
   );
 });
 
+test('Kacheln folgt Leaflet 1.9.4: Ein anderes Leaflet braucht einen Blick auf die drei Methoden der Unterklasse', () => {
+  const { version } = JSON.parse(readFileSync(new URL('../node_modules/leaflet/package.json', import.meta.url), 'utf8')) as { version: string };
+  expect(version, 'siehe docs/frontend.md, „Ausliefern“').toBe('1.9.4');
+});
+
+test('Zoomen bricht laufende Kacheln ab, ohne die CSP zu verletzen; eine abgebrochene zählt nicht als geladen', async ({ page }) => {
+  await page.addInitScript(() => {
+    const verletzt: string[] = [];
+    (window as unknown as { verletzt: string[] }).verletzt = verletzt;
+    document.addEventListener('securitypolicyviolation', (e) => verletzt.push(`${e.effectiveDirective} ${e.blockedURI}`));
+  });
+  // Kacheln der Stufe 2 hängen, bis der Test sie freigibt: So laufen sie noch, wenn die Karte wegzoomt.
+  const haengend: (() => void)[] = [];
+  await page.route('**/tiles-demo/2/*/*.webp', async (route) => {
+    await new Promise<void>((weiter) => haengend.push(weiter));
+    await route.fulfill({ response: await route.fetch() }).catch(() => undefined);
+  });
+  const abgebrochen: string[] = [];
+  page.on('requestfailed', (r) => abgebrochen.push(r.url()));
+  await page.goto(`${DEMO}&at=20,0,-20&zoom=0`);
+  await expect.poll(() => haengend.length).toBeGreaterThan(0);
+  await page.locator('.leaflet-control-zoom-out').click();
+  await expect(page.locator('img.leaflet-tile-loaded[src*="/tiles-demo/1/"]').first()).toBeVisible();
+  for (const weiter of haengend) weiter();
+  await expect.poll(() => abgebrochen.filter((u) => u.includes('/tiles-demo/2/')).length).toBeGreaterThan(0);
+  // Nach dem Abbruch steht keine Kachel der Stufe 2 als geladen da.
+  await page.waitForTimeout(300);
+  await expect(page.locator('img.leaflet-tile-loaded[src*="/tiles-demo/2/"]')).toHaveCount(0);
+  expect(await page.evaluate(() => (window as unknown as { verletzt: string[] }).verletzt)).toEqual([]);
+});
+
 test('die Koordinaten rechnen mit projection aus map.json', async ({ page }) => {
   // Eine Draufsicht über den Kacheln von 2:1: falsch fürs Auge, aber so
   // zeigt sich, dass projection gilt und nicht scale.
@@ -869,6 +900,8 @@ test('der Umschalter öffnet den anderen Baum mit demselben Block in der Mitte',
     '2:1 aus Südost · Einfarbig',
     'Von oben aus Südost',
     'Von oben, Osten oben · Cinematic',
+    'Von oben, Osten oben · Cinematic · 2 px je Block',
+    'Von oben, Osten oben · Cinematic · 1 px je Block',
   ]);
   await expect(page.locator('.kompass')).toHaveAttribute('style', /rotate\(63\.4deg\)/);
   const [stufe] = await baumStufen(page);
@@ -917,6 +950,80 @@ test('beim Wechsel bleibt ein Block gleich gross, auch zu einem einfarbigen Baum
   expect(await kachelBreite(page)).toBe(256 * 64);
   await page.goto('/?tiles=/tiles-baeume&tree=2x1-se&at=20,0,-20&zoom=3');
   expect(await kachelBreite(page)).toBe(256 * 4);
+});
+
+/**
+ * Ein Baum aus `top-north` mit scale 4 unter `/tiles-oben`, wie 0.11.0 ihn
+ * schreibt, mit den Kacheln des Demobaums und ebenen Höhen; dazu ein
+ * einfarbiger nur in der Liste. `downscale`
+ * fehlt, wenn `mitteln` gilt, wie bei einem Baum aus älterem Stand.
+ */
+async function vonOben(page: Page, mitteln = false): Promise<string[]> {
+  const stufen: string[] = [];
+  const trees = [
+    { path: 'top-north-s', camera: 'top-north', direction: 's', look: 'map' },
+    { path: 'top-north-s-flat', camera: 'top-north', direction: 's', look: 'flat' },
+  ];
+  await page.route('**/tiles-oben/trees.json', (route) => route.fulfill({ json: { trees } }));
+  await page.route('**/tiles-oben/top-north-s/*/*/*.webp', async (route) => {
+    const url = route.request().url();
+    stufen.push(/top-north-s\/(\d+)\//.exec(url)![1]!);
+    await route.fulfill({ response: await route.fetch({ url: url.replace('/tiles-oben/top-north-s/', '/tiles-demo/') }) });
+  });
+  await page.route('**/tiles-oben/top-north-s/map.json', async (route) => {
+    const response = await route.fetch({ url: route.request().url().replace('/tiles-oben/top-north-s/', '/tiles-demo/') });
+    const info = (await response.json()) as object;
+    const hoehen = { heights: '../heights/{x}.{z}.bin', heightsCell: 4, minY: -64, maxY: 319 };
+    const oben = { ...hoehen, scale: 4, camera: 'top-north', direction: 's', projection: { azimuth: 'north', u: 4, v: 4, y: 0 }, ...(mitteln ? {} : { downscale: 'nearest' }) };
+    await route.fulfill({ response, json: { ...info, ...oben } });
+  });
+  await page.route('**/tiles-oben/heights/*.bin', (route) =>
+    route.fulfill({ body: deflateSync(Buffer.from(new Int16Array(128 * 128).buffer)) }),
+  );
+  return stufen;
+}
+
+test('ein Baum aus top-north hat dazu Ansichten mit 2 und 1 px je Block: die feinste Stufe gekappt, darüber vergrössert bis 64 Pixel je Block; px bleibt in der Adresse', async ({
+  page,
+}) => {
+  const stufen = await vonOben(page);
+  // scale 4 auf Stufe 2, dem Zoom 0: eine Kachel 256 Pixel.
+  await page.goto('/?tiles=/tiles-oben&tree=top-north-s&at=40,0,40&zoom=0');
+  const auswahl = page.locator('select.baeume');
+  await expect(auswahl.locator('option')).toHaveText([
+    'Von oben, Norden oben',
+    'Von oben, Norden oben · 2 px je Block',
+    'Von oben, Norden oben · 1 px je Block',
+    'Von oben, Norden oben · Einfarbig',
+  ]);
+  expect(await kachelBreite(page)).toBe(256);
+  await auswahl.selectOption('top-north-s?px=1');
+  await page.waitForURL(/px=1/);
+  await expect(page.locator('select.baeume')).toHaveValue('top-north-s?px=1');
+  // Gleicher Zoom, gleich grosse Blöcke, aber Kacheln der Stufe 0, viermal vergrössert.
+  expect(new URL(page.url()).searchParams.get('zoom')).toBe('0');
+  expect(await kachelBreite(page)).toBe(1024);
+  expect(stufen.at(-1)).toBe('0');
+  // Die Adresse folgt der Karte und behält px.
+  await page.locator('.leaflet-control-zoom-out').click();
+  await expect.poll(() => new URL(page.url()).searchParams.get('zoom')).toBe('-1');
+  expect(new URL(page.url()).searchParams.get('px')).toBe('1');
+  // Die Grenze: 64 Pixel je Block, wie in der vollen Ansicht; bei 2 px je Block Stufe 1.
+  await page.goto('/?tiles=/tiles-oben&tree=top-north-s&px=1&at=40,0,40&zoom=9');
+  expect(await kachelBreite(page)).toBe(256 * 64);
+  await page.goto('/?tiles=/tiles-oben&tree=top-north-s&px=2&at=40,0,40&zoom=0');
+  expect(await kachelBreite(page)).toBe(512);
+  expect(stufen.at(-1)).toBe('1');
+});
+
+test('ohne downscale nearest oder mit einem anderen px gilt px nicht: die volle Ansicht', async ({ page }) => {
+  const stufen = await vonOben(page, true);
+  for (const suche of ['tree=top-north-s&px=1', 'tree=top-north-s&px=3']) {
+    await page.goto(`/?tiles=/tiles-oben&${suche}&at=40,0,40&zoom=0`);
+    expect(await kachelBreite(page)).toBe(256);
+    expect(stufen.at(-1)).toBe('2');
+    await expect(page.locator('select.baeume')).toHaveValue('top-north-s');
+  }
 });
 
 test('ein Baum allein braucht keinen Umschalter, nur den Kompass', async ({ page }) => {

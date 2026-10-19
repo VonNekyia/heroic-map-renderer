@@ -104,6 +104,16 @@ export function oberflaeche(g: Gelaende, x: number, z: number): number {
   return oben * (1 - tz) + unten * tz + 1;
 }
 
+/**
+ * So viele Seiten hat ein Kreis höchstens: mit Gelände folgt er den Zellen,
+ * ohne ist er ein 128-Eck. Sonst gäbe ein grosser Kreis Zehntausende.
+ */
+const KREIS = { seiten: 512, ohneGelaende: 128 };
+
+/** Ein Kreis als Vieleck mit Seiten von einer Zelle, höchstens `KREIS.seiten`, ohne Gelände `KREIS.ohneGelaende`. */
+export const kreisRing = (mitte: Punkt, r: number, c: number, eben: boolean): Punkt[] =>
+  vieleck(mitte, r, Math.max(c, (2 * Math.PI * r) / (eben ? KREIS.ohneGelaende : KREIS.seiten)));
+
 /** Ein Kreis als Vieleck mit Seiten von höchstens c Blöcken, mindestens acht. */
 export function vieleck([mx, mz]: Punkt, r: number, c: number): Punkt[] {
   const n = Math.max(8, Math.ceil((2 * Math.PI * r) / c));
@@ -111,13 +121,25 @@ export function vieleck([mx, mz]: Punkt, r: number, c: number): Punkt[] {
 }
 
 /**
+ * So viele Zellen weit tastet ein Zug höchstens ab; ein längerer nimmt
+ * gröbere Schritte. Sonst gäbe ein grosser Kreis Millionen Punkte. Siehe
+ * docs/frontend.md, „Ebenen“.
+ */
+const PROBEN = 512;
+
+/**
  * Tastet einen Linienzug an den Zellen ab: je Strecke der Anfang, ihre
  * Schnitte mit den Linien durch die Mitten der Zellen und je ein Punkt
  * dazwischen. Geschlossen kommt die Strecke zurück zum ersten Punkt dazu.
+ * Ist der Zug länger als `PROBEN` Zellen, schneidet er an Linien im Abstand
+ * Länge / `PROBEN` statt `c`.
  */
-export function abtasten(punkte: readonly Punkt[], geschlossen: boolean, c: number): Punkt[] {
+export function abtasten(punkte: readonly Punkt[], geschlossen: boolean, zelle: number): Punkt[] {
   const aus: Punkt[] = [];
   const n = punkte.length;
+  let laenge = 0;
+  for (let i = 0; i < (geschlossen ? n : n - 1); i++) laenge += Math.hypot(punkte[(i + 1) % n]![0] - punkte[i]![0], punkte[(i + 1) % n]![1] - punkte[i]![1]);
+  const c = Math.max(zelle, laenge / PROBEN);
   for (let i = 0; i < (geschlossen ? n : n - 1); i++) {
     const [a, b] = [punkte[i]!, punkte[(i + 1) % n]!];
     const ts = [0, 1];

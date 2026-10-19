@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import {
   abtasten,
   glaetten,
+  kreisRing,
   netz,
   oberflaeche,
   punktImBlick,
@@ -68,6 +69,24 @@ test('abtasten: Anfang, Schnitte mit den Linien durch die Mitten der Zellen, je 
   expect(ring[0]).toEqual([0, 0]);
   expect(ring.at(-1)).toEqual([0, 0]);
   expect(ring).toContainEqual([2, 2]);
+});
+
+test('abtasten: Ein Zug über 512 Zellen schneidet an Linien im Abstand Länge / 512, so bleiben es höchstens etwa 4 · 512 Proben, gleich wie lang', () => {
+  for (const laenge of [4000, 40_000, 400_000]) {
+    const proben = abtasten([[0, 0], [laenge, laenge / 3]], false, 4);
+    expect(proben.length).toBeGreaterThan(512);
+    expect(proben.length).toBeLessThanOrEqual(4 * 512 + 2);
+  }
+  // Kürzer als 512 Zellen: unverändert an den Zellen, 25 Linien bei 2, 6, …, 98 geben 26 Stücke zu je 2 Punkten und das Ende.
+  expect(abtasten([[0, 0], [100, 0]], false, 4)).toHaveLength(2 * 26 + 1);
+});
+
+test('kreisRing: mit Gelände Seiten von einer Zelle, höchstens 512; ohne Gelände ein 128-Eck, ein kleiner Kreis wie mit', () => {
+  expect(kreisRing([0, 0], 10, 4, false)).toHaveLength(16);
+  expect(kreisRing([0, 0], 2000, 4, false)).toHaveLength(512);
+  expect(kreisRing([0, 0], 200_000, 4, false)).toHaveLength(512);
+  expect(kreisRing([0, 0], 2000, 4, true)).toHaveLength(128);
+  expect(kreisRing([0, 0], 10, 4, true)).toHaveLength(16);
 });
 
 test('vieleck: Seiten von höchstens einer Zelle, mindestens acht Ecken, alle auf dem Kreis', () => {

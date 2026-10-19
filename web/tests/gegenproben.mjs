@@ -74,4 +74,22 @@ export default [
   { name: 'doppelklick-zweimal', datei: 'src/ebenen.ts', alt: 'if (!k || laufend.has(knopfSchluessel(k))) return;', neu: 'if (!k) return;', spec: 'tests/aktionsebenen.spec.ts', titel: 'ein Knopf in der Tafel' },
   { name: 'nach-1-5-s-frei', datei: 'src/ebenen.ts', alt: 'const NACH_KLICK = [300, 500, 700, 1500];', neu: 'const NACH_KLICK = [300, 500, 700];', spec: 'tests/aktionsebenen.spec.ts', titel: 'kommt nach einem Klick 3 s kein' },
   { name: 'knopf-ohne-tafel-fehlt', datei: 'src/ebenen.ts', alt: '&& mitKnopf(o.id)) o.panel = [];', neu: '&& mitKnopf(o.id) && !o.id) o.panel = [];', spec: 'tests/aktionsebenen.spec.ts', titel: 'ein Objekt ohne Tafel bekommt' },
+  // Ansichten mit 2 und 1 px je Block, #293.
+  { name: 'kappe-ohne-downscale', datei: 'src/main.ts', alt: "const kappe = baum && info.downscale === 'nearest' && STUFEN_PX", neu: 'const kappe = baum && STUFEN_PX', spec: 'tests/smoke.spec.ts', titel: 'ohne downscale nearest' },
+  { name: 'kacheln-nicht-gekappt', datei: 'src/main.ts', alt: '    maxNativeZoom: feinste,', neu: '    maxNativeZoom: info.maxZoom + 0 * feinste,', spec: 'tests/smoke.spec.ts', titel: 'Ansichten mit 2 und 1 px je Block' },
+  { name: 'grenze-nach-scale', datei: 'src/main.ts', alt: 'const hoechste = feinste + extraZoom(px ?? info.scale);', neu: 'const hoechste = feinste + extraZoom(info.scale);', spec: 'tests/smoke.spec.ts', titel: 'Ansichten mit 2 und 1 px je Block' },
+  { name: 'px-faellt-aus-der-adresse', datei: 'src/main.ts', alt: 'void ansicht(baum?.path, px).then', neu: 'void ansicht(baum?.path, undefined).then', spec: 'tests/smoke.spec.ts', titel: 'Ansichten mit 2 und 1 px je Block' },
+  // Abgebrochene Kacheln unter der CSP.
+  { name: 'abbruch-mit-data', datei: 'src/main.ts', alt: "      el.removeAttribute('src');\n      el.remove();", neu: "      el.src = L.Util.emptyImageUrl;\n      el.remove();", spec: 'tests/smoke.spec.ts', titel: 'Zoomen bricht laufende Kacheln ab' },
+  // Erstes Zeichnen und Fokus der Flächen.
+  { name: 'nachfragen-startet-neu', datei: 'src/ebenen.ts', alt: ' && laeuft.get(e.id) !== e.version);', neu: ');', spec: 'tests/ebenen.spec.ts', titel: 'dauert das Laden einer Ebene länger' },
+  { name: 'fokus-mit-kasten', datei: 'src/style.css', alt: '.leaflet-pane path[tabindex]:focus {\n  outline: none;\n}\n', neu: '', spec: 'tests/formen.spec.ts', titel: 'nach einem Klick auf eine Fläche mit Tafel kein Rahmen' },
+  { name: 'fokus-ohne-strich', datei: 'src/style.css', alt: '  stroke: var(--ui-markiert);\n  stroke-width: 2px;\n', neu: '', spec: 'tests/formen.spec.ts', titel: 'nach einem Klick auf eine Fläche mit Tafel kein Rahmen' },
+  // Kreise ohne Gelände, Deckel, Wand ab 1 px.
+  { name: 'eben-mit-netz', datei: 'src/formen.ts', alt: '        eben && blick.p.y > 0\n', neu: '        eben && blick.p.y < 0\n', spec: 'tests/formen.spec.ts', titel: 'ohne Gelände im iso' },
+  { name: 'eben-mit-wand', datei: 'src/formen.ts', alt: 'if (blick.p.y === 0 || eben || !hatFlaeche(f)) continue;', neu: 'if (blick.p.y === 0 || !hatFlaeche(f)) continue;', spec: 'tests/formen.spec.ts', titel: 'ohne Gelände im iso' },
+  { name: 'kreis-ohne-deckel', datei: 'src/gelaende.ts', alt: '(eben ? KREIS.ohneGelaende : KREIS.seiten)', neu: '(eben ? KREIS.ohneGelaende : Infinity)', spec: 'tests/gelaende.spec.ts', titel: 'kreisRing:' },
+  { name: 'proben-ohne-deckel', datei: 'src/gelaende.ts', alt: 'const c = Math.max(zelle, laenge / PROBEN);', neu: 'const c = Math.max(zelle, laenge / PROBEN / 1e9);', spec: 'tests/gelaende.spec.ts', titel: 'abtasten: Ein Zug über 512 Zellen' },
+  { name: 'wand-immer', datei: 'src/ebenen.ts', alt: 'const mitWand = (): boolean => wandHoehe(blick) * faktor() >= 1;', neu: 'const mitWand = (): boolean => wandHoehe(blick) * faktor() >= 0;', spec: 'tests/formen.spec.ts', titel: 'die Wand fällt weg' },
+  { name: 'wand-ueber-rand', datei: 'src/ebenen.ts', alt: '    for (const s of g.striche) g.formen.removeLayer(s.linie);\n', neu: '', spec: 'tests/formen.spec.ts', titel: 'die Wand fällt weg' },
 ];

@@ -1749,7 +1749,8 @@ fn webkarte_je_spieler() {
     assert_eq!(poste(a, "/api/anmelden", &VON_DER_KARTE, "{}").status, 401);
     for (falsch, warum) in [
         (kurzes_token(&geheimnis, 3, jetzt + 300, 0, 2), "Sitzung"),
-        (kurzes_token(&geheimnis, 2, jetzt + 301, 0, 3), "über 5 min"),
+        // Mit Abstand: Die Uhr des Servers läuft seit `jetzt` weiter.
+        (kurzes_token(&geheimnis, 2, jetzt + 330, 0, 3), "über 5 min"),
         (kurzes_token(&geheimnis, 2, jetzt, 0, 4), "abgelaufen"),
         (kurzes_token(&[0; 32], 2, jetzt + 300, 0, 5), "Geheimnis"),
         (token(&geheimnis, "t", 9, 1000, jetzt + 300, 6), "Download"),
@@ -1793,7 +1794,8 @@ fn webkarte_je_spieler() {
     assert_eq!(ich.header("cache-control"), Some("private, no-store"));
     assert_eq!(ich.header("content-type"), Some("application/json"));
     assert!(String::from_utf8_lossy(&ich.koerper).contains("Anna"));
-    assert_eq!(lies("/api/ich", None).status, 401);
+    // Ohne Cookie ein Gast, siehe „Erkennung per IP“; ein ungültiges ohne IP 401.
+    assert_eq!(lies("/api/ich", None).status, 204);
     assert_eq!(lies("/api/ich", Some("hm_sitzung=AAAA.BBBB")).status, 401);
     let mit_anderen = format!("theme=dunkel; {cookie}; x=1");
     assert_eq!(lies("/api/ich", Some(&mit_anderen)).status, 200);
@@ -2063,6 +2065,457 @@ fn player_dir_nicht_unter_den_kacheln() {
             String::from_utf8_lossy(&ausgabe.stderr).contains("liegt unter"),
             "{}",
             String::from_utf8_lossy(&ausgabe.stderr)
+        );
+    }
+}
+
+/// Ein zweiter Spieler für die Tests der Erkennung.
+const ZWEITER: &str = "00000000-0000-4000-8000-000000000002";
+
+/// Eine Zeile von `ips`: das HMAC der rohen Adresse mit dem Vorsatz und die
+/// UUID, wie docs/plugin.md, „Erkennung per IP“, es nennt.
+fn ips_zeile(geheimnis: &[u8], adresse: &[u8], uuid: &str) -> String {
+    let schluessel = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, geheimnis);
+    let mut kontext = ring::hmac::Context::with_key(&schluessel);
+    kontext.update(b"heroicmap-ip\0");
+    kontext.update(adresse);
+    let hex: String = kontext
+        .sign()
+        .as_ref()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    format!("{hex} {uuid}\n")
+}
+
+/// Die Zeilen auf stdout bis zum Ende, die mit `anfang` beginnen.
+fn zeilen_mit(ausgabe: &str, anfang: &str) -> Vec<String> {
+    ausgabe
+        .lines()
+        .filter_map(|z| z.strip_prefix(anfang))
+        .map(str::to_string)
+        .collect()
+}
+
+/// Kommt der Browser von der IP genau eines Spielers online, gilt er als
+/// dieser, nur zum Lesen: `ich` mit `"ueber":"ip"`, Knöpfe, Ebenen und
+/// Mitspieler; ein Klick `403`, mit Cookie `202`. Ein gültiges Cookie geht
+/// vor, ein ungültiges fällt auf die IP zurück. `Web:` je Spieler einmal in
+/// 10 s. Doppelt in `ips` oder ohne `ips` keiner: `204`, mit ungültigem
+/// Cookie `401` und das Cookie gelöscht. `sicht.json` höchstens 64 KiB.
+/// Siehe docs/benutzung/server.md, „Erkennung per IP“.
+#[test]
+fn erkennung_per_ip() {
+    let (kacheln, _seite) = wurzel();
+    let (pfad, geheimnis) = geheimnis_in(kacheln.path());
+    let spieler = tempfile::tempdir().unwrap();
+    spieler_in(spieler.path());
+    let ich = spieler.path().join(SPIELER);
+    std::fs::write(
+        ich.join("sicht.json"),
+        r#"{"jetzt":1,"ich":{"x":1,"z":2},"spieler":[]}"#,
+    )
+    .unwrap();
+    let ips = spieler.path().join("ips");
+    std::fs::write(&ips, ips_zeile(&geheimnis, &[127, 0, 0, 1], SPIELER)).unwrap();
+    let server = starte(
+        kacheln.path(),
+        &[
+            "--secret-file",
+            pfad.to_str().unwrap(),
+            "--player-dir",
+            spieler.path().to_str().unwrap(),
+        ],
+    );
+    let a = server.adresse;
+    let lies = |pfad: &str, cookie: Option<&str>| {
+        let header: Vec<(&str, &str)> = cookie.map(|c| ("Cookie", c)).into_iter().collect();
+        frage(a, "GET", pfad, &header)
+    };
+    let json = |antwort: &Antwort| -> serde_json::Value {
+        serde_json::from_slice(&antwort.koerper).unwrap()
+    };
+
+    // Über die IP: lesen.
+    let antwort = lies("/api/ich", None);
+    assert_eq!(antwort.status, 200);
+    assert_eq!(antwort.header("cache-control"), Some("private, no-store"));
+    let werte = json(&antwort);
+    assert_eq!(werte["ueber"], "ip");
+    assert_eq!(werte["name"], "Anna");
+    assert_eq!(lies("/api/knoepfe.json", None).status, 200);
+    assert_eq!(lies("/api/ebenen/proficisci/routen.json", None).status, 200);
+    let sicht = lies("/api/sicht.json", None);
+    assert_eq!(sicht.status, 200);
+    assert_eq!(json(&sicht)["ich"]["z"], 2);
+
+    // Über die IP nicht klicken.
+    let gut = r#"{"ebene":"nations:staedte","objekt":"stadt-17","knopf":"proficisci:schiff"}"#;
+    let klick = |cookie: Option<&str>| {
+        let mut header = VON_DER_KARTE.to_vec();
+        header.extend(cookie.map(|c| ("Cookie", c)));
+        poste(a, "/api/aktion", &header, gut).status
+    };
+    assert_eq!(klick(None), 403);
+
+    // Mit Cookie gilt die Sitzung, auch zum Klicken.
+    let cookie = melde_an(a, &kurzes_token(&geheimnis, 2, jetzt() + 300, 0, 1));
+    assert_eq!(json(&lies("/api/ich", Some(&cookie)))["ueber"], "sitzung");
+    assert_eq!(klick(Some(&cookie)), 202);
+    // Ein ungültiges Cookie fällt auf die IP zurück.
+    let ungueltig = "hm_sitzung=AAAA.BBBB";
+    let antwort = lies("/api/ich", Some(ungueltig));
+    assert_eq!(antwort.status, 200);
+    assert_eq!(json(&antwort)["ueber"], "ip");
+    assert_eq!(klick(Some(ungueltig)), 403);
+
+    // sicht.json über 64 KiB liefert er nicht.
+    std::fs::write(ich.join("sicht.json"), vec![b' '; (64 << 10) + 1]).unwrap();
+    assert_eq!(lies("/api/sicht.json", None).status, 404);
+    std::fs::remove_file(ich.join("sicht.json")).unwrap();
+    assert_eq!(lies("/api/sicht.json", None).koerper, br#"{"spieler":[]}"#);
+
+    // Zweimal dasselbe HMAC: keiner. Ohne Cookie 204, mit ungültigem 401
+    // und das Cookie gelöscht; andere Pfade 401.
+    std::fs::write(
+        &ips,
+        ips_zeile(&geheimnis, &[127, 0, 0, 1], SPIELER)
+            + &ips_zeile(&geheimnis, &[127, 0, 0, 1], ZWEITER),
+    )
+    .unwrap();
+    std::thread::sleep(Duration::from_millis(1100));
+    let gast = lies("/api/ich", None);
+    assert_eq!(gast.status, 204);
+    assert!(gast.koerper.is_empty());
+    let abgelaufen = lies("/api/ich", Some(ungueltig));
+    assert_eq!(abgelaufen.status, 401);
+    assert!(
+        abgelaufen
+            .header("set-cookie")
+            .is_some_and(|c| c.starts_with("hm_sitzung=; Max-Age=0;")),
+        "{:?}",
+        abgelaufen.header("set-cookie")
+    );
+    assert_eq!(lies("/api/knoepfe.json", None).status, 401);
+    assert_eq!(klick(None), 401);
+    // Das Cookie gilt weiter.
+    assert_eq!(json(&lies("/api/ich", Some(&cookie)))["ueber"], "sitzung");
+    // Ohne ips ebenso keiner.
+    std::fs::remove_file(&ips).unwrap();
+    std::thread::sleep(Duration::from_millis(1100));
+    assert_eq!(lies("/api/ich", None).status, 204);
+
+    // Web: einmal je Spieler in 10 s, obwohl er oft erkannt wurde.
+    let ausgabe = server.rest_der_ausgabe();
+    assert_eq!(zeilen_mit(&ausgabe, "Web: "), vec![SPIELER.to_string()]);
+    assert_eq!(zeilen_mit(&ausgabe, "Aktion: ").len(), 1);
+    assert!(!ausgabe.contains("127.0.0.1 "), "keine IP im Log");
+}
+
+/// Kommt die Karte über IPv6, erkennt der Server sie am Namen nur mit IPv4:
+/// `api/ich` nennt mit `X-Heroic-Erkennen` die Adresse von `api/erkennen`,
+/// die Seite darf dorthin, und dort gibt es nur für den Ursprung der Karte,
+/// mit CORS ohne Credentials, einen Tausch. `api/anmelden` tauscht ihn einmal
+/// gegen eine lesende Sitzung für 12 h: Sie gilt, solange `ips` das HMAC auf
+/// den Spieler führt, der Zähler passt und sie nicht abgemeldet ist, und
+/// klicken darf sie nie. Ohne die Schalter `404` und `X-Heroic-Ip: 6`.
+/// Siehe docs/benutzung/server.md, „Erkennen über IPv4“.
+#[test]
+fn erkennen_ueber_ipv4() {
+    let (kacheln, _seite) = wurzel();
+    let (pfad, geheimnis) = geheimnis_in(kacheln.path());
+    let spieler = tempfile::tempdir().unwrap();
+    spieler_in(spieler.path());
+    let ips = spieler.path().join("ips");
+    let v4 = [203, 0, 113, 7];
+    std::fs::write(&ips, ips_zeile(&geheimnis, &v4, SPIELER)).unwrap();
+    // ips neu gelesen: höchstens einmal je Sekunde.
+    let schreibe_ips = |inhalt: String| {
+        std::fs::write(&ips, inhalt).unwrap();
+        std::thread::sleep(Duration::from_millis(1100));
+    };
+    let mit = |extra: &[&str]| {
+        let mut schalter = vec![
+            "--secret-file",
+            pfad.to_str().unwrap(),
+            "--player-dir",
+            spieler.path().to_str().unwrap(),
+            "--trusted-proxy",
+            "127.0.0.1",
+        ];
+        schalter.extend_from_slice(extra);
+        starte(kacheln.path(), &schalter)
+    };
+    const IPV6: (&str, &str) = ("X-Real-IP", "2001:db8::1");
+    let server = mit(&[
+        "--recognize-origin",
+        "http://test",
+        "--recognize-url",
+        "http://v4.test",
+    ]);
+    let a = server.adresse;
+
+    // Über IPv6 nicht erkannt: wohin, und die Seite darf dorthin. Über eine
+    // unbekannte IPv4 hilft kein Tausch, also kein Kopf.
+    let ich = frage(a, "GET", "/api/ich", &[IPV6]);
+    assert_eq!(ich.status, 204);
+    assert_eq!(
+        ich.header("x-heroic-erkennen"),
+        Some("http://v4.test/api/erkennen")
+    );
+    assert_eq!(ich.header("x-heroic-ip"), None);
+    let csp = ich.header("content-security-policy").unwrap();
+    assert!(
+        csp.ends_with("; connect-src 'self' http://v4.test"),
+        "{csp}"
+    );
+    let ich = frage(a, "GET", "/api/ich", &[("X-Real-IP", "198.51.100.1")]);
+    assert_eq!(ich.status, 204);
+    assert_eq!(ich.header("x-heroic-erkennen"), None);
+
+    // Der Preflight nur für genau den Ursprung der Karte, ohne Credentials.
+    let vorab = |origin: Option<&str>| {
+        let mut header = vec![
+            ("Access-Control-Request-Method", "POST"),
+            (
+                "Access-Control-Request-Headers",
+                "content-type,x-heroic-map",
+            ),
+        ];
+        header.extend(origin.map(|o| ("Origin", o)));
+        frage(a, "OPTIONS", "/api/erkennen", &header)
+    };
+    let gut = vorab(Some("http://test"));
+    assert_eq!(gut.status, 204);
+    assert_eq!(
+        gut.header("access-control-allow-origin"),
+        Some("http://test")
+    );
+    assert_eq!(gut.header("access-control-allow-methods"), Some("POST"));
+    assert_eq!(
+        gut.header("access-control-allow-headers"),
+        Some("content-type, x-heroic-map")
+    );
+    assert_eq!(gut.header("vary"), Some("origin"));
+    assert_eq!(gut.header("access-control-allow-credentials"), None);
+    for fremd in [
+        Some("http://fremd.example"),
+        Some("http://TEST"),
+        Some("null"),
+        None,
+    ] {
+        let antwort = vorab(fremd);
+        assert_eq!(antwort.status, 403, "{fremd:?}");
+        assert_eq!(
+            antwort.header("access-control-allow-origin"),
+            None,
+            "{fremd:?}"
+        );
+    }
+
+    // Der Tausch über die IPv4, nur vom Ursprung der Karte und mit der Marke.
+    let erkenne = |origin: &str, ip: &str, typ: &str| {
+        let header = [
+            ("Content-Type", typ),
+            ("X-Heroic-Map", "1"),
+            ("Origin", origin),
+            ("X-Real-IP", ip),
+        ];
+        poste(a, "/api/erkennen", &header, "{}")
+    };
+    let fremd = erkenne("http://fremd.example", "203.0.113.7", "application/json");
+    assert_eq!(fremd.status, 403);
+    assert_eq!(fremd.header("access-control-allow-origin"), None);
+    assert!(fremd.koerper.is_empty());
+    assert_eq!(
+        erkenne("http://test", "203.0.113.7", "text/plain").status,
+        403
+    );
+    let unbekannt = erkenne("http://test", "198.51.100.1", "application/json");
+    assert_eq!(unbekannt.status, 204);
+    assert_eq!(
+        unbekannt.header("access-control-allow-origin"),
+        Some("http://test")
+    );
+    assert_eq!(
+        frage(a, "GET", "/api/erkennen", &[("Origin", "http://test")]).status,
+        405
+    );
+    let tausch = || {
+        let antwort = erkenne("http://test", "203.0.113.7", "application/json");
+        assert_eq!(antwort.status, 200);
+        assert_eq!(
+            antwort.header("access-control-allow-origin"),
+            Some("http://test")
+        );
+        assert_eq!(antwort.header("cache-control"), Some("private, no-store"));
+        let werte: serde_json::Value = serde_json::from_slice(&antwort.koerper).unwrap();
+        werte["token"].as_str().unwrap().to_string()
+    };
+    let t = tausch();
+    assert_eq!(t.len(), 147);
+
+    // Als Cookie gilt der Tausch nicht; getauscht wird er einmal.
+    let ich_mit = |cookie: &str| frage(a, "GET", "/api/ich", &[IPV6, ("Cookie", cookie)]);
+    let cookie_aus = |antwort: &Antwort| {
+        let cookie = antwort.header("set-cookie").expect("Set-Cookie");
+        cookie.split(';').next().unwrap().to_string()
+    };
+    assert_eq!(ich_mit(&format!("hm_sitzung={t}")).status, 401);
+    let getauscht = anmelden(a, &t, "http://test");
+    assert_eq!(getauscht.status, 204);
+    let gesetzt = getauscht.header("set-cookie").unwrap();
+    assert!(
+        gesetzt.contains("; Max-Age=43200; HttpOnly; SameSite=Strict"),
+        "{gesetzt}"
+    );
+    assert_eq!(anmelden(a, &t, "http://test").status, 401, "nur einmal");
+    let lesend = cookie_aus(&getauscht);
+
+    // Die lesende Sitzung: lesen mit `ueber: ip`, nie klicken, kein Tausch.
+    let ich = ich_mit(&lesend);
+    assert_eq!(ich.status, 200);
+    let werte: serde_json::Value = serde_json::from_slice(&ich.koerper).unwrap();
+    assert_eq!(werte["ueber"], "ip");
+    assert_eq!(werte["uuid"], SPIELER);
+    let mit_cookie = [IPV6, ("Cookie", lesend.as_str())];
+    assert_eq!(
+        frage(a, "GET", "/api/knoepfe.json", &mit_cookie).status,
+        200
+    );
+    let klick = r#"{"ebene":"nations:staedte","objekt":"stadt-17","knopf":"proficisci:schiff"}"#;
+    let mut header = VON_DER_KARTE.to_vec();
+    header.extend(mit_cookie);
+    assert_eq!(poste(a, "/api/aktion", &header, klick).status, 403);
+    let wert = lesend.strip_prefix("hm_sitzung=").unwrap();
+    assert_eq!(anmelden(a, wert, "http://test").status, 401);
+
+    // Sie gilt, solange ips das HMAC auf den Spieler führt, und wieder,
+    // wenn es zurückkommt. Ohne Eintrag 401, das Cookie gelöscht, und
+    // wohin es weitergeht.
+    schreibe_ips(ips_zeile(&geheimnis, &v4, ZWEITER));
+    assert_eq!(ich_mit(&lesend).status, 401);
+    schreibe_ips(ips_zeile(&geheimnis, &v4, SPIELER));
+    assert_eq!(ich_mit(&lesend).status, 200);
+    let spaet = tausch();
+    schreibe_ips(String::new());
+    let aus = ich_mit(&lesend);
+    assert_eq!(aus.status, 401);
+    assert!(
+        aus.header("set-cookie")
+            .is_some_and(|c| c.starts_with("hm_sitzung=; Max-Age=0;"))
+    );
+    assert_eq!(
+        aus.header("x-heroic-erkennen"),
+        Some("http://v4.test/api/erkennen")
+    );
+    // Ein Tausch, dessen HMAC ips nicht mehr kennt, gibt keine Sitzung.
+    assert_eq!(anmelden(a, &spaet, "http://test").status, 401);
+
+    // Abmelden beendet sie, ein höherer Zähler auch eine neue.
+    schreibe_ips(ips_zeile(&geheimnis, &v4, SPIELER));
+    assert_eq!(ich_mit(&lesend).status, 200);
+    let mut header = VON_DER_KARTE.to_vec();
+    header.push(("Cookie", lesend.as_str()));
+    assert_eq!(poste(a, "/api/abmelden", &header, "{}").status, 204);
+    assert_eq!(ich_mit(&lesend).status, 401);
+    let neu = cookie_aus(&anmelden(a, &tausch(), "http://test"));
+    assert_eq!(ich_mit(&neu).status, 200);
+    std::fs::write(spieler.path().join(SPIELER).join("zaehler"), "1").unwrap();
+    assert_eq!(ich_mit(&neu).status, 401);
+
+    let ausgabe = server.rest_der_ausgabe();
+    assert!(zeilen_mit(&ausgabe, "Web: ").contains(&SPIELER.to_string()));
+    assert!(
+        !ausgabe.contains("203.0.113.7") && !ausgabe.contains("2001:db8"),
+        "keine IP im Log"
+    );
+
+    // Ohne die Schalter kein api/erkennen; über IPv6 nur, dass es IPv6 war.
+    let ohne = mit(&[]);
+    let b = ohne.adresse;
+    let origin = [("Origin", "http://test")];
+    assert_eq!(frage(b, "OPTIONS", "/api/erkennen", &origin).status, 404);
+    let mut header = VON_DER_KARTE.to_vec();
+    header.push(("X-Real-IP", "203.0.113.7"));
+    assert_eq!(poste(b, "/api/erkennen", &header, "{}").status, 404);
+    let ich = frage(b, "GET", "/api/ich", &[IPV6]);
+    assert_eq!(ich.status, 204);
+    assert_eq!(ich.header("x-heroic-ip"), Some("6"));
+    assert_eq!(ich.header("x-heroic-erkennen"), None);
+    let csp = ich.header("content-security-policy").unwrap();
+    assert!(!csp.contains("connect-src"), "{csp}");
+}
+
+/// Hinter einem Proxy aus `--trusted-proxy` gilt `X-Real-IP`, nie die
+/// Adresse des Proxys und nie `X-Forwarded-For`; ohne den Schalter gilt nur
+/// die Gegenstelle. Ein Netz statt einer Adresse lehnt der Start ab.
+#[test]
+fn erkennung_hinter_dem_proxy() {
+    let (kacheln, _seite) = wurzel();
+    let (pfad, geheimnis) = geheimnis_in(kacheln.path());
+    let spieler = tempfile::tempdir().unwrap();
+    spieler_in(spieler.path());
+    // Der Browser hinter dem Proxy und, als Falle, der Proxy selbst.
+    std::fs::write(
+        spieler.path().join("ips"),
+        ips_zeile(&geheimnis, &[203, 0, 113, 7], SPIELER)
+            + &ips_zeile(&geheimnis, &[127, 0, 0, 1], ZWEITER),
+    )
+    .unwrap();
+    let mit = |extra: &[&str]| {
+        let mut schalter = vec![
+            "--secret-file",
+            pfad.to_str().unwrap(),
+            "--player-dir",
+            spieler.path().to_str().unwrap(),
+        ];
+        schalter.extend_from_slice(extra);
+        starte(kacheln.path(), &schalter)
+    };
+    let ueber = |a: SocketAddr, header: &[(&str, &str)]| {
+        let antwort = frage(a, "GET", "/api/ich", header);
+        match antwort.status {
+            200 => serde_json::from_slice::<serde_json::Value>(&antwort.koerper).unwrap()["uuid"]
+                .as_str()
+                .unwrap()
+                .to_string(),
+            status => status.to_string(),
+        }
+    };
+
+    let proxy = mit(&["--trusted-proxy", "127.0.0.1"]);
+    let a = proxy.adresse;
+    assert_eq!(ueber(a, &[("X-Real-IP", "203.0.113.7")]), SPIELER);
+    assert_eq!(ueber(a, &[]), "204", "nie die Adresse des Proxys");
+    assert_eq!(ueber(a, &[("X-Forwarded-For", "203.0.113.7")]), "204");
+    assert_eq!(
+        ueber(a, &[("X-Real-IP", "203.0.113.7, 198.51.100.1")]),
+        "204"
+    );
+    assert_eq!(ueber(a, &[("X-Real-IP", "karte.example")]), "204");
+    drop(proxy);
+
+    let ohne = mit(&[]);
+    assert_eq!(
+        ueber(ohne.adresse, &[("X-Real-IP", "203.0.113.7")]),
+        ZWEITER
+    );
+    drop(ohne);
+
+    for (wert, meldung) in [("10.0.0.0/8", "Netz"), ("karte.example", "keine IP")] {
+        let ausgabe = Command::new(env!("CARGO_BIN_EXE_heroic-map-renderer"))
+            .arg("--serve")
+            .arg(kacheln.path())
+            .args(["--secret-file", pfad.to_str().unwrap()])
+            .args(["--player-dir", spieler.path().to_str().unwrap()])
+            .args(["--trusted-proxy", wert])
+            .output()
+            .unwrap();
+        assert!(!ausgabe.status.success(), "{wert}");
+        assert!(
+            String::from_utf8_lossy(&ausgabe.stderr).contains(meldung),
+            "{wert}"
         );
     }
 }

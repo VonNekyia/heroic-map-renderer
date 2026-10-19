@@ -293,12 +293,28 @@ jeden Baum lesbar, nicht mit seinen Kürzeln:
 
 Ein `look` ausser `map` kommt dazu, `cinematic` als „· Cinematic“, `flat`
 als „· Einfarbig“; ein unbekannter wie in `trees.json`. Eine
-unbekannte Kamera oder Richtung steht als `camera · direction` da. Die
-Wahl lädt die Seite neu, mit drei Parametern in der Adresse:
+unbekannte Kamera oder Richtung steht als `camera · direction` da.
+
+Jeder Baum aus `top-north` ausser einem einfarbigen steht zweimal mehr da,
+als „· 2 px je Block“ und „· 1 px je Block“ (#293). Das sind keine eigenen
+Bäume, sondern seine Stufen, siehe [Zoomstufen](benutzung/zoomstufen.md),
+„1 und 2 px je Block“:
+
+- **Gekappt:** Die feinste Stufe mit Kacheln ist die, auf der ein Block
+  so breit ist, `maxZoom − log2(scale / px)`. Darüber vergrössert Leaflet
+  ihre Kacheln, bis ein Block 64 Pixel breit ist, wie in jedem Baum.
+- **Nur, wo der Baum sie hergibt:** mit `"downscale": "nearest"` in
+  `map.json`, `scale / px` eine Zweierpotenz über 1 und die gekappte Stufe
+  nicht unter `minZoom`. Sonst zeigt die Seite die volle Ansicht. Ein Baum
+  aus älterem Stand ohne `downscale` mittelt beim Verkleinern; seine
+  Stufen wären weich.
+
+Die Wahl lädt die Seite neu, mit bis zu vier Parametern in der Adresse:
 
 | Parameter | Inhalt |
 |---|---|
 | `tree` | `path` des Baums aus `trees.json` |
+| `px` | 2 oder 1 für die Ansicht mit so vielen Pixeln je Block; fehlt bei der vollen |
 | `at` | der Block in der Mitte, `x,y,z` in Weltkoordinaten |
 | `zoom` | die Zoomstufe ab der feinsten gerenderten: 0 ist ein Pixel der Kachel je Pixel des Bildschirms, −1 halb so gross |
 
@@ -319,7 +335,8 @@ neue zeigt die ganze Karte.
 
 Die Adresse folgt der Karte: Nach jedem Verschieben oder Zoomen schreibt
 das Frontend `at` und `zoom` hinein, mit dem Baum in `tree`, wenn es eine
-Liste gibt. Es nimmt `history.replaceState`, der Verlauf bekommt also
+Liste gibt, und `px` in einer gekappten Ansicht. `zoom` zählt dort wie im
+Baum, ein Block bleibt beim Wechsel also gleich gross. Es nimmt `history.replaceState`, der Verlauf bekommt also
 keine Einträge. Wer die Adresse kopiert oder die Seite neu lädt, sieht
 denselben Block in der Mitte auf derselben Stufe. Ohne Koordinaten gibt es
 keinen Block für `at`, und die Adresse bleibt, wie sie ist.
@@ -419,6 +436,10 @@ Banner, feste Grösse und die Tafel beim Zeigen folgen
   Reihenfolge ändern; der Fokus bleibt. Fehlt `layers.json` beim Laden,
   fragt sie nicht nach, siehe [Ebenen](benutzung/ebenen.md), „Ändern und
   Neuladen“.
+  - Lädt eine Ebene noch, startet das Nachfragen sie für dieselbe
+    `version` nicht neu. Sonst verwürfe jedes Nachfragen ein Laden, das
+    länger braucht als der Takt, etwa auf einem ausgelasteten Rechner, und
+    die Ebene erschiene nie.
   - Was nicht mehr in der Liste steht oder nicht mehr an ist, nimmt sie
     weg, auch wenn der Betreiber `visible` ändert und der Betrachter nie
     gewählt hat.
@@ -530,7 +551,9 @@ Banner, feste Grösse und die Tafel beim Zeigen folgen
     ihre Tafel wie Nadel und Banner; nur diese fangen Klicks, auch ohne
     Füllung. Eine Fläche mit `panel` erreicht Tab, Enter oder Leertaste
     öffnet die Tafel mit dem Fokus darin, Escape gibt ihn zurück, wie bei
-    den Nadeln;
+    den Nadeln. Im Fokus hat sie keinen Rahmen, der Kasten um ihre Grenzen
+    wäre; für die Tastatur (`:focus-visible`) zeigt sie ihren Umriss als
+    Strich von 2 px in `--ui-markiert`;
   - die Höhen: je Laden einer Ebene einmal, die Regionen aller ihrer Formen
     in einem und die aller ihrer Schriften in einem: für eine Fläche ihr
     Rechteck, für Ränder und Linien die Regionen entlang des Zugs, je samt
@@ -548,7 +571,18 @@ Banner, feste Grösse und die Tafel beim Zeigen folgen
     kleinen Formen. Der Cache für `ground` hält 8 Regionen, der für
     `heights` 64. Die Grenze gilt nur für die Webkarte;
   - die Wand am Rand einer Fläche im iso, siehe [Ebenen](benutzung/ebenen.md),
-    „Die Wand“; im iso füllt eine Fläche nicht, siehe „Flächen“;
+    „Die Wand“; im iso füllt eine Fläche nicht, siehe „Flächen“. Die Karte
+    zeigt die Wand nur, solange sie auf dem Schirm mindestens 1 px hoch ist;
+    darunter nimmt sie ihre Pfade von der Karte und hängt sie beim
+    Hineinzoomen wieder an, vor die Ränder;
+  - **ohne Gelände,** wenn eine Ebene ganz auf `seaLevel` liegt, ohne Höhen
+    oder über der Grenze oben: Flächen und Ränder sind ihre Ringe, ohne Netz,
+    ohne Abtasten und ohne Wand; ein Kreis ist ein 128-Eck. Es ist nichts
+    verdeckt, und es gibt nichts zu glätten;
+  - **gedeckelt:** Ein Kreis hat Seiten von einer Zelle, höchstens 512. Ein
+    Zug über mehr als 512 Zellen tastet an Linien im Abstand Länge / 512 ab
+    statt an jeder Zelle. Sonst gäbe ein grosser Kreis Millionen Punkte,
+    siehe [Ebenen im weiten Blick](messungen/2026-10-19-ebenen-im-weiten-blick.md);
   - ausserhalb von `area` wird nichts gezeichnet: Flächen und Züge werden
     vorher beschnitten;
   - Flächen: Felder zwischen den Mitten der Zellen; welche sichtbar sind,
@@ -744,6 +778,14 @@ liegen als `tiles/` daneben, oder `?tiles=` nennt ihren Pfad.
   Tests prüfen den Build darunter; der Server des Renderers (#151) nimmt sie
   per `include_str!`. Ein anderer Server setzt sie so oder strenger. Liegen die Kacheln auf einer anderen
   Domain als die Seite, brauchen `img-src` und `connect-src` diese Domain.
+- **Abgebrochene Kacheln:** Beim Zoomen bricht Leaflet Kacheln ab, die noch
+  laden, und setzt dafür ein GIF als `data:` in `src`. Das verletzte die
+  CSP, bei jedem Zoomen viele Male. Die Karte nimmt darum eine Unterklasse
+  `Kacheln` in [`web/src/main.ts`](../web/src/main.ts): Sie entfernt `src`,
+  das bricht die Anfrage genauso ab und lädt nichts. `L.Util.emptyImageUrl`
+  umzusetzen reicht nicht, Leaflet liest die Adresse aus einer Variable
+  seines Moduls. Die drei Methoden folgen Leaflet 1.9.4; ein neues Leaflet
+  braucht einen Blick darauf.
 - **Cache:** Ein neuer Lauf tauscht Kacheln unter derselben URL. Damit der
   Browser danach den neuen Stand zeigt:
   - **Betreiber** setzen für `tiles/` `Cache-Control: no-cache`, in nginx

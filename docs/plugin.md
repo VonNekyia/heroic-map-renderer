@@ -1,6 +1,6 @@
 ---
 title: Plugin
-description: Das Paper-Plugin lebt im eigenen Repo. Was es vom Renderer nutzt, die Schalter, den Ordner eines Baums, den Kopf von stand-neu.bin, die Ausgabe und den Code, den Fortschritt und die Schätzung als JSON, das Token für den Kartendownload Byte für Byte, das das Plugin ausstellt und der Server des Renderers prüft, die Tokens für Anmeldung und Sitzung der Webkarte, das Manifest eines Baums mit Grösse und ETag jeder Kachel und den Aufruf --banners für die Sprites der Banner samt seiner Meldung.
+description: Das Paper-Plugin lebt im eigenen Repo. Was es vom Renderer nutzt, die Schalter, den Ordner eines Baums, den Kopf von stand-neu.bin, die Ausgabe und den Code, den Fortschritt und die Schätzung als JSON, das Token für den Kartendownload Byte für Byte, das das Plugin ausstellt und der Server des Renderers prüft, die Tokens für Anmeldung und Sitzung der Webkarte, die Dateien für die Erkennung per IP und die Mitspieler im Web, das Manifest eines Baums mit Grösse und ETag jeder Kachel und den Aufruf --banners für die Sprites der Banner samt seiner Meldung.
 code:
   - renderer/src/cli.rs
   - renderer/src/render/stand.rs
@@ -141,7 +141,8 @@ dem Plugin-Programmierer ab.
   Web schreibt der Server eine Zeile `Aktion: {"spieler","ebene","objekt","knopf"}`
   auf stdout; das Plugin nimmt nur Zeilen, die genau so beginnen, und
   prüft den Klick selbst. Siehe [Server](benutzung/server.md),
-  „Aktionsebenen“.
+  „Aktionsebenen“. Für die Erkennung per IP und die Mitspieler dazu `ips`,
+  `sicht.json` und die Zeile `Web:`, siehe „Erkennung per IP“ unten.
 
 ## Banner zeichnen: `--banners`
 
@@ -389,6 +390,64 @@ Zahlen ohne Vorzeichen, in Big Endian.
   je mit `gueltig` und `ungueltig` wie oben; die Gründe sind dort nur
   `inhalt`, `abgelaufen` und `unterschrift`, die übrigen prüfen die
   Vektoren des Downloads.
+- **Fassung 4 und 5,** Tausch und lesende Sitzung, stellt nur der Server
+  aus und prüft nur er; das Plugin sieht sie nie. Siehe
+  [Server](benutzung/server.md), „Erkennen über IPv4“.
+
+## Erkennung per IP
+
+Für die Erkennung per IP und die Mitspieler im Web (#305) schreibt das
+Plugin zwei Dateien unter `--player-dir`; der Server liest sie nur. Was der
+Server damit tut: [Server](benutzung/server.md), „Erkennung per IP“; warum
+so: [0110](entscheidungen/0110-erkennung-per-ip.md).
+
+### `ips`
+
+- **Wo:** `<player-dir>/ips`.
+- **Zeilen:** je IP mit genau einem Spieler online eine Zeile
+  `<64 hex klein> <uuid klein mit Bindestrichen>\n`.
+- **Der Hex-Wert** ist `HMAC-SHA256(geheimnis, "heroicmap-ip\0" ‖ rohe
+  Adresse)`, mit dem Geheimnis aus `--secret-file`. Die rohe Adresse sind
+  4 Byte IPv4 oder 16 Byte IPv6; IPv4 gemappt in IPv6 als 4 Byte. Der
+  Vorsatz trennt das HMAC von den Tokens. So schreiben Java und Rust keine
+  verschiedene Textform, und keine IP steht im Klartext auf der Platte.
+- **Testvektoren** unter `ips` in
+  [`renderer/tests/fixtures/token.json`](../renderer/tests/fixtures/token.json),
+  mit dem Geheimnis von dort: IPv4, IPv4 gemappt mit demselben Wert, IPv6
+  und 127.0.0.1.
+- **Nur eindeutige:** Teilen sich zwei Spieler online eine IP, steht sie
+  nicht darin. Steht ein HMAC doch zweimal, gilt es für keinen. Ein Spieler
+  mit `/karte ip aus` steht nie darin.
+- **Schreiben:** atomar über `.ips.neu` im selben Ordner und Umbenennen,
+  bei Join und Quit und bei `/karte ip an|aus`; beim Start und beim
+  Abschalten leer.
+- **Der Proxy:** `webserver.trusted-proxy` in `config.yml` gibt das Plugin
+  als `--trusted-proxy` weiter, einzelne Adressen, keine Netze.
+- **Der Name nur mit IPv4:** Mit `webserver.erkennen-url` gibt das Plugin
+  den Ursprung daraus als `--recognize-url` weiter und den Ursprung von
+  `webserver.url` als `--recognize-origin`, beide klein, ohne Pfad und
+  ohne `/` am Ende, nur zusammen. Ohne den Schlüssel keins von beiden.
+  Siehe [Server](benutzung/server.md), „Erkennen über IPv4“.
+
+### `Web:` und `sicht.json`
+
+- **Zuschauer:** Der Server meldet einen erkannten Spieler mit einer Zeile
+  `Web: <uuid>` auf stdout, je Spieler höchstens alle 10 s. Das Plugin nimmt
+  nur Zeilen, die genau mit `Web: ` beginnen, gefolgt von 36 Zeichen, und
+  schreibt dann 60 s lang dessen Ordner: `ich.json`, `knoepfe.json`, die
+  Fassungen der Aktionsebenen und `sicht.json`.
+- **`<uuid>/sicht.json`,** die Mitspieler, die er im Mod sähe, nur aus der
+  Dimension der Wurzel, Lagen auf ganze Blöcke gerundet:
+
+  ```json
+  {"jetzt":1760012345,"ich":{"x":12,"z":-40},"spieler":[{"uuid":"…","name":"…","x":0,"z":0}]}
+  ```
+
+  - Offline `{"jetzt":…,"spieler":[]}` ohne `ich`.
+  - Höchstens 256 Spieler und 64 KiB; grösser liefert der Server sie
+    nicht.
+  - Ohne Änderung alle 5 s neu, mit neuem `jetzt` als Herzschlag.
+  - Atomar wie `ips`.
 
 ## Manifest
 

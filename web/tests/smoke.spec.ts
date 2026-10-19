@@ -203,7 +203,7 @@ test('die Karte läuft unter strengen Headern', async ({ page }) => {
 
 test('Kacheln folgt Leaflet 1.9.4: Ein anderes Leaflet braucht einen Blick auf die drei Methoden der Unterklasse', () => {
   const { version } = JSON.parse(readFileSync(new URL('../node_modules/leaflet/package.json', import.meta.url), 'utf8')) as { version: string };
-  expect(version, 'siehe docs/frontend.md, „Ausliefern“, Punkt „Abgebrochene Kacheln“').toBe('1.9.4');
+  expect(version, 'siehe docs/frontend.md, „Ausliefern“').toBe('1.9.4');
 });
 
 test('Zoomen bricht laufende Kacheln ab, ohne die CSP zu verletzen; eine abgebrochene zählt nicht als geladen', async ({ page }) => {

@@ -1,12 +1,16 @@
 //! Die Webkarte je Spieler unter `/api/`: Anmeldung mit einem Token aus dem
-//! Spiel, Sitzung als Cookie, Aktionsebenen und Knöpfe aus den Dateien des
-//! Plugins, Klicks als Zeile `Aktion:` auf stdout.
+//! Spiel, Sitzung als Cookie oder Erkennung per IP, Aktionsebenen, Knöpfe und
+//! Mitspieler aus den Dateien des Plugins, Klicks als Zeile `Aktion:` und
+//! Zuschauer als Zeile `Web:` auf stdout.
 //! Siehe docs/benutzung/server.md, „Aktionsebenen“.
+//! Siehe docs/benutzung/server.md, „Erkennung per IP“.
 
 use std::collections::HashMap;
 use std::io::Write;
+use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
+use std::time::{Duration, Instant};
 
 use heroic_map_renderer::ebenen::ist_teil;
 use http_body_util::Full;
@@ -16,6 +20,7 @@ use hyper::{Method, Response, StatusCode};
 use ring::rand::{SecureRandom, SystemRandom};
 
 use super::super::token::{self, Art, Sitzung};
+use super::ip::{self, Ips};
 use super::{Freigabe, Zustand, jetzt, karte, leer, uuid};
 
 /// Unter diesem Pfad antwortet die API.
@@ -52,6 +57,12 @@ pub(super) const KOERPER: usize = 1024;
 /// die Datei einer Ebene, siehe docs/benutzung/ebenen.md, „Grenzen“.
 const DATEI: u64 = 4 << 20;
 
+/// Höchstens so gross ist `sicht.json`, die Mitspieler eines Spielers.
+const SICHT: u64 = 64 << 10;
+
+/// Höchstens so oft meldet der Server je Spieler `Web:`.
+const WEB: Duration = Duration::from_secs(10);
+
 /// Was der Server für die Spieler im Speicher hält.
 pub(super) struct Spieler {
     /// `--player-dir`, je Spieler ein Ordner mit seiner UUID.
@@ -62,15 +73,21 @@ pub(super) struct Spieler {
     abgemeldet: Zufaelle,
     /// Je Spieler die Sekunde seiner Klicks und deren Zahl.
     klicks: Mutex<HashMap<[u8; 16], (u64, u32)>>,
+    /// `ips` des Plugins: je IP mit genau einem Spieler online ihr HMAC.
+    ips: Ips,
+    /// Je Spieler, wann er zuletzt als `Web:` gemeldet ist.
+    web: Mutex<HashMap<[u8; 16], Instant>>,
 }
 
 impl Spieler {
     pub(super) fn neu(dir: PathBuf) -> Spieler {
         Spieler {
+            ips: Ips::neu(dir.join("ips")),
             dir,
             benutzt: Mutex::default(),
             abgemeldet: Mutex::default(),
             klicks: Mutex::default(),
+            web: Mutex::default(),
         }
     }
 
@@ -87,6 +104,73 @@ pub(super) struct Anfrage {
     pub rest: String,
     pub felder: HeaderMap,
     pub koerper: Bytes,
+    /// Die Adresse für die Erkennung, siehe [`ip::adresse`]; keine hinter
+    /// einem Proxy ohne `X-Real-IP`.
+    pub ip: Option<IpAddr>,
+}
+
+/// Wer eine Anfrage stellt.
+enum Erkannt {
+    /// Über ein gültiges Cookie aus `/karte anmelden`.
+    Sitzung(Sitzung),
+    /// Über die IP: nur lesen, siehe docs/entscheidungen/0110-erkennung-per-ip.md.
+    Ip([u8; 16]),
+}
+
+impl Erkannt {
+    fn spieler(&self) -> [u8; 16] {
+        match self {
+            Erkannt::Sitzung(s) => s.spieler,
+            Erkannt::Ip(spieler) => *spieler,
+        }
+    }
+
+    /// `ueber` in `api/ich`.
+    fn ueber(&self) -> &'static str {
+        match self {
+            Erkannt::Sitzung(_) => "sitzung",
+            Erkannt::Ip(_) => "ip",
+        }
+    }
+}
+
+/// Erkennt den Spieler einer Anfrage: zuerst über ein gültiges Cookie,
+/// sonst über die IP in `ips`. Dazu, ob ein Cookie da war, das nicht gilt.
+/// Erkannt meldet es dem Plugin, siehe [`melde`].
+fn erkenne(sp: &Spieler, freigabe: &Freigabe, a: &Anfrage, jetzt: u64) -> (Option<Erkannt>, bool) {
+    let erkannt = match sitzung(sp, freigabe, &a.felder, jetzt) {
+        Some(s) => Some(Erkannt::Sitzung(s)),
+        None => {
+            a.ip.and_then(|ip| sp.ips.spieler(&ip::hmac_von(&freigabe.geheimnis, ip)))
+                .map(Erkannt::Ip)
+        }
+    };
+    if let Some(e) = &erkannt {
+        melde(sp, e.spieler());
+    }
+    let ungueltig =
+        !matches!(erkannt, Some(Erkannt::Sitzung(_))) && cookies(&a.felder).next().is_some();
+    (erkannt, ungueltig)
+}
+
+/// `Web: <uuid>` auf stdout, je Spieler höchstens alle [`WEB`]: Das Plugin
+/// schreibt dann eine Weile seine Dateien. Ohne Panik, falls stdout zu ist.
+fn melde(sp: &Spieler, spieler: [u8; 16]) {
+    let jetzt = Instant::now();
+    {
+        let mut web = sp.web.lock().unwrap_or_else(PoisonError::into_inner);
+        if web
+            .get(&spieler)
+            .is_some_and(|zuletzt| jetzt.duration_since(*zuletzt) < WEB)
+        {
+            return;
+        }
+        if web.len() >= HOECHSTENS {
+            web.retain(|_, zuletzt| jetzt.duration_since(*zuletzt) < WEB);
+        }
+        web.insert(spieler, jetzt);
+    }
+    let _ = writeln!(std::io::stdout().lock(), "Web: {}", uuid(&spieler));
 }
 
 /// Beantwortet eine Anfrage unter [`API`]; liest Dateien, also aus einem
@@ -101,9 +185,12 @@ pub(super) fn antwort(z: &Zustand, a: &Anfrage) -> Response<Full<Bytes>> {
         ("anmelden" | "abmelden" | "aktion", _) if !post => nicht_erlaubt(z, "POST"),
         ("anmelden", _) => anmelden(z, sp, freigabe, &a.felder),
         ("abmelden", _) => abmelden(z, sp, freigabe, &a.felder),
-        ("aktion", _) => aktion(z, sp, freigabe, &a.felder, &a.koerper),
+        ("aktion", _) => aktion(z, sp, freigabe, a),
         (_, Some(_)) if a.methode != Method::GET => nicht_erlaubt(z, "GET"),
-        (_, Some(datei)) => lies_datei(z, sp, freigabe, &a.felder, datei),
+        (_, Some(datei)) => {
+            let (erkannt, ungueltig) = erkenne(sp, freigabe, a, jetzt());
+            lies_datei(z, sp, &a.felder, datei, erkannt, ungueltig)
+        }
         (_, None) => leer(z, StatusCode::NOT_FOUND),
     };
     privat(antwort)
@@ -112,28 +199,36 @@ pub(super) fn antwort(z: &Zustand, a: &Anfrage) -> Response<Full<Bytes>> {
 /// Was eine Datei der API gibt, wenn sie im Ordner des Spielers fehlt.
 #[derive(Debug, PartialEq, Eq)]
 enum Ersatz {
-    /// `{"uuid": …}` aus der Sitzung.
-    Uuid,
+    /// `api/ich`: der Spieler mit `ueber`, siehe [`ich`].
+    Ich,
     /// Eine leere Liste der Knöpfe.
-    Keine,
+    Knoepfe,
+    /// Eine leere Liste der Mitspieler.
+    Mitspieler,
     /// `404`.
     Nichts,
 }
 
-/// Was unter [`API`] zu lesen ist, relativ zum Ordner des Spielers, und was
-/// es gibt, wenn die Datei fehlt.
-fn datei_der_api(rest: &str) -> Option<(String, Ersatz)> {
+/// Was unter [`API`] zu lesen ist, relativ zum Ordner des Spielers, was es
+/// gibt, wenn die Datei fehlt, und wie gross sie höchstens sein darf.
+fn datei_der_api(rest: &str) -> Option<(String, Ersatz, u64)> {
     match rest {
-        "ich" => Some(("ich.json".into(), Ersatz::Uuid)),
-        "knoepfe.json" => Some(("knoepfe.json".into(), Ersatz::Keine)),
+        "ich" => Some(("ich.json".into(), Ersatz::Ich, DATEI)),
+        "knoepfe.json" => Some(("knoepfe.json".into(), Ersatz::Knoepfe, DATEI)),
+        "sicht.json" => Some(("sicht.json".into(), Ersatz::Mitspieler, SICHT)),
         _ => {
             let [modname, datei] = rest.strip_prefix("ebenen/")?.split('/').collect::<Vec<_>>()[..]
             else {
                 return None;
             };
             let ebene = datei.strip_suffix(".json")?;
-            (ist_teil(modname) && ist_teil(ebene))
-                .then(|| (format!("ebenen/{modname}/{ebene}.json"), Ersatz::Nichts))
+            (ist_teil(modname) && ist_teil(ebene)).then(|| {
+                (
+                    format!("ebenen/{modname}/{ebene}.json"),
+                    Ersatz::Nichts,
+                    DATEI,
+                )
+            })
         }
     }
 }
@@ -156,27 +251,37 @@ fn nicht_erlaubt(z: &Zustand, erlaubt: &'static str) -> Response<Full<Bytes>> {
     antwort
 }
 
-/// `GET` einer Datei des Spielers aus seiner Sitzung, ohne `401`. Fehlt sie,
-/// gilt `ersatz`.
+/// `GET` einer Datei des erkannten Spielers, über Cookie oder IP; fehlt sie,
+/// gilt `ersatz`. Ohne Erkennung `401`, nur `api/ich` dann `204`, wenn kein
+/// ungültiges Cookie da war; sonst löscht es das Cookie.
 fn lies_datei(
     z: &Zustand,
     sp: &Spieler,
-    freigabe: &Freigabe,
     felder: &HeaderMap,
-    (datei, ersatz): (String, Ersatz),
+    (datei, ersatz, grenze): (String, Ersatz, u64),
+    erkannt: Option<Erkannt>,
+    ungueltig: bool,
 ) -> Response<Full<Bytes>> {
-    let Some(sitzung) = sitzung(sp, freigabe, felder, jetzt()) else {
-        return leer(z, StatusCode::UNAUTHORIZED);
+    let Some(erkannt) = erkannt else {
+        return match (ersatz, ungueltig) {
+            (Ersatz::Ich, false) => leer(z, StatusCode::NO_CONTENT),
+            (Ersatz::Ich, true) => {
+                let mut antwort = leer(z, StatusCode::UNAUTHORIZED);
+                antwort
+                    .headers_mut()
+                    .insert(header::SET_COOKIE, cookie(z, felder, "", 0));
+                antwort
+            }
+            _ => leer(z, StatusCode::UNAUTHORIZED),
+        };
     };
-    let pfad = sp.ordner(&sitzung.spieler).join(datei);
-    let inhalt = match klein(&pfad) {
-        Ok(Some(inhalt)) => inhalt,
-        Ok(None) => match ersatz {
-            Ersatz::Uuid => format!(r#"{{"uuid":"{}"}}"#, uuid(&sitzung.spieler)).into_bytes(),
-            Ersatz::Keine => br#"{"knoepfe":[]}"#.to_vec(),
-            Ersatz::Nichts => return leer(z, StatusCode::NOT_FOUND),
-        },
-        Err(()) => return leer(z, StatusCode::NOT_FOUND),
+    let pfad = sp.ordner(&erkannt.spieler()).join(datei);
+    let inhalt = match (ersatz, klein(&pfad, grenze)) {
+        (Ersatz::Ich, gelesen) => ich(gelesen, &erkannt),
+        (_, Ok(Some(inhalt))) => inhalt,
+        (Ersatz::Knoepfe, Ok(None)) => br#"{"knoepfe":[]}"#.to_vec(),
+        (Ersatz::Mitspieler, Ok(None)) => br#"{"spieler":[]}"#.to_vec(),
+        _ => return leer(z, StatusCode::NOT_FOUND),
     };
     let mut antwort = Response::new(Full::new(Bytes::from(inhalt)));
     karte(z, antwort.headers_mut());
@@ -187,12 +292,31 @@ fn lies_datei(
     antwort
 }
 
-/// Eine Datei bis [`DATEI`]; `None`, wenn es sie nicht gibt, `Err` für jede
-/// andere, auch eine zu grosse.
-fn klein(pfad: &Path) -> Result<Option<Vec<u8>>, ()> {
+/// `api/ich`: `ich.json` des Plugins mit `ueber`; fehlt sie oder ist sie kein
+/// Objekt, nur `uuid` und `ueber`.
+fn ich(gelesen: Result<Option<Vec<u8>>, ()>, erkannt: &Erkannt) -> Vec<u8> {
+    let mut objekt = match gelesen
+        .ok()
+        .flatten()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+    {
+        Some(serde_json::Value::Object(objekt)) => objekt,
+        _ => {
+            let mut neu = serde_json::Map::new();
+            neu.insert("uuid".into(), uuid(&erkannt.spieler()).into());
+            neu
+        }
+    };
+    objekt.insert("ueber".into(), erkannt.ueber().into());
+    serde_json::Value::Object(objekt).to_string().into_bytes()
+}
+
+/// Eine Datei bis `grenze` Byte; `None`, wenn es sie nicht gibt, `Err` für
+/// jede andere, auch eine zu grosse.
+fn klein(pfad: &Path, grenze: u64) -> Result<Option<Vec<u8>>, ()> {
     match std::fs::metadata(pfad) {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Ok(meta) if meta.is_file() && meta.len() <= DATEI => {
+        Ok(meta) if meta.is_file() && meta.len() <= grenze => {
             std::fs::read(pfad).map(Some).map_err(|_| ())
         }
         _ => Err(()),
@@ -204,12 +328,7 @@ fn klein(pfad: &Path) -> Result<Option<Vec<u8>>, ()> {
 /// der Datei. Alle zählen, denn Cookies trennen nicht nach Port: Zwei
 /// Server auf einem Host setzen beide eins.
 fn sitzung(sp: &Spieler, freigabe: &Freigabe, felder: &HeaderMap, jetzt: u64) -> Option<Sitzung> {
-    felder
-        .get_all(header::COOKIE)
-        .iter()
-        .filter_map(|wert| wert.to_str().ok())
-        .flat_map(|wert| wert.split(';'))
-        .filter_map(|teil| teil.trim().strip_prefix(COOKIE)?.strip_prefix('='))
+    cookies(felder)
         .filter_map(|text| {
             token::pruefe_sitzung(text, &freigabe.geheimnis, jetzt, Art::Sitzung).ok()
         })
@@ -222,6 +341,16 @@ fn sitzung(sp: &Spieler, freigabe: &Freigabe, felder: &HeaderMap, jetzt: u64) ->
                 .is_some_and(|sperren| sperren.contains_key(&s.zufall));
             !abgemeldet && s.zaehler >= zaehler(&sp.ordner(&s.spieler))
         })
+}
+
+/// Die Werte aller Cookies `hm_sitzung` der Anfrage.
+fn cookies(felder: &HeaderMap) -> impl Iterator<Item = &str> {
+    felder
+        .get_all(header::COOKIE)
+        .iter()
+        .filter_map(|wert| wert.to_str().ok())
+        .flat_map(|wert| wert.split(';'))
+        .filter_map(|teil| teil.trim().strip_prefix(COOKIE)?.strip_prefix('='))
 }
 
 /// Der Zähler des Spielers fürs Abmelden aus `zaehler` in seinem Ordner:
@@ -432,23 +561,20 @@ fn objekt(text: &str) -> bool {
 }
 
 /// `POST aktion`: ein Klick auf einen Knopf, den `knoepfe.json` des
-/// Spielers nennt. Gibt `202` und schreibt die Zeile `Aktion:` auf stdout;
+/// Spielers nennt, nur mit einer Sitzung aus `/karte anmelden`; erkannt über
+/// die IP `403`. Gibt `202` und schreibt die Zeile `Aktion:` auf stdout;
 /// was der Knopf bewirkt, entscheidet das Plugin.
-fn aktion(
-    z: &Zustand,
-    sp: &Spieler,
-    freigabe: &Freigabe,
-    felder: &HeaderMap,
-    koerper: &[u8],
-) -> Response<Full<Bytes>> {
-    if !von_der_karte(felder) {
+fn aktion(z: &Zustand, sp: &Spieler, freigabe: &Freigabe, a: &Anfrage) -> Response<Full<Bytes>> {
+    if !von_der_karte(&a.felder) {
         return leer(z, StatusCode::FORBIDDEN);
     }
     let jetzt = jetzt();
-    let Some(sitzung) = sitzung(sp, freigabe, felder, jetzt) else {
-        return leer(z, StatusCode::UNAUTHORIZED);
+    let sitzung = match erkenne(sp, freigabe, a, jetzt).0 {
+        Some(Erkannt::Sitzung(s)) => s,
+        Some(Erkannt::Ip(_)) => return leer(z, StatusCode::FORBIDDEN),
+        None => return leer(z, StatusCode::UNAUTHORIZED),
     };
-    let Ok(klick) = serde_json::from_slice::<Klick>(koerper) else {
+    let Ok(klick) = serde_json::from_slice::<Klick>(&a.koerper) else {
         return leer(z, StatusCode::BAD_REQUEST);
     };
     if !(kennung(&klick.ebene) && kennung(&klick.knopf) && objekt(&klick.objekt)) {
@@ -494,7 +620,7 @@ fn zaehle(sp: &Spieler, spieler: [u8; 16], jetzt: u64) -> bool {
 
 /// Nennt `knoepfe.json` im Ordner des Spielers diesen Knopf an diesem Objekt?
 fn angehaengt(ordner: &Path, klick: &Klick) -> bool {
-    let Ok(Some(inhalt)) = klein(&ordner.join("knoepfe.json")) else {
+    let Ok(Some(inhalt)) = klein(&ordner.join("knoepfe.json"), DATEI) else {
         return false;
     };
     let Ok(liste) = serde_json::from_slice::<serde_json::Value>(&inhalt) else {
@@ -595,7 +721,7 @@ mod tests {
     #[test]
     fn dateien_der_api() {
         assert_eq!(
-            datei_der_api("ebenen/proficisci/routen.json").map(|(d, _)| d),
+            datei_der_api("ebenen/proficisci/routen.json").map(|(d, _, _)| d),
             Some("ebenen/proficisci/routen.json".into())
         );
         for falsch in [

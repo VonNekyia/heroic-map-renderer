@@ -1749,7 +1749,8 @@ fn webkarte_je_spieler() {
     assert_eq!(poste(a, "/api/anmelden", &VON_DER_KARTE, "{}").status, 401);
     for (falsch, warum) in [
         (kurzes_token(&geheimnis, 3, jetzt + 300, 0, 2), "Sitzung"),
-        (kurzes_token(&geheimnis, 2, jetzt + 301, 0, 3), "über 5 min"),
+        // Mit Abstand: Die Uhr des Servers läuft seit `jetzt` weiter.
+        (kurzes_token(&geheimnis, 2, jetzt + 330, 0, 3), "über 5 min"),
         (kurzes_token(&geheimnis, 2, jetzt, 0, 4), "abgelaufen"),
         (kurzes_token(&[0; 32], 2, jetzt + 300, 0, 5), "Geheimnis"),
         (token(&geheimnis, "t", 9, 1000, jetzt + 300, 6), "Download"),

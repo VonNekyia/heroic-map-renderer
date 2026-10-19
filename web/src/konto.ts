@@ -1,10 +1,11 @@
 /**
  * Anmeldung und Sitzung am Server des Renderers, unter `api/` neben der
- * Seite: Anmelde-Token aus dem Fragment, Abmelden, wer angemeldet ist, die
- * Knöpfe und der Klick. Die Sitzung trägt ein Cookie mit HttpOnly; die Seite
- * sieht es nie. Siehe docs/frontend.md, „Aktionsebenen“.
+ * Seite: Anmelde-Token aus dem Fragment, Abmelden, wer angemeldet oder über
+ * die IP erkannt ist, der Tausch über IPv4, die Knöpfe, der Klick und die
+ * Mitspieler. Die Sitzung trägt ein Cookie mit HttpOnly; die Seite sieht es
+ * nie. Siehe docs/frontend.md, „Mitspieler“.
  */
-import { istObjekt, istText } from './pruefen';
+import { istObjekt, istText, istZahl } from './pruefen';
 
 /** Ein Knopf an einem Objekt, mit dem Zustand für den angemeldeten Spieler. */
 export interface Knopf {
@@ -19,7 +20,20 @@ export interface Knopf {
 export interface Spieler {
   name?: string;
   uuid: string;
+  /** Erkannt über die IP oder mit einer lesenden Sitzung: sehen ja, klicken nein. */
+  nurLesen: boolean;
 }
+
+/**
+ * Was `api/ich` sagt: erkannt, ein Gast oder kein Server des Renderers. Ein
+ * Gast über IPv6 bekommt dazu, wo der Server ihn über IPv4 erkennen kann,
+ * oder dass es nicht geht. Siehe docs/benutzung/server.md, „Erkennung per IP“.
+ */
+export type Erkennung =
+  | { art: 'erkannt'; spieler: Spieler }
+  /** `erkennen`: die Adresse für den Tausch über IPv4; `ipv6`: über IPv6 ohne zweiten Namen, erkennen geht nicht. */
+  | { art: 'gast'; erkennen?: string; ipv6: boolean }
+  | { art: 'fehlt' };
 
 /**
  * Was `api/` antwortet: Wert, `abgemeldet` bei 401, `fehlt` ohne Server des
@@ -83,11 +97,48 @@ export const anmelden = (token: string): Promise<number> => schicke('anmelden', 
 
 export const abmelden = (): Promise<number> => schicke('abmelden', {});
 
-export async function ich(): Promise<Antwort<Spieler>> {
-  const wert = await hole('ich', 4096);
-  if (wert === 'abgemeldet' || wert === 'fehlt') return wert;
-  if (!istObjekt(wert) || !istText(wert.uuid, 36)) return 'fehlt';
-  return { name: istText(wert.name, 64) ? wert.name : undefined, uuid: wert.uuid };
+export async function ich(): Promise<Erkennung> {
+  const antwort = await frage('ich');
+  if (antwort === 'fehlt') return { art: 'fehlt' };
+  // 204 ohne Erkennung, 401 nach einer abgelaufenen Sitzung, deren Cookie der Server schon gelöscht hat.
+  if (antwort.status === 204 || antwort.status === 401) {
+    const erkennen = antwort.headers.get('x-heroic-erkennen') ?? undefined;
+    return { art: 'gast', erkennen, ipv6: antwort.headers.get('x-heroic-ip') === '6' };
+  }
+  if (!antwort.ok) return { art: 'fehlt' };
+  let wert: unknown;
+  try {
+    wert = JSON.parse(await antwort.text());
+  } catch {
+    return { art: 'fehlt' };
+  }
+  if (!istObjekt(wert) || !istText(wert.uuid, 36)) return { art: 'fehlt' };
+  return { art: 'erkannt', spieler: { name: istText(wert.name, 64) ? wert.name : undefined, uuid: wert.uuid, nurLesen: wert.ueber === 'ip' } };
+}
+
+/**
+ * Der Tausch über IPv4: `POST` an die Adresse aus `X-Heroic-Erkennen`, ohne
+ * Cookie. Gibt das Token, das `anmelden` gegen eine lesende Sitzung tauscht,
+ * oder nichts, wenn der Server den Browser auch dort nicht erkennt. Nur eine
+ * Adresse `http(s)://…/api/erkennen`; die CSP erlaubt sie, wenn der Server
+ * den zweiten Namen kennt.
+ */
+export async function erkennen(adresse: string): Promise<string | undefined> {
+  let url: URL;
+  try {
+    url = new URL(adresse);
+  } catch {
+    return undefined;
+  }
+  if (!/^https?:$/.test(url.protocol) || url.pathname !== '/api/erkennen' || url.search || url.hash) return undefined;
+  try {
+    const antwort = await fetch(url, { method: 'POST', credentials: 'omit', cache: 'no-store', headers: KOPF, body: '{}' });
+    if (antwort.status !== 200) return undefined;
+    const wert: unknown = await antwort.json();
+    return istObjekt(wert) && typeof wert.token === 'string' && TOKEN.test(wert.token) ? wert.token : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** Höchstens so viele Knöpfe je Objekt; siehe docs/frontend.md, „Aktionsebenen“. */
@@ -120,6 +171,39 @@ export const ebene = (mod: string, name: string, max: number): Promise<Antwort<u
 
 /** Der Klick: 202 heisst angenommen, den neuen Zustand kennt erst das Plugin. */
 export const aktion = (k: Knopf): Promise<number> => schicke('aktion', { ebene: k.ebene, objekt: k.objekt, knopf: k.knopf });
+
+/** Ein Mitspieler auf ganzen Blöcken. */
+export interface Mitspieler {
+  uuid: string;
+  name: string;
+  x: number;
+  z: number;
+}
+
+/** Was `api/sicht.json` sagt: wann das Plugin schrieb, wo der Spieler steht, wenn online, und wen er sieht. */
+export interface Sicht {
+  jetzt?: number;
+  ich?: { x: number; z: number };
+  spieler: Mitspieler[];
+}
+
+/** Höchstens so viele Mitspieler, so gross; siehe docs/plugin.md, „`Web:` und `sicht.json`“. */
+const SICHT = { spieler: 256, bytes: 64 * 1024 };
+
+/** Die Sicht des Spielers; was nicht taugt, fällt weg. */
+export async function sicht(): Promise<Antwort<Sicht>> {
+  const wert = await hole('sicht.json', SICHT.bytes);
+  if (wert === 'abgemeldet' || wert === 'fehlt') return wert;
+  if (!istObjekt(wert)) return { spieler: [] };
+  const lage = (o: unknown) => (istObjekt(o) && istZahl(o.x) && istZahl(o.z) ? { x: o.x, z: o.z } : undefined);
+  const roh = Array.isArray(wert.spieler) ? wert.spieler.slice(0, SICHT.spieler) : [];
+  const spieler: Mitspieler[] = [];
+  for (const s of roh) {
+    const l = lage(s);
+    if (l && istObjekt(s) && istText(s.uuid, 36) && istText(s.name, 16)) spieler.push({ uuid: s.uuid, name: s.name, ...l });
+  }
+  return { jetzt: istZahl(wert.jetzt) ? wert.jetzt : undefined, ich: lage(wert.ich), spieler };
+}
 
 /** Ein Objekt einer Ebene als Schlüssel; JSON, damit kein Zeichen der ID zwei Paare verwechselt. */
 export const objektSchluessel = (ebene: string, objekt: string): string => JSON.stringify([ebene, objekt]);

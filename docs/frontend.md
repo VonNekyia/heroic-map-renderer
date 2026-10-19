@@ -1,6 +1,6 @@
 ---
 title: Frontend
-description: Das Leaflet-Frontend - wie es die Kacheln ausliefert, einem laufenden Render zusieht, map.json in ein Koordinatensystem übersetzt, die Koordinaten des Blocks unter Maus und Finger zeigt als /tp kopiert und per Eingabe dorthin springt, zwischen Ansichten umschaltet, mit einem Knopf die ganze Karte zeigt, den Stand der Karte nennt, Ebenen mit Nadeln, Bannern, Infotafel, Regionen, Kreisen, Linien und Kartenschrift zeigt, einen Spieler per Link aus dem Spiel anmeldet und ihm Aktionsebenen und Knöpfe zeigt, den Hinweis von Mojang zeigt und die Lizenzen verlinkt, wie es einen Skin beim Build einbindet, wie es mit Adresse, Titel und Vorschaubild für Suchmaschinen und geteilte Links gebaut und unter welchen Headern, auch für den Cache, es ausgeliefert wird und warum es nicht mehr tut.
+description: Das Leaflet-Frontend - wie es die Kacheln ausliefert, einem laufenden Render zusieht, map.json in ein Koordinatensystem übersetzt, die Koordinaten des Blocks unter Maus und Finger zeigt als /tp kopiert und per Eingabe dorthin springt, zwischen Ansichten umschaltet, mit einem Knopf die ganze Karte zeigt, den Stand der Karte nennt, Ebenen mit Nadeln, Bannern, Infotafel, Regionen, Kreisen, Linien und Kartenschrift zeigt, einen Spieler per Link aus dem Spiel anmeldet oder über die IP erkennt und ihm Aktionsebenen, Knöpfe und seine Mitspieler zeigt, den Hinweis von Mojang zeigt und die Lizenzen verlinkt, wie es einen Skin beim Build einbindet, wie es mit Adresse, Titel und Vorschaubild für Suchmaschinen und geteilte Links gebaut und unter welchen Headern, auch für den Cache, es ausgeliefert wird und warum es nicht mehr tut.
 code:
   - web/src/main.ts
   - web/src/ebenen.ts
@@ -640,12 +640,25 @@ Ebenen und Knöpfe.
   „Abmelden“ (`POST api/abmelden`). Ohne `ich.json` beim Server kommt nur
   die UUID; dann steht dort nur „Angemeldet“. Nach dem Anmelden klappt die Liste auf.
   Ein abgelaufener oder benutzter Link steht als Meldung darunter.
-- **Gäste:** Die Seite fragt nur nach der Sitzung, wenn `layers.json` eine
-  Aktionsebene nennt oder dieser Browser zuletzt angemeldet war
-  (`localStorage`, `angemeldet:<pfad>`). So bekommt ein Gast ohne
-  Aktionsebene keine `401` in der Konsole. Mit Aktionsebene und ohne
-  Anmeldung steht unter der Liste „Anmelden für eigene Ebenen: im Spiel
-  /karte anmelden“; die Aktionsebene selbst fehlt in der Liste.
+- **Bei jedem Laden** fragt die Seite `GET api/ich`, auch ohne
+  `layers.json`; ein Gast bekommt `204`, keinen Fehler in der Konsole. Ohne
+  Erkennung steht unter der Liste „Anmelden für eigene Ebenen und
+  Mitspieler: im Spiel /karte anmelden“; Aktionsebenen fehlen in der Liste.
+- **Über die IP erkannt** (`"ueber":"ip"`, siehe [Server](benutzung/server.md),
+  „Erkennung per IP“): „Erkannt als … (über die IP)“, darunter klein
+  „Nicht du? Im Spiel /karte anmelden“, ohne „Abmelden“. Der Spieler sieht
+  Aktionsebenen und Mitspieler, klicken kann er nicht: Knöpfe stehen mit
+  `aria-disabled` da, darunter „Zum Schalten im Spiel /karte anmelden“, und
+  ein Klick schickt nichts. Sagt der Server beim Klick `403`, steht derselbe
+  Hinweis da.
+- **Über IPv6:** Trägt `204` oder `401` von `api/ich` den Kopf
+  `X-Heroic-Erkennen`, tauscht die Seite sich über IPv4 ein: `POST` an genau
+  diese Adresse, nur `http(s)://…/api/erkennen`, mit
+  `credentials: 'omit'`, den Köpfen wie jeder `POST` und `{}`. Mit dem Token
+  aus der Antwort `POST api/anmelden`, dann `api/ich` neu; das gibt eine
+  lesende Sitzung. Trägt die Antwort `X-Heroic-Ip: 6`, steht der Grund da:
+  „Über IPv6 erkennt die Karte dich nicht. Für eigene Ebenen und
+  Mitspieler: im Spiel /karte anmelden“.
 - **Ohne Server des Renderers** gibt es keinen Hinweis. Als ohne Server
   gilt: keine Antwort, ein Fehler ausser `401`, oder kein gültiges JSON,
   etwa die `index.html` eines statischen Servers.
@@ -671,6 +684,32 @@ Ebenen und Knöpfe.
   Kommt in 3 s nichts, wird der Knopf mit dem alten Zustand frei, darunter
   „noch keine Antwort“; den Rest holt das Nachfragen alle 30 s. Ein `404`
   heisst: Den Knopf gibt es nicht mehr.
+
+## Mitspieler
+
+Wer erkannt ist, über eine Sitzung oder die IP, sieht auf der Karte sich
+selbst und die Mitspieler, die er im Mod sähe (#305). Was der Server dazu
+liefert: [Plugin](plugin.md), „`Web:` und `sicht.json`“, und
+[Server](benutzung/server.md), „Erkennung per IP“. Gebaut in
+[`web/src/konto.ts`](../web/src/konto.ts) für den Abruf und in
+[`web/src/ebenen.ts`](../web/src/ebenen.ts) für Liste und Figuren.
+
+- **Liste:** „Mitspieler“ steht erst nach der Erkennung oben in der Liste
+  der Ebenen, an nach Vorgabe und gemerkt wie eine Ebene
+  (`heroicmap:mitspieler`). Ohne `layers.json` steht nur sie da.
+- **Abruf:** `GET api/sicht.json` alle 2 s, nur erkannt, nur an und nur bei
+  sichtbarer Seite; beim Zurückkehren auf den Tab sofort. Höchstens 256
+  Spieler und 64 KiB; Namen bis 16 Zeichen, nur als Text. Eine `401` heisst
+  abgemeldet.
+- **Veraltet:** Ändert sich `jetzt` 15 s lang nicht, gemessen mit der Uhr der
+  Seite, verschwinden alle Figuren. Die Uhr des Browsers wird nie mit der des
+  Servers verglichen; das Plugin schreibt alle 5 s, auch ohne Bewegung. Ohne
+  `jetzt`, also ohne Datei beim Server, gibt es keine.
+- **Figuren:** je Spieler ein Punkt mit dem Namen darunter, der Betrachter
+  gelb. Sie stehen auf der Mitte ihres Blocks, im iso auf der Oberfläche wie
+  eine Nadel ohne `y`, in einem eigenen Pane über den Nadeln (590). Eine
+  bekannte Figur wandert, statt neu zu entstehen; wer fehlt, verschwindet.
+  Ohne Glättung zwischen zwei Abrufen.
 
 ## Skins
 

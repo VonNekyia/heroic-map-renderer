@@ -185,6 +185,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0107](entscheidungen/0107-aktionsebenen.md): Aktionsebenen und Knöpfe je Spieler: Knöpfe an Objekten, nicht in Dateien; Inhalte je Spieler; Anmeldung im Web per Link aus dem Spiel, Sitzung vom Server, Klicks als Zeile `Aktion:` ans Plugin; Haken je Plugin, eigener Dienst, Push und Token in der Query verworfen.
 - [0108](entscheidungen/0108-pflanzen-von-oben-flach.md): Bodenpflanzen liegen von oben flach, die Textur der ersten senkrechten Fläche über dem ganzen Block, Norden oben; nicht in Cinematic; halb so gross und wenige Punkte an der Vorschau verworfen.
 - [0109](entscheidungen/0109-1-und-2-px-als-stufen.md): Karten mit 1 und 2 px je Block sind die Stufen z − 2 und z − 1 des Baums aus `top-north` mit 4 px, keine eigenen Bäume; mehrere Massstäbe je Baum von selbst; eigene Bäume mit scale 2 und 1 verworfen.
+- [0110](entscheidungen/0110-erkennung-per-ip.md): Erkennung per IP für die Webkarte: genau ein Spieler online je IP, nur zum Ansehen, Klicks nur mit Anmeldung; `ips` als HMAC vom Plugin; `X-Real-IP` nur von einzelnen Proxys; IPv6 über einen Namen nur mit IPv4.
 
 ## Versuche
 

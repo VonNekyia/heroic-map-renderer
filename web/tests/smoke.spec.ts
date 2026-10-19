@@ -201,6 +201,32 @@ test('die Karte läuft unter strengen Headern', async ({ page }) => {
   );
 });
 
+test('Zoomen bricht laufende Kacheln ab, ohne die CSP zu verletzen; eine abgebrochene zählt nicht als geladen', async ({ page }) => {
+  await page.addInitScript(() => {
+    const verletzt: string[] = [];
+    (window as unknown as { verletzt: string[] }).verletzt = verletzt;
+    document.addEventListener('securitypolicyviolation', (e) => verletzt.push(`${e.effectiveDirective} ${e.blockedURI}`));
+  });
+  // Kacheln der Stufe 2 hängen, bis der Test sie freigibt: So laufen sie noch, wenn die Karte wegzoomt.
+  const haengend: (() => void)[] = [];
+  await page.route('**/tiles-demo/2/*/*.webp', async (route) => {
+    await new Promise<void>((weiter) => haengend.push(weiter));
+    await route.fulfill({ response: await route.fetch() }).catch(() => undefined);
+  });
+  const abgebrochen: string[] = [];
+  page.on('requestfailed', (r) => abgebrochen.push(r.url()));
+  await page.goto(`${DEMO}&at=20,0,-20&zoom=0`);
+  await expect.poll(() => haengend.length).toBeGreaterThan(0);
+  await page.locator('.leaflet-control-zoom-out').click();
+  await expect(page.locator('img.leaflet-tile-loaded[src*="/tiles-demo/1/"]').first()).toBeVisible();
+  for (const weiter of haengend) weiter();
+  await expect.poll(() => abgebrochen.filter((u) => u.includes('/tiles-demo/2/')).length).toBeGreaterThan(0);
+  // Nach dem Abbruch steht keine Kachel der Stufe 2 als geladen da.
+  await page.waitForTimeout(300);
+  await expect(page.locator('img.leaflet-tile-loaded[src*="/tiles-demo/2/"]')).toHaveCount(0);
+  expect(await page.evaluate(() => (window as unknown as { verletzt: string[] }).verletzt)).toEqual([]);
+});
+
 test('die Koordinaten rechnen mit projection aus map.json', async ({ page }) => {
   // Eine Draufsicht über den Kacheln von 2:1: falsch fürs Auge, aber so
   // zeigt sich, dass projection gilt und nicht scale.

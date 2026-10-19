@@ -542,6 +542,49 @@ const LOOKS: Record<string, string> = { cinematic: 'Cinematic', flat: 'Einfarbig
 const STUFEN_PX = [2, 1];
 const mitStufen = ({ camera, look }: Baum): boolean => camera === 'top-north' && look !== 'flat';
 
+/** Was Leaflet an `L.TileLayer` intern nutzt; die Typen von Leaflet nennen es nicht. */
+interface KachelInnen {
+  _map?: L.Map;
+  _tiles: Record<string, { el: HTMLImageElement; coords: L.Coords }>;
+  _tileZoom?: number;
+  fire(art: string, daten: object): void;
+}
+
+/**
+ * Kacheln wie `L.TileLayer`, nur bricht eine Kachel ab, indem sie ihr `src`
+ * verliert. Leaflet setzt dafür ein GIF als `data:`, und das verletzt
+ * `default-src 'self'`. `L.Util.emptyImageUrl` umzusetzen hilft nicht:
+ * Leaflet liest die Adresse aus einer Variable seines Moduls. Die drei
+ * Methoden folgen Leaflet 1.9.4. Siehe docs/frontend.md, „Ausliefern“.
+ */
+const Kacheln = L.TileLayer.extend({
+  // Bricht die Kacheln ab, die noch für eine andere Stufe laden.
+  _abortLoading(this: KachelInnen) {
+    for (const [schluessel, kachel] of Object.entries(this._tiles)) {
+      if (kachel.coords.z === this._tileZoom) continue;
+      const el = kachel.el;
+      el.onload = el.onerror = null;
+      if (el.complete) continue;
+      el.removeAttribute('src');
+      el.remove();
+      delete this._tiles[schluessel];
+      this.fire('tileabort', { tile: el, coords: kachel.coords });
+    }
+  },
+  _removeTile(this: KachelInnen, schluessel: string) {
+    const kachel = this._tiles[schluessel];
+    if (!kachel) return;
+    // Bricht eine laufende Anfrage ab.
+    kachel.el.removeAttribute('src');
+    (L.GridLayer.prototype as unknown as { _removeTile(this: KachelInnen, s: string): void })._removeTile.call(this, schluessel);
+  },
+  _tileReady(this: KachelInnen, coords: L.Coords, fehler: Error | undefined, el: HTMLImageElement | undefined) {
+    // Eine abgebrochene Kachel zählt nicht als fertig.
+    if (!this._map || (el && !el.hasAttribute('src'))) return;
+    (L.GridLayer.prototype as unknown as { _tileReady(this: KachelInnen, ...a: unknown[]): void })._tileReady.call(this, coords, fehler, el);
+  },
+}) as unknown as new (url: string, options: L.TileLayerOptions) => L.TileLayer;
+
 /** Um wie viele Stufen die feinste gekappt wird, damit ein Block `px` Pixel breit ist; ohne ganze Zahl über 0 keine Ansicht. */
 function kappung(scale: number, px: number): number | undefined {
   const stufen = Math.log2(scale / px);
@@ -703,7 +746,7 @@ async function start(): Promise<void> {
   map.setMinZoom(minZoom);
   ganzeKarte(map, einpassen);
 
-  L.tileLayer(`${base}/${info.tiles}`, {
+  new Kacheln(`${base}/${info.tiles}`, {
     tileSize: info.tileSize,
     // Die Untergrenze setzt die Karte, und ein Skin senkt sie, wird das
     // Fenster kleiner. Die Ebene zeigt auf jeder Stufe Kacheln.

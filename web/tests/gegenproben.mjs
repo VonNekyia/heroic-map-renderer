@@ -79,4 +79,6 @@ export default [
   { name: 'kacheln-nicht-gekappt', datei: 'src/main.ts', alt: '    maxNativeZoom: feinste,', neu: '    maxNativeZoom: info.maxZoom + 0 * feinste,', spec: 'tests/smoke.spec.ts', titel: 'Ansichten mit 2 und 1 px je Block' },
   { name: 'grenze-nach-scale', datei: 'src/main.ts', alt: 'const hoechste = feinste + extraZoom(px ?? info.scale);', neu: 'const hoechste = feinste + extraZoom(info.scale);', spec: 'tests/smoke.spec.ts', titel: 'Ansichten mit 2 und 1 px je Block' },
   { name: 'px-faellt-aus-der-adresse', datei: 'src/main.ts', alt: 'void ansicht(baum?.path, px).then', neu: 'void ansicht(baum?.path, undefined).then', spec: 'tests/smoke.spec.ts', titel: 'Ansichten mit 2 und 1 px je Block' },
+  // Abgebrochene Kacheln unter der CSP.
+  { name: 'abbruch-mit-data', datei: 'src/main.ts', alt: "      el.removeAttribute('src');\n      el.remove();", neu: "      el.src = L.Util.emptyImageUrl;\n      el.remove();", spec: 'tests/smoke.spec.ts', titel: 'Zoomen bricht laufende Kacheln ab' },
 ];

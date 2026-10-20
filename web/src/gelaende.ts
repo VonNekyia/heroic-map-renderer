@@ -206,6 +206,31 @@ export function weltRechteck([x0, y0, x1, y1]: Rechteck, blick: Blick, ymin: num
   return rechteck([ymin, ymax].flatMap((y) => ecken.map((e) => welt(e, y))));
 }
 
+/** So breit ist ein Feld des Netzes nach 0111 auf dem Schirm mindestens, in Pixeln; siehe `feldKante`. */
+const FELD_PX = 4;
+
+/**
+ * Die Kante eines Felds im Netz nach 0111: die Zelle, so oft verdoppelt, bis
+ * das Feld auf dem Schirm `FELD_PX` breit ist. Feiner gäbe jedes Feld am Rand
+ * sein eigenes Stück, mehr Punkte als der Rand nach ε.
+ */
+export function feldKante(c: number, blick: Blick, s: Schirm): number {
+  const px = c * blockBreite(blick) * s.faktor;
+  return px >= FELD_PX ? c : c * 2 ** Math.ceil(Math.log2(FELD_PX / px));
+}
+
+/** Die Höhen in Zellen der Kante `kante`, je Zelle die Oberfläche in ihrer Mitte; für die Verdeckung im groben Netz. */
+function grob(g: Gelaende, kante: number): Gelaende {
+  const gemerkt = new Map<number, number>();
+  const zelle = (i: number, j: number): number => {
+    const s = (i + 2 ** 20) * 2 ** 21 + (j + 2 ** 20);
+    let h = gemerkt.get(s);
+    if (h === undefined) gemerkt.set(s, (h = oberflaeche(g, (i + 0.5) * kante, (j + 0.5) * kante) - 1));
+    return h;
+  };
+  return { ...g, c: kante, zelle };
+}
+
 /** Seiten eines Kreises mit `r` Pixeln Radius auf dem Schirm, so dass die Pfeilhöhe jeder Seite unter `eps` bleibt; mindestens 12. */
 export function kreisSeiten(r: number, eps: number): number {
   return r <= eps ? 12 : Math.max(12, Math.ceil(Math.PI / Math.acos(1 - eps / r)));
@@ -417,14 +442,29 @@ function mitMitten(ring: readonly Punkt[]): Punkt[] {
  * Ein Feld mit Rand gibt seine Stücke einzeln, jede Kante mit ihrer Mitte.
  * Kosten wachsen mit dem Umfang, nicht mit der Fläche. Siehe
  * docs/entscheidungen/0096-formen-und-schrift-im-browser.md.
+ *
+ * Mit `schirm` nach 0111: nur, was im Ausschnitt liegen kann, in Feldern
+ * von `feldKante`, verdeckt nach der Oberfläche in den Mitten dieser Felder;
+ * jede Kante an den Zellen abgetastet und auf dem Schirm auf ε vereinfacht.
  */
-export function netz(polygone: readonly Polygon[], g: Gelaende, blick: Blick): Punkt[][] {
-  const ringe = polygone.flatMap((p) => [p.aussen, ...p.loecher]).filter((r) => r.length >= 3);
-  const projiziert = (ring: readonly Punkt[]): Punkt[] => ring.map(([x, z]) => bildpunkt(x, oberflaeche(g, x, z), z, blick));
+export function netz(polygone: readonly Polygon[], g: Gelaende, blick: Blick, schirm?: Schirm): Punkt[][] {
+  let ringe = polygone.flatMap((p) => [p.aussen, ...p.loecher]).filter((r) => r.length >= 3);
+  if (schirm) {
+    const welt = weltRechteck(schirm.rahmen, blick, g.grund - 128, g.max);
+    ringe = ringe.map((r) => ringImRechteck(r, welt)).filter((r) => r.length >= 3);
+  }
+  const bild = ([x, z]: Punkt): Punkt => bildpunkt(x, oberflaeche(g, x, z), z, blick);
+  // Ein Stück mit seinen Mitten, wo `H` zwischen den Ecken bilinear ist; nach 0111 an den Zellen und vereinfacht.
+  const projiziert = (ring: readonly Punkt[], mitten: boolean): Punkt[] => {
+    if (!schirm) return (mitten ? mitMitten(ring) : ring).map(bild);
+    const dicht = abtasten(ring, true, g.c, Infinity).map(bild);
+    return vereinfache(dicht, schirm.eps / schirm.faktor).slice(0, -1).map((i) => dicht[i]!);
+  };
   if (ringe.length === 0) return [];
   // Von oben liegt alles eben: die Ringe selbst.
   if (blick.p.y === 0) return ringe.map((r) => r.map(([x, z]) => bildpunkt(x, 0, z, blick)));
-  const { c } = g;
+  const c = schirm ? feldKante(g.c, blick, schirm) : g.c;
+  const gs = c === g.c ? g : grob(g, c);
   const o = c / 2;
   const [xmin, zmin, xmax, zmax] = rechteck(ringe.flat());
   const [pa, qa] = [Math.floor((xmin - o) / c), Math.floor((zmin - o) / c)];
@@ -475,9 +515,13 @@ export function netz(polygone: readonly Polygon[], g: Gelaende, blick: Blick): P
       }
     }
   }
-  const sicht = sichtbareFelder(g, blick, pa, qa, nx, nz, (i) => art[i] !== 0);
+  const sicht = sichtbareFelder(gs, blick, pa, qa, nx, nz, (i) => art[i] !== 0);
   const aus: Punkt[][] = [];
-  for (const [i, teile] of stuecke) if (sicht[i]) for (const t of teile) aus.push(projiziert(mitMitten(t)));
+  // Ein Stück, das nach dem Vereinfachen keine Fläche mehr hat, war kleiner als ε.
+  const nimm = (r: Punkt[]) => {
+    if (r.length >= 3) aus.push(r);
+  };
+  for (const [i, teile] of stuecke) if (sicht[i]) for (const t of teile) nimm(projiziert(t, true));
   // Der Umriss der sichtbaren Felder ganz drinnen: jede Kante, hinter der kein solches Feld liegt.
   const voll = (p: number, q: number) => p >= 0 && p < nx && q >= 0 && q < nz && art[p * nz + q] === 1 && sicht[p * nz + q] === 1;
   const ecke = (p: number, q: number) => p * (nz + 1) + q;
@@ -507,8 +551,8 @@ export function netz(polygone: readonly Polygon[], g: Gelaende, blick: Blick): P
         ring.push(welt(von));
         von = nach;
       } while (von !== start);
-      // Die Kanten laufen von Mitte zu Mitte der Zellen; dort ist H linear, die Projektion gerade: Die Ecken reichen.
-      aus.push(projiziert(ring));
+      // Ohne Schirm laufen die Kanten von Mitte zu Mitte der Zellen; dort ist H linear, die Projektion gerade: Die Ecken reichen.
+      nimm(projiziert(ring, false));
     }
   }
   return aus;

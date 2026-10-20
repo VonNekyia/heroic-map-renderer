@@ -69,9 +69,9 @@ const punkte = (page: Page) =>
     const art = (p: Element) => (p.getAttribute('stroke') !== 'none' && p.getAttribute('stroke') ? 'strich' : p.getAttribute('fill-rule') === 'nonzero' ? 'wand' : 'flaeche');
     const je: Record<string, number> = {};
     for (const p of pfade) je[art(p)] = (je[art(p)] ?? 0) + (p.getAttribute('d')?.match(/[ML]/g)?.length ?? 0);
-    // Mit `?punkte`: die Punkte, die die Karte für Ränder, Linien und Wände rechnet, vor dem Beschneiden durch Leaflet.
-    const raender = [...document.querySelectorAll<HTMLElement>('[data-raender]')].reduce((s, e) => s + Number(e.dataset.raender), 0);
-    return { pfade: pfade.length, punkte: pfade.reduce((s, p) => s + (p.getAttribute('d')?.match(/[ML]/g)?.length ?? 0), 0), je, raender };
+    // Mit `?punkte`: die Punkte, die die Karte für Flächen, Ränder, Linien und Wände rechnet, vor dem Beschneiden durch Leaflet.
+    const gerechnet = [...document.querySelectorAll<HTMLElement>('[data-punkte]')].reduce((s, e) => s + Number(e.dataset.punkte), 0);
+    return { pfade: pfade.length, punkte: pfade.reduce((s, p) => s + (p.getAttribute('d')?.match(/[ML]/g)?.length ?? 0), 0), je, gerechnet };
   });
 
 /** Summe der langen Aufgaben während eines Verschiebens um 300 px. */

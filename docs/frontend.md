@@ -554,12 +554,12 @@ Banner, feste Grösse und die Tafel beim Zeigen folgen
     den Nadeln. Im Fokus hat sie keinen Rahmen, der Kasten um ihre Grenzen
     wäre; für die Tastatur (`:focus-visible`) zeigt sie ihren Umriss als
     Strich von 2 px in `--ui-markiert`;
-  - die Höhen: für die Flächen und die Schriften je Laden einer Ebene
-    einmal, die Regionen aller ihrer Flächen in einem und die aller ihrer
-    Schriften in einem; für Ränder und Linien je Ansicht nach 0111, nur die
-    Regionen im Ausschnitt. Für eine Fläche ihr Rechteck, für Ränder und
-    Linien die Regionen entlang des Zugs, je samt dem Streifen zur Kamera,
-    aus dem Gelände verdecken kann, und nur innerhalb von `area`. Formen nehmen `ground`, je Region ohne Datei
+  - die Höhen: für die Schriften je Laden einer Ebene einmal, die Regionen
+    aller ihrer Schriften in einem; für die Formen je Ansicht nach 0111, die
+    Regionen aller ihrer Formen im Ausschnitt in einem. Für eine Fläche ihr
+    Rechteck, für Ränder und Linien die Regionen entlang des Zugs, je samt
+    dem Streifen zur Kamera, aus dem Gelände verdecken kann, und nur
+    innerhalb von `area`. Formen nehmen `ground`, je Region ohne Datei
     `heights`, mit einem eigenen Cache; Schriften nehmen `heights`, siehe
     [Ebenen](benutzung/ebenen.md), „Die Oberfläche im iso“. Danach
     fallen sie weg. Je Ebene lädt die Webkarte höchstens 32 MiB Höhen für
@@ -567,14 +567,14 @@ Banner, feste Grösse und die Tafel beim Zeigen folgen
     (512 / Zelle)² · 2 Byte, bei 4 also 32 KiB, je Block 512 KiB. Mit
     `ground` je Block reicht das für 64 Regionen; braucht eine Ebene mehr,
     liegen ihre Formen mit Meldung auf `heights`. Reicht es auch dafür
-    nicht, bei 4 mehr als 1024 Regionen, etwa ohne `area` mit einem riesigen
-    gefüllten Kreis, liegen alle Flächen der Ebene mit Meldung auf
-    `seaLevel`, auch ihre kleinen. Der Cache für `ground` hält 8 Regionen, der für
+    nicht, bei 4 mehr als 1024 Regionen, etwa ohne `area` weit
+    herausgezoomt über einem riesigen gefüllten Kreis, liegt die Ebene in
+    dieser Ansicht mit Meldung auf `seaLevel`, auch ihre kleinen Formen. Der Cache für `ground` hält 8 Regionen, der für
     `heights` 64. Die Grenze gilt nur für die Webkarte;
   - die Wand am Rand einer Fläche im iso, siehe [Ebenen](benutzung/ebenen.md),
     „Die Wand“; im iso füllt eine Fläche nicht, siehe „Flächen“;
-  - **Ränder, Linien, Kreise und Wand nach dem Fehler auf dem Schirm,**
-    entschieden in [0111](entscheidungen/0111-geometrie-nach-bildschirmfehler.md):
+  - **Flächen, Ränder, Linien, Kreise und Wand nach dem Fehler auf dem
+    Schirm,** entschieden in [0111](entscheidungen/0111-geometrie-nach-bildschirmfehler.md):
     - je Ansicht gerechnet, für das Fenster plus ein halbes je Seite, 150 ms
       nach dem letzten `zoomend` oder `moveend`; bleibt der Zoom und liegt
       das Fenster im gerechneten Ausschnitt, bleibt alles, wie es ist. Die
@@ -589,16 +589,22 @@ Banner, feste Grösse und die Tafel beim Zeigen folgen
       Schirm unter ε bleibt, mindestens 12;
     - die Wand hat je Band mindestens 8 px, höchstens 12 Bänder, unter 1 px
       keine; bei scale 16 in 2:1 auf Zoom 0 also 6, auf −1 3, auf −2 1;
+    - eine Fläche als Netz nur im Ausschnitt, in Feldern von mindestens
+      4 px auf dem Schirm: die Zelle, so oft verdoppelt, wie es dafür
+      braucht (`feldKante`). Verdeckt nach der Oberfläche in den Mitten der
+      Felder; jede Kante an den Zellen abgetastet und auf ε vereinfacht. Der
+      Rand des Ziels liegt so höchstens ε neben dem der Fläche;
+    - die Ziele der Flächen legt die Karte einmal je `version` an und setzt
+      je Ansicht nur ihre Ringe; so bleiben Tooltip, eine offene Tafel und
+      der Fokus. Eine Fläche ohne Ringe, ganz verdeckt oder ausserhalb, nimmt
+      sie weg, auch aus der Reihe für Tab;
     - mit `?punkte` in der Adresse schreibt die Karte die Zahl dieser Punkte
-      als `data-raender` an das Pane der Formen, für Tests und Messungen;
+      als `data-punkte` an das Pane der Formen, für Tests und Messungen;
       gemessen in [Ebenen nach 0111](messungen/2026-10-20-ebenen-nach-0111.md);
   - **ohne Gelände,** wenn eine Ebene ganz auf `seaLevel` liegt, ohne Höhen
     oder über der Grenze oben: Flächen und Ränder sind ihre Ringe, ohne Netz,
     ohne Abtasten und ohne Wand. Es ist nichts verdeckt, und es gibt nichts
     zu glätten;
-  - **Flächen gedeckelt:** Das Netz rechnet die Karte einmal je `version`; ein
-    Kreis hat dafür Seiten von einer Zelle, höchstens 512, ohne Gelände 128,
-    siehe [Ebenen im weiten Blick](messungen/2026-10-19-ebenen-im-weiten-blick.md);
   - ausserhalb von `area` wird nichts gezeichnet: Flächen und Züge werden
     vorher beschnitten;
   - Flächen: Felder zwischen den Mitten der Zellen; welche sichtbar sind,

@@ -283,6 +283,65 @@ test('netz: ein Feld, dessen Mitte verdeckt ist, fällt weg; vor dem Wall bleibt
   expect(flaeche(netz(vorn, wall, SE), 1)).toBe(flaeche(netz(vorn, flach, SE), 1));
 });
 
+/** Ob (x, y) gerade/ungerade über alle Ringe drinnen liegt. */
+function drin(ringe: Punkt[][], x: number, y: number): boolean {
+  let ja = false;
+  for (const r of ringe) {
+    for (let i = 0, j = r.length - 1; i < r.length; j = i++) {
+      const [a, b] = [r[i]!, r[j]!];
+      if (a[1] > y !== b[1] > y && x < ((b[0] - a[0]) * (y - a[1])) / (b[1] - a[1]) + a[0]) ja = !ja;
+    }
+  }
+  return ja;
+}
+/** Eine schiefe Ebene, die zur Kamera um 0,1 je Schritt steigt, weniger als der Strahl: Nichts ist verdeckt, und H ist linear. */
+const schief = gelaende((i, j) => 64 + 0.3 * (i * 4 + 2) - 0.2 * (j * 4 + 2));
+const schiefH = (x: number, z: number) => 65 + 0.3 * x - 0.2 * z;
+/** Eine Fläche mit schrägen Kanten und einem Loch, rund 400 Blöcke gross. */
+const SCHRAEG = { aussen: [[3, 7], [383, 161], [203, 400], [-50, 250]] as Punkt[], loecher: [[[100, 150], [180, 170], [150, 230]]] as Punkt[][] };
+/** Die Fläche auf der schiefen Ebene auf dem Schirm, genau: Die Projektion einer Ebene ist affin, die Ecken reichen. */
+const schraegSoll = (s: Schirm) => [SCHRAEG.aussen, ...SCHRAEG.loecher].map((r) => mal(r.map(([x, z]) => projiziere(x, schiefH(x, z), z, ZWEI)), s));
+
+test('netz mit Schirm: ein Punkt, den das Ziel falsch drinnen oder draussen hat, liegt höchstens ε vom Rand der Fläche, auf jedem Zoom', () => {
+  for (const z of [0, -1, -2, -4, -6, -8]) {
+    const s = schirm(z);
+    const ziel = netz([SCHRAEG], schief, SE, s).map((r) => mal(r, s));
+    const soll = schraegSoll(s);
+    const [x0, y0, x1, y1] = rechteck(soll.flat());
+    const schritt = Math.max(x1 - x0, y1 - y0) / 300;
+    let [innen, beide] = [0, 0];
+    for (let y = y0 - 2; y < y1 + 2; y += schritt) {
+      for (let x = x0 - 2; x < x1 + 2; x += schritt) {
+        const [a, b] = [drin(ziel, x, y), drin(soll, x, y)];
+        if (b) innen++;
+        if (a && b) beide++;
+        if (a === b) continue;
+        const rand = Math.min(...soll.map((r) => abweichung([[x, y]], [...r, r[0]!])));
+        expect(rand, `Zoom ${z} bei ${x}, ${y}`).toBeLessThanOrEqual(0.5 + 1e-6);
+      }
+    }
+    // Falsch ist nur ein Saum; auf Zoom −8 ist die Fläche nur rund 15 px gross.
+    expect(beide / innen, `Zoom ${z}`).toBeGreaterThan(0.8);
+  }
+});
+
+test('netz mit Schirm: Herauszoomen gibt nie mehr Punkte, höchstens 2 · Umfang auf dem Schirm / ε und die Ecken; ausserhalb des Rahmens nichts', () => {
+  const ecken = [SCHRAEG.aussen, ...SCHRAEG.loecher].flat().length;
+  for (const g of [schief, huegel]) {
+    let vorher = Infinity;
+    for (const z of [0, -1, -2, -3, -4, -5, -6, -7, -8]) {
+      const s = schirm(z);
+      const n = netz([SCHRAEG], g, SE, s).flat().length;
+      expect(n, `Zoom ${z}`).toBeLessThanOrEqual(vorher);
+      vorher = n;
+      if (g !== schief) continue;
+      const umfang = schraegSoll(s).reduce((summe, r) => summe + laenge([...r, r[0]!]), 0);
+      expect(n, `Zoom ${z}`).toBeLessThanOrEqual((2 * umfang) / s.eps + ecken);
+    }
+  }
+  expect(netz([SCHRAEG], huegel, SE, schirm(-2, [1e5, 1e5, 2e5, 2e5]))).toEqual([]);
+});
+
 test('zug: im iso auf dem Gelände, auf einer gleichmässigen Steigung jeder Punkt im Inneren auf seiner Höhe; verdeckt hinter der Mauer; von oben eben und nie verdeckt', () => {
   // Eine Steigung ändert das Glätten nicht, wo die Punkte gleich dicht liegen: abseits der Enden.
   const f = (i: number) => 2 * i;

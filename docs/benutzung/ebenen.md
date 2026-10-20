@@ -788,12 +788,11 @@ aus `projection`, `direction` und den Höhen in `map.json`, siehe
 [`renderer/tests/fixtures/projektion.json`](../../renderer/tests/fixtures/projektion.json),
 wie bei den Koordinaten.
 
-- **Einmal je `version` und Baum:** Projektion, Netz und die Prüfung, was
-  verdeckt ist, hängen nur an der Ebene, dem Baum und seinen Höhen, nicht
-  an Zoom und Verschieben. Jede Ansicht rechnet sie in Pixeln der feinsten
-  Stufe einmal und hält das Ergebnis; ein Zoom verschiebt und skaliert es
-  nur noch. Neu gerechnet wird mit einer neuen `version`, einem anderen
-  Baum oder neu geladenen Höhen.
+- **In der Webkarte je Ansicht:** Projektion, Netz und die Prüfung, was
+  verdeckt ist, rechnet sie nach
+  [0111](../entscheidungen/0111-geometrie-nach-bildschirmfehler.md) je Zoom
+  und Ausschnitt, so fein, wie der Fehler auf dem Schirm es verlangt, siehe
+  [Frontend](../frontend.md), „Ebenen“.
 
 - **Projektion eines Punkts** (x, y, z): erst in den Blick, k
   Vierteldrehungen von (x, z) nach (z, −x), dann

@@ -3,7 +3,7 @@ title: "0111: Geometrie der Ebenen nach Bildschirmfehler"
 description: Warum die Webkarte Ränder, Linien, Kreise und Wände der Ebenen je Ansicht so fein rechnet, dass ihr Fehler auf dem Schirm unter ε = 0,5 px bleibt, nur im Ausschnitt und neu nach Zoom und Verschieben, statt einmal je version in Blöcken; warum die Wand Bänder ab 8 px hat (Wahl des Users am 20.10.); was verworfen ist, darunter eine feste Grenze an Punkten, der schwebende Vorhang und Canvas; und was für die Flächen folgt.
 status: gilt
 date: 2026-10-20
-issues: []
+issues: [320]
 code:
   - web/src/gelaende.ts
   - web/src/formen.ts
@@ -67,10 +67,32 @@ Einzelnen stehen in [Frontend](../frontend.md), „Ebenen“.
   | −2 | 12 px | 1 |
   | −6 | 0,75 px | keine |
 
-- **Flächen** bleiben in diesem Schritt einmal je `version` mit ihrem Netz.
-  Im iso sind sie nur Ziel für Name und Tafel. Ein zweiter Schritt ersetzt
-  das Netz durch den Ring allein und prüft das Verdeckte beim Zeigen und
-  Klicken mit dem sichtbaren Block unter dem Zeiger.
+- **Flächen,** im iso nur Ziel für Name und Tafel, nach derselben Regel
+  (zweiter Schritt, 20.10., Reviewer): das Netz je Ansicht, nur im
+  Ausschnitt, in Feldern von mindestens 16 px auf dem Schirm, die Zelle so
+  oft verdoppelt, wie es dafür braucht. Verdeckt nach der Oberfläche in den
+  Mitten der Felder; jede Kante an den Zellen abgetastet und auf ε
+  vereinfacht, die Ecken der Stücke fest, sonst liessen zwei Felder an
+  ihrer gemeinsamen Kante einen Spalt (gemessen bis 1,55 px). Der Rand des
+  Ziels liegt höchstens ε neben dem der Fläche; nur die Grenze zum
+  Verdeckten folgt den Feldern, auf dem Schirm also bis 16 px grob. Vorher
+  war sie eine Zelle, bei scale 16 auf Zoom 0 rund 36 px. Die Ziele bleiben
+  je `version`; je Ansicht wechseln nur ihre Ringe, so bleiben Tooltip,
+  Tafel und Fokus.
+
+  16 px hat der Reviewer am 20.10. gewählt, nach dieser Messung, siehe die
+  Seite [Flächen nach 0111](../messungen/2026-10-20-flaechen-nach-0111.md),
+  Punkte im DOM:
+
+  | | weit | weit, mit Kreisen | nah | nah, mit Kreisen |
+  |---|---|---|---|---|
+  | nur Schritt A | 94 141 | 99 401 | 1 178 | 2 213 |
+  | Felder ab 4 px | 1 139 | 2 919 | 2 394 | 5 332 |
+  | Felder ab 16 px | 781 | 2 561 | 670 | 2 168 |
+
+  Gerechnet nah mit Kreisen 71 867 gegen 25 167 Punkte, JS-Heap 13,7 gegen
+  6,8 MB. Nah mehr als nach A, weil die Karte jetzt nur die Regionen im
+  Ausschnitt lädt und so die feinere Zelle von `ground` nimmt.
 - **Renderer:** SVG bleibt.
 
 ## Verworfene Alternativen
@@ -94,6 +116,18 @@ Einzelnen stehen in [Frontend](../frontend.md), „Ebenen“.
   ε, auf Zoom −4 0,55 px; die Mitte einer Strecke zeigt nicht jede Kuppe.
 - **Vereinfachen vor dem Glätten:** Der Median sah die Proben dann zu
   dünn, und ein Haus am Weg hob die Linie wieder.
+- **Ring plus `pick` für die Flächen** (Vorschlag von Frontend und
+  Reviewer, am 20.10. verworfen): Die Flächen wären keine Ziele mehr; die
+  Karte suchte bei jedem Zeigen per `pick` gegen `ground` den sichtbaren
+  Block und die Fläche darunter. Hover, Tafel, Tippen, Tastatur und
+  „Klick daneben“ hängen an den Ereignissen der Pfade von Leaflet und
+  hätten einen eigenen Verteiler gebraucht, jedes Zeigen ein Laden von
+  `ground`. Das Netz nach derselben Regel braucht davon nichts.
+- **Felder unter 4 px:** Jedes Feld am Rand gibt sein eigenes Stück; bei
+  kleinen Feldern wären das mehr Punkte als der Rand nach ε.
+- **Felder ab 4 px:** nah viermal so viele Punkte wie mit 16 px und der
+  doppelte Heap, nur für eine feinere Grenze zum Verdeckten an einem Ziel,
+  das nichts zeigt.
 - **`L.canvas()`:** spart Elemente im DOM, nicht die Arbeit je Punkt;
   Tastatur und Fokus auf Flächen gingen verloren. Mit Punkten nach der
   Länge auf dem Schirm ohne Gewinn.
@@ -101,7 +135,11 @@ Einzelnen stehen in [Frontend](../frontend.md), „Ebenen“.
 ## Folgen
 
 - **Punkte** wachsen mit der Länge der Ränder auf dem Schirm geteilt durch
-  ε, nicht mit der Welt; Herauszoomen senkt sie.
+  ε, nicht mit der Welt; Herauszoomen senkt sie. Das gilt auch für die
+  Flächen.
+- **Höhen** lädt die Karte für Flächen und Ränder in einem je Ansicht. Die
+  Grenzen von 64 Regionen `ground` und 1024 Regionen Höhen gelten so für
+  den Ausschnitt, nicht für die Ebene.
 - **Rechnen** je Zoom und je neuem Ausschnitt statt einmal je `version`;
   es wächst mit der Länge der Ränder im Ausschnitt in Zellen.
 - **Tests** prüfen Eigenschaften, keine Zahlen: Formen ausserhalb ändern

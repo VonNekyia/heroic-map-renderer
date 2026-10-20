@@ -325,13 +325,14 @@ test('netz mit Schirm: ein Punkt, den das Ziel falsch drinnen oder draussen hat,
   }
 });
 
-test('netz mit Schirm: auch eine Kante genau auf einer Linie zwischen groben Feldern folgt dem Gelände, höchstens ε daneben', () => {
-  // Wellen quer zu x, sanft genug, dass nichts verdeckt ist. Auf Zoom −6 bis −8 sind die Felder C = 128 bis 512 Blöcke gross,
-  // ihre Linien liegen bei C · (k + ½); das Quadrat hat alle vier Kanten auf ihnen.
-  const wellen = gelaende((i) => 64 + 8 * Math.sin((i * 4 + 2) / 40));
+test('netz mit Schirm: über Wellen folgt der Rand dem Gelände höchstens ε daneben, auch eine Kante genau auf einer Linie zwischen groben Feldern', () => {
+  // Auf Zoom −6 bis −8 sind die Felder C = 128 bis 512 Blöcke gross, ihre Linien liegen bei C · (k + ½); das Quadrat hat
+  // alle vier Kanten auf ihnen. Dazu Wellen quer zu x, eine je Feld, C / 16 hoch: zwischen zwei Ecken eines Felds auf dem
+  // Schirm rund 1 px vom geraden Weg, mit Steigung 0,39 sanft genug, dass nichts verdeckt ist.
   for (const z of [-6, -7, -8]) {
     const s = schirm(z);
     const C = 2 ** (1 - z);
+    const wellen = gelaende((i) => 64 + (C / 16) * Math.sin((2 * Math.PI * (i * 4 + 2)) / C));
     const [u, v] = [C / 2, C / 2 + 2 * C];
     const quadrat: Punkt[] = [[u, u], [v, u], [v, v], [u, v]];
     const ziel = netz([{ aussen: quadrat, loecher: [] }], wellen, SE, s).map((r) => mal(r, s));

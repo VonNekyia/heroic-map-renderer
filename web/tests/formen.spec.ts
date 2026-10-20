@@ -13,6 +13,8 @@ const rechteck = (id: string, x0: number, z0: number, x1: number, z1: number, me
 const GEBIET = rechteck('gebiet', 16, -32, 48, 0, { fill: '#40E53F55' });
 const VON_OBEN = { camera: 'top', projection: { azimuth: 'north' as const, u: 16, v: 16, y: 0 } };
 
+/** Punkte von Flächen, Rändern, Linien und Wänden einer Ebene, wie die Karte sie mit `?punkte` an das Pane der Formen schreibt. */
+const punkteDerEbene = (page: Page) => page.evaluate(() => Number(document.querySelector<HTMLElement>('.leaflet-pane[data-punkte]')?.dataset.punkte ?? Number.NaN));
 /** Die Ecken des Rahmens um ein Element auf dem Schirm. */
 const rahmen = async (l: Locator) => {
   const b = (await l.boundingBox())!;
@@ -102,17 +104,16 @@ test('eine gestrichelte Linie wird nicht am Rand des Renderers geschnitten, so s
   expect(laenge((await pfad.getAttribute('d'))!)).toBeCloseTo(800 * Math.hypot(8, 4), -1);
 });
 
-test('Leaflet vereinfacht eine Fläche nicht: auf jeder Stufe dieselben Punkte', async ({ page }) => {
+test('Leaflet vereinfacht eine Fläche nicht: auf jeder Stufe hat ihr Pfad die Punkte, die die Karte nach 0111 rechnet', async ({ page }) => {
   const f = (i: number, j: number) => Math.round(6 * Math.sin(i / 2) + 4 * Math.cos(j / 3));
-  await welt(page, staedte([rechteck('rau', 17, -31, 47, -1, { fill: '#ABCDEFFF' })], { hoehe: f, mehr: { minZoom: -6 } }));
-  const punkte = async (zoom: number) => {
-    await page.goto(`${DEMO}&at=32,5,-16&zoom=${zoom}`);
-    await expect(page.locator('path[data-fill="#ABCDEFFF"]')).toHaveCount(1);
-    return (await page.locator('path[data-fill="#ABCDEFFF"]').getAttribute('d'))!.match(/[ML]/g)!.length;
-  };
-  const fein = await punkte(0);
-  expect(fein).toBeGreaterThan(50);
-  expect(await punkte(-4)).toBe(fein);
+  await welt(page, staedte([rechteck('rau', 17, -31, 47, -1, { fill: '#ABCDEFFF', stroke: { width: 0 } })], { hoehe: f, mehr: { minZoom: -6 } }));
+  for (const zoom of [0, -4]) {
+    await page.goto(`${DEMO}&punkte&at=32,5,-16&zoom=${zoom}`);
+    const pfad = page.locator('path[data-fill="#ABCDEFFF"]');
+    await expect(pfad).toHaveCount(1);
+    // Die Ebene hat nur diese Fläche, ohne Rand und so ohne Wand: Alle gerechneten Punkte sind ihre.
+    expect((await pfad.getAttribute('d'))!.match(/[ML]/g)!.length, `Zoom ${zoom}`).toBe(await punkteDerEbene(page));
+  }
 });
 
 test('von oben liegt eine Region eben, ein Kreis bleibt rund', async ({ page }) => {
@@ -508,19 +509,17 @@ test('nach einem Klick auf eine Fläche mit Tafel kein Rahmen; im Fokus der Tast
 const punkteIn = (pfad: Locator) => pfad.evaluate((p) => p.getAttribute('d')?.match(/[ML]/g)?.length ?? 0);
 
 test('ohne Gelände im iso: ein gefüllter Kreis hat die Seiten nach 0111, ohne Netz und ohne Wand', async ({ page }) => {
-  // Radius 100: auf Zoom −3 rund 112 px, ganz im Bild, so schneidet Leaflet nichts ab.
+  // Radius 100: auf Zoom −2, der tiefsten des Demobaums, rund 224 px, ganz im Bild, so schneidet Leaflet nichts ab.
   const kreis = { id: 'gross', type: 'circle', center: [32, -16], radius: 100, fill: '#AA5500AA', stroke: { color: '#AA5500' } };
   await welt(page, staedte([kreis], { mehr: { heights: null } }));
-  await page.goto(`${DEMO}&at=32,0,-16&zoom=-3`);
+  await page.goto(`${DEMO}&at=32,0,-16&zoom=-2`);
   const flaeche = page.locator('path[data-fill="#AA5500AA"]');
   await expect(flaeche).toHaveCount(1);
   // Die Fläche vereinfacht Leaflet nicht (smoothFactor 0), so zählt der Pfad die Ecken; den Rand vereinfacht es auf dem Schirm.
-  expect(await punkteIn(flaeche)).toBe(kreisSeiten(100 * Math.hypot(8, 4) * 2 ** -3, 0.5));
+  expect(await punkteIn(flaeche)).toBe(kreisSeiten(100 * Math.hypot(8, 4) * 2 ** -2, 0.5));
   await expect(page.locator('path[fill="#AA5500"]')).toHaveCount(0);
 });
 
-/** Punkte von Flächen, Rändern, Linien und Wänden einer Ebene, wie die Karte sie mit `?punkte` an das Pane der Formen schreibt. */
-const punkteDerEbene = (page: Page) => page.evaluate(() => Number(document.querySelector<HTMLElement>('.leaflet-pane[data-punkte]')?.dataset.punkte ?? Number.NaN));
 /** Gelände mit kleinen Buckeln, damit die Ränder etwas abzutasten haben. */
 const buckel = (i: number, j: number) => 10 + ((i * 7 + j * 3) % 5);
 
@@ -546,7 +545,7 @@ test('nach 0111: Formen weit ausserhalb des Ausschnitts ändern die Punkte nicht
 });
 
 test('nach 0111: ein grosser Kreis hat als Rand und als Fläche höchstens 2 · Umfang auf dem Schirm / ε Punkte, gleich wie gross in Blöcken; neu gerechnet nach dem Verschieben', async ({ page }) => {
-  // Einmal nur Rand, einmal nur Fläche, je ohne Wand; auf Zoom −3 rund 200 px Radius.
+  // Einmal nur Rand, einmal nur Fläche, je ohne Wand; auf Zoom −3 rund 110 px Radius.
   const arten = { rand: { stroke: { color: '#5500AA' } }, flaeche: { fill: '#5500AA55' } };
   for (const [art, mehr] of Object.entries(arten)) {
     for (const [r, zoom] of [[100, -3], [800, -6]] as const) {

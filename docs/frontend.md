@@ -592,8 +592,10 @@ Banner, feste Grösse und die Tafel beim Zeigen folgen
     - eine Fläche als Netz nur im Ausschnitt, in Feldern von mindestens
       4 px auf dem Schirm: die Zelle, so oft verdoppelt, wie es dafür
       braucht (`feldKante`). Verdeckt nach der Oberfläche in den Mitten der
-      Felder; jede Kante an den Zellen abgetastet und auf ε vereinfacht. Der
-      Rand des Ziels liegt so höchstens ε neben dem der Fläche;
+      Felder; jede Kante an den Zellen abgetastet und auf ε vereinfacht, die
+      Ecken der Stücke fest, so vereinfachen zwei Felder ihre gemeinsame
+      Kante gleich und lassen keinen Spalt. Der Rand des Ziels liegt so
+      höchstens ε neben dem der Fläche;
     - die Ziele der Flächen legt die Karte einmal je `version` an und setzt
       je Ansicht nur ihre Ringe; so bleiben Tooltip, eine offene Tafel und
       der Fokus. Eine Fläche ohne Ringe, ganz verdeckt oder ausserhalb, nimmt

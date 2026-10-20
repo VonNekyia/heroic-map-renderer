@@ -454,11 +454,19 @@ export function netz(polygone: readonly Polygon[], g: Gelaende, blick: Blick, sc
     ringe = ringe.map((r) => ringImRechteck(r, welt)).filter((r) => r.length >= 3);
   }
   const bild = ([x, z]: Punkt): Punkt => bildpunkt(x, oberflaeche(g, x, z), z, blick);
-  // Ein Stück mit seinen Mitten, wo `H` zwischen den Ecken bilinear ist; nach 0111 an den Zellen und vereinfacht.
+  // Ein Stück mit seinen Mitten, wo `H` zwischen den Ecken bilinear ist. Nach 0111 jede Kante an den Zellen
+  // abgetastet und vereinfacht, die Ecken fest: Zwei Felder teilen eine Kante, und nur mit festen Ecken
+  // vereinfachen beide sie gleich; sonst bliebe zwischen ihnen ein Spalt.
   const projiziert = (ring: readonly Punkt[], mitten: boolean): Punkt[] => {
     if (!schirm) return (mitten ? mitMitten(ring) : ring).map(bild);
-    const dicht = abtasten(ring, true, g.c, Infinity).map(bild);
-    return vereinfache(dicht, schirm.eps / schirm.faktor).slice(0, -1).map((i) => dicht[i]!);
+    const dicht: Punkt[] = [];
+    const fest: number[] = [];
+    ring.forEach((a, i) => {
+      fest.push(dicht.length);
+      dicht.push(...abtasten([a, ring[(i + 1) % ring.length]!], false, g.c, Infinity).slice(0, -1).map(bild));
+    });
+    dicht.push(dicht[0]!);
+    return vereinfache(dicht, schirm.eps / schirm.faktor, fest).slice(0, -1).map((i) => dicht[i]!);
   };
   if (ringe.length === 0) return [];
   // Von oben liegt alles eben: die Ringe selbst.

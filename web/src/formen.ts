@@ -231,7 +231,7 @@ export function zuege(f: Form, c: number, area: Rechteck | undefined, eben = fal
 
 /**
  * Die Flächen einer Ebene als Ziele, einmal je `version`, noch ohne Ringe:
- * Die setzt `zeichneRaender` je Ansicht, so bleiben Tooltip, Tafel und
+ * Die setzt `zeichneAnsicht` je Ansicht, so bleiben Tooltip, Tafel und
  * Fokus beim Neurechnen. Eine Fläche mit Namen oder Tafel ist ein Ziel, auch
  * ohne Füllung. Gibt je Fläche den Index ihrer Form.
  */
@@ -277,7 +277,7 @@ export function flaechenZiele(formen: readonly Form[], z: Pick<Zeichnen, 'render
  * ausserhalb; `punkte` zählt alle Punkte. Siehe
  * docs/entscheidungen/0111-geometrie-nach-bildschirmfehler.md.
  */
-export function zeichneRaender(
+export function zeichneAnsicht(
   formen: readonly Form[],
   z: Omit<Zeichnen, 'tafel' | 'bediene'>,
   schirm: Schirm,

@@ -11,7 +11,7 @@ import feldKlein from './ebenen/schild_klein.png?url&no-inline';
 import rahmenKlein from './ebenen/schild_klein_rahmen.png?url&no-inline';
 import feldMittel from './ebenen/schild_mittel.png?url&no-inline';
 import rahmenMittel from './ebenen/schild_mittel_rahmen.png?url&no-inline';
-import { bereich, flaechenZiele, form, hatFlaeche, versetze, zeichneRaender, zuege, type Form, type Strich } from './formen';
+import { bereich, flaechenZiele, form, hatFlaeche, versetze, zeichneAnsicht, zuege, type Form, type Strich } from './formen';
 import { bildpunkt, oberflaeche as hoeheAuf, rechteck, schriftPfad, weltRechteck, zurKamera, type Blick, type Gelaende, type Rechteck, type Schirm } from './gelaende';
 import { FRISCH, LEER, type Hoehenkarten } from './hoehen';
 import { REGION } from './pick';
@@ -1053,7 +1053,7 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
   };
 
   /** Was eine Rechnung für die Ansicht gibt. */
-  type Ansicht = ReturnType<typeof zeichneRaender> & { schirm: Schirm };
+  type Ansicht = ReturnType<typeof zeichneAnsicht> & { schirm: Schirm };
 
   /**
    * Flächen, Ränder, Linien und Wände einer Ebene für die Ansicht jetzt, mit
@@ -1065,7 +1065,7 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     const schirm = schirmJetzt();
     const welt = weltRechteck(schirm.rahmen, blick, umgebung.minY ?? -64, umgebung.maxY ?? 319);
     const boden = formen.some((f) => f.rand.breite > 0 || hatFlaeche(f)) ? await ladeGelaende(regionenFuer(formen, [], welt), true) : eben;
-    return { ...zeichneRaender(formen, { renderer, blick, gelaende: boden, eben: boden === eben, area: umgebung.area }, schirm), schirm };
+    return { ...zeichneAnsicht(formen, { renderer, blick, gelaende: boden, eben: boden === eben, area: umgebung.area }, schirm), schirm };
   };
 
   /** Schreibt mit `?punkte` die Punkte von Flächen, Rändern, Linien und Wänden an das Pane der Formen. */

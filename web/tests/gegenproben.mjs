@@ -119,4 +119,9 @@ export default [
   { name: 'flaeche-neu-statt-gesetzt', datei: 'src/ebenen.ts', alt: '      flaeche.setLatLngs(ringe);\n', neu: '      g.formen.removeLayer(flaeche);\n      flaeche.setLatLngs(ringe);\n', spec: 'tests/formen.spec.ts', titel: 'nach 0111: eine gehaltene Tafel einer Fläche' },
   { name: 'kante-auf-linie', datei: 'src/gelaende.ts', alt: '  if (c !== g.c) ringe = ringe.map((r) => r.map(([x, z]): Punkt => [aufLinie(x) ? x + 1e-6 : x, aufLinie(z) ? z + 1e-6 : z]));\n', neu: '', spec: 'tests/gelaende.spec.ts', titel: 'netz mit Schirm: über Wellen' },
   { name: 'seite-abgetastet', datei: 'src/gelaende.ts', alt: 'dicht.push(...(seite(a, b) ? [a] : abtasten(', neu: 'dicht.push(...(seite(a, b) && false ? [a] : abtasten(', spec: 'tests/gelaende.spec.ts', titel: 'netz mit Schirm: Herauszoomen' },
+  // Reihe der Ebenen je Betrachter, 0113.
+  { name: 'einreihen-immer-unten', datei: 'src/ebenen.ts', alt: '    if (darunter < 0) reihe.push(e);\n    else reihe.splice(darunter, 0, e);\n', neu: '    if (darunter < 0 || darunter >= 0) reihe.push(e);\n', spec: 'tests/ebenen.spec.ts', titel: 'nach 0113 kommt eine neue Ebene' },
+  { name: 'reihe-ohne-wurzel', datei: 'src/ebenen.ts', alt: 'const schluessel = `ebenen-reihe:${wurzel}`;', neu: 'const schluessel = `ebenen-reihe${wurzel.slice(0, 0)}`;', spec: 'tests/ebenen.spec.ts', titel: 'nach 0113 stellt jeder' },
+  { name: 'vorgabe-ohne-loeschen', datei: 'src/ebenen.ts', alt: '          reihe.setze(undefined);\n          ordne();\n', neu: '          ordne();\n', spec: 'tests/ebenen.spec.ts', titel: 'nach 0113 stellt jeder' },
+  { name: 'fokus-weg', datei: 'src/ebenen.ts', alt: '    gedrueckt = { id, schritt };\n', neu: '', spec: 'tests/ebenen.spec.ts', titel: 'nach 0113 stellt jeder' },
 ];

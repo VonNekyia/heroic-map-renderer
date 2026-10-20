@@ -98,7 +98,7 @@ sichtbar ist.
 | `id` | die Kennung | Pflicht |
 | `name` | Name je Sprache, mindestens `de` oder `en`; fehlt eine Sprache, gilt die andere | Pflicht |
 | `visible` | sichtbar, bis der Betrachter es ändert | `true` |
-| `order` | ganze Zahl; höher liegt oben und steht in der Liste weiter vorn; bei Gleichstand nach `id` | `0` |
+| `order` | ganze Zahl; höher liegt oben und steht in der Liste weiter vorn; bei Gleichstand nach `id`. Auf der Webkarte kann jeder die Reihe für sich umstellen, siehe [0113](../entscheidungen/0113-reihenfolge-der-ebenen-je-betrachter.md) | `0` |
 | `version` | ändert sich mit jeder Änderung der Datei der Ebene, etwa ein Hash ihres Inhalts | Pflicht |
 | `player` | `true`: eine Aktionsebene, ihre Datei kommt je Spieler vom Server, siehe „Aktionsebenen und Knöpfe“ | `false` |
 
@@ -981,7 +981,7 @@ vor dem Punkt: diagonal ab der nächsten Mitte auf der Linie, genordet ab der
 
 ### Reihenfolge, Zeigen und Anklicken
 
-- **Ebenen:** nach `order`, die höhere oben.
+- **Ebenen:** nach `order`, die höhere oben; auf der Webkarte in der Reihe, die der Betrachter umgestellt hat, siehe [0113](../entscheidungen/0113-reihenfolge-der-ebenen-je-betrachter.md).
 - **In einer Ebene:** Füllungen, dann Ränder und Linien, dann Schrift.
   Nadeln und Banner aller Ebenen liegen über allem anderen; in einer Ebene
   liegt das spätere oben.

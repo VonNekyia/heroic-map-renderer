@@ -520,6 +520,54 @@ function gemerkt(wurzel: string): { lies: () => Readonly<Record<string, boolean>
   };
 }
 
+/**
+ * Die Reihe der Ebenen, wie der Betrachter sie umgestellt hat, je Wurzel:
+ * ihre `id` von oben nach unten, im Speicher der Seite, durchgeschrieben nach
+ * `localStorage`. `undefined`, solange niemand umgestellt hat; dann gilt die
+ * Reihe des Servers. Siehe docs/entscheidungen/0113-reihenfolge-der-ebenen-je-betrachter.md.
+ */
+function gemerkteReihe(wurzel: string): { lies: () => readonly string[] | undefined; setze: (reihe: readonly string[] | undefined) => void } {
+  const schluessel = `ebenen-reihe:${wurzel}`;
+  let reihe: readonly string[] | undefined;
+  try {
+    const wert: unknown = JSON.parse(localStorage.getItem(schluessel) ?? 'null');
+    if (Array.isArray(wert) && wert.every((id) => typeof id === 'string')) reihe = [...new Set(wert)];
+  } catch {
+    // Ohne Speicher oder mit kaputtem Eintrag gilt die Reihe des Servers.
+  }
+  return {
+    lies: () => reihe,
+    setze: (neu) => {
+      reihe = neu && [...neu];
+      try {
+        if (neu) localStorage.setItem(schluessel, JSON.stringify(neu));
+        else localStorage.removeItem(schluessel);
+      } catch {
+        // Ohne Speicher gilt die Reihe bis zum Neuladen.
+      }
+    },
+  };
+}
+
+/**
+ * Die Ebenen in der Reihe des Betrachters: die gemerkten, die es noch gibt,
+ * in ihrer Reihenfolge; jede neue, in der Reihe des Servers, direkt über der
+ * obersten schon eingereihten, deren `order` nicht höher ist, sonst ganz
+ * unten. Ohne gemerkte Reihe die des Servers. Gewählt in 0113.
+ */
+function einreihen<T extends { id: string; order: number }>(nachServer: readonly T[], gemerkt: readonly string[] | undefined): T[] {
+  if (!gemerkt) return [...nachServer];
+  const je = new Map(nachServer.map((e) => [e.id, e]));
+  const reihe = gemerkt.flatMap((id) => je.get(id) ?? []);
+  for (const e of nachServer) {
+    if (reihe.includes(e)) continue;
+    const darunter = reihe.findIndex((x) => x.order <= e.order);
+    if (darunter < 0) reihe.push(e);
+    else reihe.splice(darunter, 0, e);
+  }
+  return reihe;
+}
+
 /** Fuss und Winkel aus `satz.json`, oder `undefined`, wenn sie nicht taugen. */
 function satzDaten(wert: unknown): Omit<Satz, 'ordner'> | undefined {
   if (!istObjekt(wert) || !istZahl(wert.angle)) return undefined;
@@ -558,6 +606,7 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
   const { map, wurzel, blick, scale, maxZoom, karten, heightsCell, seaLevel } = umgebung;
   const sprache = navigator.language.startsWith('de') ? 'de' : 'en';
   const wahl = gemerkt(wurzel);
+  const reihe = gemerkteReihe(wurzel);
   const iso = blick.p.y > 0;
   const grund = seaLevel ?? 64;
   const c = heightsCell ?? 4;
@@ -716,6 +765,8 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
    */
   const laeuft = new Map<string, string>();
   let eintraege: Eintrag[] = [];
+  /** Alle Einträge in der Reihe des Servers, auch Aktionsebenen ohne Anmeldung; `eintraege` ordnet sie nach `reihe`. */
+  let nachServer: Eintrag[] = [];
   /** Die Einträge aus `layers.json`, wie zuletzt gelesen, auch Aktionsebenen ohne Anmeldung. */
   let roh: unknown[] = [];
 
@@ -1007,13 +1058,36 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     }
     return eintrag;
   };
-  /** Ordnet die Panes: über allen mit niedrigerer `order`, bei Gleichstand nach `id`. */
+  /** Ordnet die Panes in der Reihe von `eintraege`: die erste oben. */
   const stapeln = (): void => {
     eintraege.forEach((e, i) => {
       const rang = eintraege.length - 1 - i;
       map.getPane(pane(e.id).nadeln)!.style.zIndex = String(PANE_GRUND + rang);
       map.getPane(pane(e.id).formen)!.style.zIndex = String(FORM_GRUND + rang);
     });
+  };
+
+  /** Ordnet die Einträge nach der Reihe des Betrachters, Aktionsebenen nur angemeldet, und zeigt Liste und Panes danach. */
+  const ordne = (): void => {
+    // Aktionsebenen nur angemeldet; siehe docs/frontend.md, „Aktionsebenen“.
+    eintraege = einreihen(nachServer, reihe.lies()).filter((e) => !e.player || spieler);
+    zeigeListe();
+    stapeln();
+  };
+  /**
+   * Tauscht eine Ebene mit der nächsten sichtbaren darüber oder darunter und
+   * merkt sich die ganze Reihe, auch mit Aktionsebenen ohne Anmeldung, die
+   * dabei an ihrem Platz bleiben.
+   */
+  const stelleUm = (id: string, schritt: -1 | 1): void => {
+    const nachbar = eintraege[eintraege.findIndex((e) => e.id === id) + schritt];
+    if (!nachbar) return;
+    const alle = einreihen(nachServer, reihe.lies()).map((e) => e.id);
+    const [a, b] = [alle.indexOf(id), alle.indexOf(nachbar.id)];
+    [alle[a], alle[b]] = [alle[b]!, alle[a]!];
+    reihe.setze(alle);
+    gedrueckt = { id, schritt };
+    ordne();
   };
 
   /** Nimmt eine geladene Ebene von der Karte. */
@@ -1250,9 +1324,11 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
   control.onAdd = () => kasten;
 
   let gezeigteListe = '';
+  /** Nach dem Umstellen: der Pfeil, der den Fokus wieder bekommt. */
+  let gedrueckt: { id: string; schritt: -1 | 1 } | undefined;
   /** Baut die Liste nur, wenn sich Ebenen, Namen oder Reihenfolge ändern; so bleibt der Fokus. */
   const zeigeListe = (): void => {
-    const stand = JSON.stringify([spieler !== undefined, eintraege.map((e) => [e.id, e.name, e.order])]);
+    const stand = JSON.stringify([spieler !== undefined, reihe.lies() !== undefined, eintraege.map((e) => [e.id, e.name, e.order])]);
     if (stand !== gezeigteListe) {
       gezeigteListe = stand;
       inhalt.replaceChildren();
@@ -1269,17 +1345,47 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
           else leereSicht();
         });
       }
-      for (const e of eintraege) {
-        const zeile = L.DomUtil.create('label', '', inhalt);
-        const box = L.DomUtil.create('input', '', zeile);
+      eintraege.forEach((e, i) => {
+        const name = e.name[sprache] ?? e.name.de ?? e.name.en ?? e.id;
+        const zeile = L.DomUtil.create('div', 'ebenen-zeile', inhalt);
+        const etikett = L.DomUtil.create('label', '', zeile);
+        const box = L.DomUtil.create('input', '', etikett);
         box.type = 'checkbox';
         box.dataset.id = e.id;
-        zeile.append(` ${e.name[sprache] ?? e.name.de ?? e.name.en}`);
+        etikett.append(` ${name}`);
         box.addEventListener('change', () => {
           wahl.setze(e.id, box.checked);
           if (box.checked) void ladeEbene(e).catch((fehler: unknown) => console.error(e.id, fehler));
           else entferne(e.id);
         });
+        // Umstellen wie im Mod, siehe docs/entscheidungen/0113-reihenfolge-der-ebenen-je-betrachter.md.
+        for (const [schritt, zeichen, wohin] of [[-1, '▲', 'nach oben'], [1, '▼', 'nach unten']] as const) {
+          const pfeil = L.DomUtil.create('button', 'ebenen-pfeil', zeile);
+          pfeil.type = 'button';
+          pfeil.textContent = zeichen;
+          pfeil.dataset.id = e.id;
+          pfeil.dataset.schritt = String(schritt);
+          pfeil.setAttribute('aria-label', `${name} ${wohin}`);
+          pfeil.disabled = i + schritt < 0 || i + schritt >= eintraege.length;
+          pfeil.addEventListener('click', () => stelleUm(e.id, schritt));
+        }
+      });
+      if (reihe.lies()) {
+        const vorgabe = L.DomUtil.create('button', 'ebenen-vorgabe', inhalt);
+        vorgabe.type = 'button';
+        vorgabe.textContent = 'Reihe des Servers';
+        vorgabe.addEventListener('click', () => {
+          reihe.setze(undefined);
+          ordne();
+          inhalt.querySelector<HTMLElement>('.ebenen-pfeil:not(:disabled)')?.focus();
+        });
+      }
+      if (gedrueckt) {
+        const { id, schritt } = gedrueckt;
+        gedrueckt = undefined;
+        // Oben oder unten angekommen, ist der gedrückte Pfeil gesperrt; dann der andere derselben Ebene.
+        const pfeile = [...inhalt.querySelectorAll<HTMLButtonElement>('.ebenen-pfeil')].filter((b) => b.dataset.id === id);
+        (pfeile.find((b) => b.dataset.schritt === String(schritt) && !b.disabled) ?? pfeile.find((b) => !b.disabled))?.focus();
       }
     }
     for (const box of inhalt.querySelectorAll<HTMLInputElement>('input')) {
@@ -1549,10 +1655,9 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
       .filter((e): e is Eintrag => e !== undefined)
       .sort((a, b) => b.order - a.order || a.id.localeCompare(b.id));
     // Aktionsebenen nur angemeldet; siehe docs/frontend.md, „Aktionsebenen“.
-    eintraege = alle.filter((e) => !e.player || spieler);
-    zeigeListe();
+    nachServer = alle;
+    ordne();
     zeigeKonto();
-    stapeln();
     // Auch, wenn der Betreiber `visible` ändert und der Betrachter nie gewählt hat.
     for (const id of [...geladen.keys()]) if (!eintraege.some((e) => e.id === id && an(e))) entferne(id);
     // Eine Aktionsebene fragt jedes Mal; neu zeichnet sie nur mit neuem Inhalt.

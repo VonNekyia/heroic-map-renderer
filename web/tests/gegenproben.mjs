@@ -117,4 +117,6 @@ export default [
   { name: 'flaeche-bleibt-ohne-ringe', datei: 'src/ebenen.ts', alt: '        g.formen.removeLayer(flaeche);\n        continue;\n', neu: '        continue;\n', spec: 'tests/formen.spec.ts', titel: 'nach 0111: eine Fläche, die aus dem Ausschnitt fällt' },
   { name: 'flaechen-nicht-nach-vorn', datei: 'src/ebenen.ts', alt: 'if (wieder) for (const { flaeche } of g.flaechen) if (g.formen.hasLayer(flaeche)) flaeche.bringToFront();', neu: '', spec: 'tests/formen.spec.ts', titel: 'nach 0111: eine Fläche, die aus dem Ausschnitt fällt' },
   { name: 'flaeche-neu-statt-gesetzt', datei: 'src/ebenen.ts', alt: '      flaeche.setLatLngs(ringe);\n', neu: '      g.formen.removeLayer(flaeche);\n      flaeche.setLatLngs(ringe);\n', spec: 'tests/formen.spec.ts', titel: 'nach 0111: eine gehaltene Tafel einer Fläche' },
+  { name: 'kante-auf-linie', datei: 'src/gelaende.ts', alt: '  if (c !== g.c) ringe = ringe.map((r) => r.map(([x, z]): Punkt => [aufLinie(x) ? x + 1e-6 : x, aufLinie(z) ? z + 1e-6 : z]));\n', neu: '', spec: 'tests/gelaende.spec.ts', titel: 'netz mit Schirm: auch eine Kante genau auf einer Linie' },
+  { name: 'seite-abgetastet', datei: 'src/gelaende.ts', alt: 'dicht.push(...(seite(a, b) ? [a] : abtasten(', neu: 'dicht.push(...(seite(a, b) && false ? [a] : abtasten(', spec: 'tests/gelaende.spec.ts', titel: 'netz mit Schirm: Herauszoomen' },
 ];

@@ -325,6 +325,35 @@ test('netz mit Schirm: ein Punkt, den das Ziel falsch drinnen oder draussen hat,
   }
 });
 
+test('netz mit Schirm: auch eine Kante genau auf einer Linie zwischen groben Feldern folgt dem Gelände, höchstens ε daneben', () => {
+  // Wellen quer zu x, sanft genug, dass nichts verdeckt ist. Auf Zoom −6 bis −8 sind die Felder C = 128 bis 512 Blöcke gross,
+  // ihre Linien liegen bei C · (k + ½); das Quadrat hat alle vier Kanten auf ihnen.
+  const wellen = gelaende((i) => 64 + 8 * Math.sin((i * 4 + 2) / 40));
+  for (const z of [-6, -7, -8]) {
+    const s = schirm(z);
+    const C = 2 ** (1 - z);
+    const [u, v] = [C / 2, C / 2 + 2 * C];
+    const quadrat: Punkt[] = [[u, u], [v, u], [v, v], [u, v]];
+    const ziel = netz([{ aussen: quadrat, loecher: [] }], wellen, SE, s).map((r) => mal(r, s));
+    // Der Rand dicht auf dem Gelände, je Block vier Punkte.
+    const soll = [mal(quadrat.flatMap((a, i) => {
+      const b = quadrat[(i + 1) % 4]!;
+      return Array.from({ length: 1024 }, (_, t): Punkt => {
+        const [x, zz] = [a[0] + ((b[0] - a[0]) * t) / 1024, a[1] + ((b[1] - a[1]) * t) / 1024];
+        return projiziere(x, oberflaeche(wellen, x, zz), zz, ZWEI);
+      });
+    }), s)];
+    const [x0, y0, x1, y1] = rechteck(soll.flat());
+    const schritt = Math.max(x1 - x0, y1 - y0) / 200;
+    for (let y = y0 - 2; y < y1 + 2; y += schritt) {
+      for (let x = x0 - 2; x < x1 + 2; x += schritt) {
+        if (drin(ziel, x, y) === drin(soll, x, y)) continue;
+        expect(abweichung([[x, y]], [...soll[0]!, soll[0]![0]!]), `Zoom ${z} bei ${x}, ${y}`).toBeLessThanOrEqual(0.5 + 1e-6);
+      }
+    }
+  }
+});
+
 test('netz mit Schirm: Herauszoomen gibt nie mehr Punkte, höchstens 2 · Umfang auf dem Schirm / ε und die Ecken; ausserhalb des Rahmens nichts', () => {
   const ecken = [SCHRAEG.aussen, ...SCHRAEG.loecher].flat().length;
   for (const g of [schief, huegel]) {

@@ -206,8 +206,8 @@ export function weltRechteck([x0, y0, x1, y1]: Rechteck, blick: Blick, ymin: num
   return rechteck([ymin, ymax].flatMap((y) => ecken.map((e) => welt(e, y))));
 }
 
-/** So breit ist ein Feld des Netzes nach 0111 auf dem Schirm mindestens, in Pixeln; siehe `feldKante`. */
-const FELD_PX = 4;
+/** So breit ist ein Feld des Netzes nach 0111 auf dem Schirm mindestens, in Pixeln; siehe `feldKante`. Gewählt in 0111, „Flächen“. */
+const FELD_PX = 16;
 
 /**
  * Die Kante eines Felds im Netz nach 0111: die Zelle, so oft verdoppelt, bis
@@ -453,27 +453,34 @@ export function netz(polygone: readonly Polygon[], g: Gelaende, blick: Blick, sc
     const welt = weltRechteck(schirm.rahmen, blick, g.grund - 128, g.max);
     ringe = ringe.map((r) => ringImRechteck(r, welt)).filter((r) => r.length >= 3);
   }
-  const bild = ([x, z]: Punkt): Punkt => bildpunkt(x, oberflaeche(g, x, z), z, blick);
-  // Ein Stück mit seinen Mitten, wo `H` zwischen den Ecken bilinear ist. Nach 0111 jede Kante an den Zellen
-  // abgetastet und vereinfacht, die Ecken fest: Zwei Felder teilen eine Kante, und nur mit festen Ecken
-  // vereinfachen beide sie gleich; sonst bliebe zwischen ihnen ein Spalt.
-  const projiziert = (ring: readonly Punkt[], mitten: boolean): Punkt[] => {
-    if (!schirm) return (mitten ? mitMitten(ring) : ring).map(bild);
-    const dicht: Punkt[] = [];
-    const fest: number[] = [];
-    ring.forEach((a, i) => {
-      fest.push(dicht.length);
-      dicht.push(...abtasten([a, ring[(i + 1) % ring.length]!], false, g.c, Infinity).slice(0, -1).map(bild));
-    });
-    dicht.push(dicht[0]!);
-    return vereinfache(dicht, schirm.eps / schirm.faktor, fest).slice(0, -1).map((i) => dicht[i]!);
-  };
   if (ringe.length === 0) return [];
   // Von oben liegt alles eben: die Ringe selbst.
   if (blick.p.y === 0) return ringe.map((r) => r.map(([x, z]) => bildpunkt(x, 0, z, blick)));
   const c = schirm ? feldKante(g.c, blick, schirm) : g.c;
   const gs = c === g.c ? g : grob(g, c);
   const o = c / 2;
+  /** Ob v auf einer Linie zwischen den Feldern liegt. */
+  const aufLinie = (v: number) => Number.isInteger((v - o) / c);
+  // In groben Feldern liegt keine Kante der Fläche auf einer Linie zwischen ihnen: so ist jede ein Stück und wird abgetastet.
+  if (c !== g.c) ringe = ringe.map((r) => r.map(([x, z]): Punkt => [aufLinie(x) ? x + 1e-6 : x, aufLinie(z) ? z + 1e-6 : z]));
+  const bild = ([x, z]: Punkt): Punkt => bildpunkt(x, oberflaeche(g, x, z), z, blick);
+  // Ein Stück mit seinen Mitten, wo `H` zwischen den Ecken bilinear ist. Nach 0111 jede Kante an den Zellen
+  // abgetastet und vereinfacht, die Ecken fest: Zwei Felder teilen eine Kante, und nur mit festen Ecken
+  // vereinfachen beide sie gleich; sonst bliebe zwischen ihnen ein Spalt. Eine Seite eines groben Felds liegt
+  // nur innen oder an der Grenze zum Verdeckten, die den Feldern folgt; ihr reichen die Ecken.
+  const projiziert = (ring: readonly Punkt[], mitten: boolean): Punkt[] => {
+    if (!schirm) return (mitten ? mitMitten(ring) : ring).map(bild);
+    const seite = (a: Punkt, b: Punkt) => c !== g.c && ((a[0] === b[0] && aufLinie(a[0])) || (a[1] === b[1] && aufLinie(a[1])));
+    const dicht: Punkt[] = [];
+    const fest: number[] = [];
+    ring.forEach((a, i) => {
+      const b = ring[(i + 1) % ring.length]!;
+      fest.push(dicht.length);
+      dicht.push(...(seite(a, b) ? [a] : abtasten([a, b], false, g.c, Infinity).slice(0, -1)).map(bild));
+    });
+    dicht.push(dicht[0]!);
+    return vereinfache(dicht, schirm.eps / schirm.faktor, fest).slice(0, -1).map((i) => dicht[i]!);
+  };
   const [xmin, zmin, xmax, zmax] = rechteck(ringe.flat());
   const [pa, qa] = [Math.floor((xmin - o) / c), Math.floor((zmin - o) / c)];
   const [nx, nz] = [Math.floor((xmax - o) / c) - pa + 1, Math.floor((zmax - o) / c) - qa + 1];

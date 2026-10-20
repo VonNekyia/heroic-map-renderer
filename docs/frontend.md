@@ -591,6 +591,7 @@ Banner, feste Grösse und die Tafel beim Zeigen folgen
       keine; bei scale 16 in 2:1 auf Zoom 0 also 6, auf −1 3, auf −2 1;
     - mit `?punkte` in der Adresse schreibt die Karte die Zahl dieser Punkte
       als `data-raender` an das Pane der Formen, für Tests und Messungen;
+      gemessen in [Ebenen nach 0111](messungen/2026-10-20-ebenen-nach-0111.md);
   - **ohne Gelände,** wenn eine Ebene ganz auf `seaLevel` liegt, ohne Höhen
     oder über der Grenze oben: Flächen und Ränder sind ihre Ringe, ohne Netz,
     ohne Abtasten und ohne Wand. Es ist nichts verdeckt, und es gibt nichts

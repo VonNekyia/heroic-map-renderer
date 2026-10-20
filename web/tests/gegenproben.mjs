@@ -124,4 +124,5 @@ export default [
   { name: 'reihe-ohne-wurzel', datei: 'src/ebenen.ts', alt: 'const schluessel = `ebenen-reihe:${wurzel}`;', neu: 'const schluessel = `ebenen-reihe${wurzel.slice(0, 0)}`;', spec: 'tests/ebenen.spec.ts', titel: 'nach 0113 stellt jeder' },
   { name: 'vorgabe-ohne-loeschen', datei: 'src/ebenen.ts', alt: '          reihe.setze(undefined);\n          ordne();\n', neu: '          ordne();\n', spec: 'tests/ebenen.spec.ts', titel: 'nach 0113 stellt jeder' },
   { name: 'fokus-weg', datei: 'src/ebenen.ts', alt: '    gedrueckt = { id, schritt };\n', neu: '', spec: 'tests/ebenen.spec.ts', titel: 'nach 0113 stellt jeder' },
+  { name: 'umstellen-nur-sichtbare', datei: 'src/ebenen.ts', alt: 'const alle = einreihen(nachServer, reihe.lies()).map((e) => e.id);', neu: 'const alle = eintraege.map((e) => e.id);', spec: 'tests/aktionsebenen.spec.ts', titel: 'nach 0113 bleibt eine Aktionsebene' },
 ];

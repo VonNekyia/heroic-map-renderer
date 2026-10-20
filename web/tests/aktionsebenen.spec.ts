@@ -145,3 +145,19 @@ test('ein Objekt ohne Tafel bekommt mit einem Knopf eine nur mit dem Knopf; abge
   await expect(page.locator('.ebenen-konto')).toHaveText('Anmelden für eigene Ebenen und Mitspieler: im Spiel /karte anmelden');
   await expect(page.locator('.nadel-icon[title="Hafenstadt"]')).not.toHaveAttribute('tabindex', /.*/);
 });
+
+test('nach 0113 bleibt eine Aktionsebene, die ein Gast nicht sieht, beim Umstellen an ihrem Platz in der gemerkten Reihe; angemeldet steht sie, wo sie war', async ({ page }) => {
+  await server(page);
+  const ebene = (id: string, order: number) => ({ ...STAEDTE, id: `beispiel:${id}`, name: { de: id.toUpperCase() }, order });
+  await welt(page, { liste: () => [ebene('a', 3), { ...ROUTEN, order: 2 }, ebene('c', 1)], datei: () => ({ objects: [] }) });
+  await page.goto(DEMO);
+  await page.locator('.ebenen summary').click();
+  await expect(page.locator('.ebenen-liste label')).toHaveText([/A/, /C/]);
+  // C tauscht mit A, der nächsten sichtbaren; die Routen dazwischen bleiben in der Mitte.
+  await page.getByRole('button', { name: 'C nach oben' }).click();
+  await expect(page.locator('.ebenen-liste label')).toHaveText([/C/, /A/]);
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('ebenen-reihe:/tiles-demo')!) as unknown)).toEqual(['beispiel:c', 'beispiel:routen', 'beispiel:a']);
+  await page.goto(`${DEMO}#anmelden=${TOKEN}`);
+  await expect(page.locator('.ebenen-konto')).toContainText('Angemeldet als Steve');
+  await expect(page.locator('.ebenen-liste label')).toHaveText([/Mitspieler/, /C/, /Meine Routen/, /A/]);
+});

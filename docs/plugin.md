@@ -143,6 +143,12 @@ dem Plugin-Programmierer ab.
   prüft den Klick selbst. Siehe [Server](benutzung/server.md),
   „Aktionsebenen“. Für die Erkennung per IP und die Mitspieler dazu `ips`,
   `sicht.json` und die Zeile `Web:`, siehe „Erkennung per IP“ unten.
+- **Die Köpfe der Mitspieler** schreibt das Plugin als
+  `<wurzel>/koepfe/<sha256>.png`, mit dem SHA-256 der Bytes als 64 Zeichen
+  hex klein, erst unter einem Namen mit `.` vorn und dann umbenannt. Der
+  Server liefert sie unter `tiles/koepfe/`, für immer im Cache, siehe
+  [Server](benutzung/server.md), „Was er ausliefert“. Eine Datei bleibt
+  unter ihrem Namen, wie sie ist.
 
 ## Banner zeichnen: `--banners`
 

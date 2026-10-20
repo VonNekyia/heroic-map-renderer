@@ -377,7 +377,10 @@ fn mime_und_seite() {
     // Gehashte Dateien der Seite darf der Browser behalten, alles andere
     // fragt er nach.
     for (pfad, cache) in [
-        ("/assets/index-Ab12.js", "max-age=31536000, immutable"),
+        (
+            "/assets/index-Ab12.js",
+            "public, max-age=31536000, immutable",
+        ),
         ("/", "no-cache"),
         ("/tiles/t/map.json", "no-cache"),
     ] {
@@ -1554,6 +1557,61 @@ fn liefert_die_ebenen() {
     ] {
         assert_eq!(hole(server.adresse, pfad).status, 404, "{pfad}");
     }
+}
+
+/// Die Köpfe der Mitspieler unter `koepfe/`: nur mit dem SHA-256 als Namen,
+/// öffentlich, ohne Blick in `trees.json`, und für immer im Cache, denn ein
+/// Kopf ändert sich nie unter demselben Namen. Jeder andere Name `404`.
+/// Siehe docs/benutzung/server.md, „Was er ausliefert“.
+#[test]
+fn liefert_die_koepfe() {
+    let (kacheln, _seite) = wurzel();
+    let k = kacheln.path();
+    let png = b"PNG-kopf";
+    let hex: String = ring::digest::digest(&ring::digest::SHA256, png)
+        .as_ref()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    std::fs::create_dir_all(k.join("koepfe/a")).unwrap();
+    for name in [
+        format!("{hex}.png"),
+        format!(".{hex}.png"),
+        format!("{}.png", hex.to_uppercase()),
+        format!("a/{hex}.png"),
+        format!("{hex}.webp"),
+    ] {
+        std::fs::write(k.join("koepfe").join(name), png).unwrap();
+    }
+    std::fs::write(k.join("trees.json"), b"kaputt").unwrap();
+    let server = starte(k, &[]);
+    let pfad = format!("/tiles/koepfe/{hex}.png");
+    let a = hole(server.adresse, &pfad);
+    assert_eq!(a.status, 200);
+    assert_eq!(a.koerper, png);
+    assert_eq!(a.header("content-type"), Some("image/png"));
+    assert_eq!(
+        a.header("cache-control"),
+        Some("public, max-age=31536000, immutable")
+    );
+    let etag = a.header("etag").unwrap().to_string();
+    let wieder = frage(server.adresse, "GET", &pfad, &[("If-None-Match", &etag)]);
+    assert_eq!(wieder.status, 304);
+    for falsch in [
+        format!("/tiles/koepfe/.{hex}.png"),
+        format!("/tiles/koepfe/{}.png", hex.to_uppercase()),
+        format!("/tiles/koepfe/a/{hex}.png"),
+        format!("/tiles/koepfe/{hex}.webp"),
+        format!("/tiles/koepfe/{}.png", &hex[..63]),
+        "/tiles/koepfe/".to_string(),
+    ] {
+        assert_eq!(hole(server.adresse, &falsch).status, 404, "{falsch}");
+    }
+    // Andere Dateien unter /tiles/ bleiben ohne Cache.
+    assert_eq!(
+        hole(server.adresse, "/tiles/trees.json").header("cache-control"),
+        Some("no-cache")
+    );
 }
 
 /// Ein einzelner Baum als Wurzel hat keinen Download: Seine Pfade liegen

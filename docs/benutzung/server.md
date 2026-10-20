@@ -94,7 +94,8 @@ Server:     http://127.0.0.1:8080 mit ./tiles unter /tiles/ und ./web/dist unter
 - **Die Köpfe der Mitspieler** liefert er aus `koepfe/` in der Wurzel,
   öffentlich, ohne Token und ohne Blick in `trees.json` (#324). Wer welcher
   Kopf ist, steht nur in `sicht.json` des Betrachters, siehe
-  „Erkennung per IP“.
+  „Erkennung per IP“. Warum so:
+  [0114](../entscheidungen/0114-koepfe-der-mitspieler.md).
   - **Namen:** genau der SHA-256 der Datei als 64 Zeichen `0–9 a–f`, dann
     `.png`, ohne Unterordner (`ist_kopf` in
     [`renderer/src/cli/server.rs`](../../renderer/src/cli/server.rs)). Jeder

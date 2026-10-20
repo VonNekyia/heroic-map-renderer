@@ -189,6 +189,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0111](entscheidungen/0111-geometrie-nach-bildschirmfehler.md): Ränder, Linien, Kreise und Wände der Ebenen je Ansicht nach dem Fehler auf dem Schirm, ε = 0,5 px, nur im Ausschnitt, neu nach Zoom und Verschieben; Wand mit Bändern ab 8 px (User, 20.10.); feste Grenze, Vorhang, Canvas verworfen.
 - [0112](entscheidungen/0112-abgebrochene-laeufe-legen-ihr-gebiet-ab.md): Ein abgebrochenes Update und ein Ausschnitt legen ihr Gebiet als Kacheln in `gebiet-offen.bin` ab, statt im Stand Chunks unbekannt zu machen; das nächste Update zeichnet es noch einmal, und es wächst nicht mehr mit jedem Abbruch.
 - [0113](entscheidungen/0113-reihenfolge-der-ebenen-je-betrachter.md): Jeder stellt die Reihe der Ebenen auf der Webkarte mit ▲ und ▼ für sich um, gemerkt je Wurzel; eine neue Ebene direkt über die oberste mit `order` nicht höher, sonst unten (User, 20.10.); nicht zurückgeschrieben, „Reihe des Servers“; Ziehen verworfen.
+- [0114](entscheidungen/0114-koepfe-der-mitspieler.md): Mitspieler als ihr Gesicht, 8 × 8 mit Hutschicht, öffentlich unter `koepfe/<sha256>.png` nach dem Hash des Bildes, `immutable`, `kopf` in `sicht.json`; kein Steve und kein Alex, Aufräumen über die Zeit der Datei; die Karte prüft 64 hex, 16 KiB, 8 × 8.
 
 ## Versuche
 

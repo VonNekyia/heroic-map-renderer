@@ -230,6 +230,40 @@ body {
   white-space: nowrap;
 }
 
+/* Je Ebene der Name, dahinter „▲“ und „▼“ zum Umstellen; siehe 0113. */
+.ebenen-zeile {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.ebenen-zeile label {
+  flex: 1;
+  margin-right: var(--ui-abstand);
+}
+
+.ebenen-pfeil,
+.ebenen-vorgabe {
+  padding: 0 4px;
+  border: 1px solid var(--ui-rand);
+  border-radius: var(--ui-radius);
+  background: var(--ui-knopf);
+  color: var(--ui-schrift);
+  font: 11px/1.4 var(--ui-schrift-text);
+  cursor: pointer;
+}
+
+.ebenen-pfeil:disabled {
+  background: var(--ui-knopf-aus);
+  color: var(--ui-schrift-aus);
+  cursor: default;
+}
+
+.ebenen-vorgabe {
+  margin: 2px 0;
+  font-size: 12px;
+}
+
 /* Eine Nadel: das Schild Pixel auf Pixel, der Name darunter in der Kartenschrift. */
 .nadel-icon {
   overflow: visible;

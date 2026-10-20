@@ -429,6 +429,15 @@ Banner, feste Grösse und die Tafel beim Zeigen folgen
   oder Englisch. Die Wahl merkt sich der Browser je Wurzel in
   `localStorage`; ohne Speicher gilt sie bis zum Neuladen. Ohne
   `layers.json` gibt es keine Liste.
+- **Umstellen,** entschieden in
+  [0113](entscheidungen/0113-reihenfolge-der-ebenen-je-betrachter.md): je
+  Zeile „▲“ und „▼“ (`aria-label` „Name nach oben“, „Name nach unten“), oben
+  und unten gesperrt; der Fokus bleibt auf dem Pfeil derselben Ebene. Die
+  Reihe merkt sich der Browser unter `ebenen-reihe:<wurzel>`, nur nach dem
+  Umstellen; eine neue Ebene kommt direkt über die oberste, deren `order`
+  nicht höher ist, sonst ganz unten. „Reihe des Servers“ unter der Liste,
+  nur bei umgestellter Reihe, löscht den Eintrag. Panes und Liste folgen
+  derselben Reihe; „Mitspieler“ bleibt oben.
 - **Laden:** Eine Ebene lädt erst, wenn sie an ist. Alle 30 Sekunden und
   beim Zurückkehren auf den Tab fragt die Karte `layers.json` mit
   `cache: 'no-cache'` nach und lädt neu, was an ist und eine neue `version`
@@ -498,7 +507,7 @@ Banner, feste Grösse und die Tafel beim Zeigen folgen
     Geräts breit, die Leinwand also `k`-mal so gross wie das Bild und
     `b · k / devicePixelRatio` Pixel des Bildschirms breit. So bleibt jedes
     Pixel gleich breit, auch bei 1,25 oder 1,5;
-  - übereinander: je Ebene ein Pane, `z-index` 510 + Rang nach `order`,
+  - übereinander: je Ebene ein Pane, `z-index` 510 + Rang in der Reihe der Liste,
     über `shadowPane` (500) und unter `markerPane` (600), `tooltipPane`
     und der Tafel; in einer Ebene liegt das spätere oben;
   - ohne Tafel kein Ziel für Maus und Tastatur.

@@ -48,6 +48,91 @@ test('die Liste nennt die Ebenen nach order, bei Gleichstand nach id, an oder au
   await expect(page.locator('.ebenen input[data-id="beispiel:stadtinfos"]')).toBeChecked();
 });
 
+/** Drei Ebenen nach order 3, 2, 1, je mit einer Nadel ihres Namens, dazu die in `mehr`. */
+const reihe = (mehr: { id: string; order: number }[] = []) =>
+  [...[{ id: 'a', order: 3 }, { id: 'b', order: 2 }, { id: 'c', order: 1 }], ...mehr].map(({ id, order }) => ({ ...STAEDTE, id: `beispiel:${id}`, name: { de: id.toUpperCase() }, order }));
+const nadelIn = (name: string) => ({ objects: [{ ...HAFEN, id: name, name: name.toUpperCase(), at: [20.5 + name.charCodeAt(0) - 97, -30.5] }] });
+/** Der z-index des Panes, in dem die Nadel einer Ebene liegt. */
+const stapel = (page: Page, name: string) => page.locator(`.nadel-icon[title="${name}"]`).evaluate((e) => Number(getComputedStyle(e.closest('.leaflet-pane')!).zIndex));
+const SCHLUESSEL = 'ebenen-reihe:/tiles-demo';
+
+test('nach 0113 stellt jeder die Reihe der Ebenen mit ▲ und ▼ für sich um; Liste und Panes folgen, nach dem Neuladen bleibt sie; „Reihe des Servers“ stellt order wieder her; die Reihe einer anderen Wurzel gilt nicht', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('ebenen-reihe:/tiles-andere', JSON.stringify(['beispiel:c', 'beispiel:b', 'beispiel:a'])));
+  await welt(page, { liste: () => reihe(), datei: nadelIn });
+  await page.goto(DEMO);
+  const liste = page.locator('.ebenen');
+  await liste.locator('summary').click();
+  await expect(liste.locator('label')).toHaveText([/A/, /B/, /C/]);
+  await expect(liste.locator('.ebenen-vorgabe')).toHaveCount(0);
+  const pfeil = (name: string, wohin: string) => liste.getByRole('button', { name: `${name} ${wohin}` });
+  await expect(pfeil('A', 'nach oben')).toBeDisabled();
+  await expect(pfeil('C', 'nach unten')).toBeDisabled();
+  await expect(page.locator('.nadel-icon')).toHaveCount(3);
+  expect(await stapel(page, 'A')).toBeGreaterThan(await stapel(page, 'B'));
+  // A eins nach unten: Liste und Panes folgen, der Fokus bleibt auf dem Pfeil.
+  await pfeil('A', 'nach unten').click();
+  await expect(liste.locator('label')).toHaveText([/B/, /A/, /C/]);
+  await expect(pfeil('A', 'nach unten')).toBeFocused();
+  expect(await stapel(page, 'B')).toBeGreaterThan(await stapel(page, 'A'));
+  expect(await stapel(page, 'A')).toBeGreaterThan(await stapel(page, 'C'));
+  // Gemerkt unter der eigenen Wurzel.
+  expect(JSON.parse((await page.evaluate((s) => localStorage.getItem(s), SCHLUESSEL))!)).toEqual(['beispiel:b', 'beispiel:a', 'beispiel:c']);
+  await page.reload();
+  await page.locator('.ebenen summary').click();
+  await expect(liste.locator('label')).toHaveText([/B/, /A/, /C/]);
+  // Per Tastatur ganz nach unten: Dort ist ▼ gesperrt, der Fokus geht auf ▲ derselben Ebene.
+  await pfeil('A', 'nach unten').focus();
+  await page.keyboard.press('Enter');
+  await expect(liste.locator('label')).toHaveText([/B/, /C/, /A/]);
+  await expect(pfeil('A', 'nach unten')).toBeDisabled();
+  await expect(pfeil('A', 'nach oben')).toBeFocused();
+  // Die Reihe des Servers: wieder nach order, der Speicher leer, der Knopf weg.
+  await liste.locator('.ebenen-vorgabe').click();
+  await expect(liste.locator('label')).toHaveText([/A/, /B/, /C/]);
+  await expect(liste.locator('.ebenen-vorgabe')).toHaveCount(0);
+  expect(await page.evaluate((s) => localStorage.getItem(s), SCHLUESSEL)).toBeNull();
+  expect(await stapel(page, 'A')).toBeGreaterThan(await stapel(page, 'B'));
+});
+
+test('nach 0113 kommt eine neue Ebene in eine umgestellte Reihe direkt über die oberste mit order nicht höher, sonst ganz unten; eine verschwundene fällt weg; zurückgeschrieben wird nichts', async ({ page }) => {
+  const gemerkt = JSON.stringify(['beispiel:c', 'beispiel:a', 'beispiel:b']);
+  await page.addInitScript(([s, g]) => localStorage.setItem(s!, g!), [SCHLUESSEL, gemerkt]);
+  // B ist weg; N hat order 2, darüber steht C mit 1, obwohl C in der Reihe des Servers unten wäre; L hat die kleinste.
+  const liste = reihe([{ id: 'n', order: 2 }, { id: 'l', order: 0 }]).filter((e) => e.id !== 'beispiel:b');
+  await welt(page, { liste: () => liste, datei: nadelIn });
+  await page.goto(DEMO);
+  await page.locator('.ebenen summary').click();
+  await expect(page.locator('.ebenen label')).toHaveText([/N/, /C/, /A/, /L/]);
+  expect(await page.evaluate((s) => localStorage.getItem(s), SCHLUESSEL)).toBe(gemerkt);
+});
+
+test('nach 0113 gibt ein kaputter Eintrag im Speicher die Reihe des Servers', async ({ page }) => {
+  await page.addInitScript((s) => localStorage.setItem(s, '{"a":1}'), SCHLUESSEL);
+  await welt(page, { liste: () => reihe(), datei: nadelIn });
+  await page.goto(DEMO);
+  await page.locator('.ebenen summary').click();
+  await expect(page.locator('.ebenen label')).toHaveText([/A/, /B/, /C/]);
+  await expect(page.locator('.ebenen-vorgabe')).toHaveCount(0);
+});
+
+test('nach 0113 geht das Umstellen ohne localStorage bis zum Neuladen', async ({ page }) => {
+  await page.addInitScript(() => {
+    for (const art of ['getItem', 'setItem', 'removeItem'] as const) {
+      Storage.prototype[art] = () => {
+        throw new Error('kein Speicher');
+      };
+    }
+  });
+  await welt(page, { liste: () => reihe(), datei: nadelIn });
+  await page.goto(DEMO);
+  await page.locator('.ebenen summary').click();
+  await page.getByRole('button', { name: 'C nach oben' }).click();
+  await expect(page.locator('.ebenen label')).toHaveText([/A/, /C/, /B/]);
+  await page.reload();
+  await page.locator('.ebenen summary').click();
+  await expect(page.locator('.ebenen label')).toHaveText([/A/, /B/, /C/]);
+});
+
 for (const [richtung, drehe] of [
   ['se', (x: number, z: number): [number, number] => [x, z]],
   ['sw', (x: number, z: number): [number, number] => [z, -x]],

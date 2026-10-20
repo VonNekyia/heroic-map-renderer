@@ -374,9 +374,13 @@ nicht passt (`update_braucht_den_stand_und_dieselben_assets`):
     | #257 | 3 | 3 | 4 | ein Schritt Licht von der Seite in `--flat`, ebenda |
     | #295 | 4 | 3 | 5 | Bodenpflanzen liegen von oben flach, siehe [Die Kamera](../renderer/kamera.md), „Pflanzen von oben“ |
 
-- **Assets und Daten:** je Wurzel von `--assets` und `--data` ihre Nummer,
-  dann je Datei darunter der Pfad, die Grösse und die Zeit der letzten
-  Änderung. Den Inhalt liest er nicht; eine kopierte Datei hat eine neue
+- **Assets und Daten:** je Wurzel von `--assets` und `--data` und je
+  Datapack der Welt, das etwas trägt, ihre Nummer, dann je Datei darunter
+  der Pfad, die Grösse und die Zeit der letzten Änderung (#288). Ein Datapack
+  zählt mit den Dateien, die der Renderer aus ihm liest: Eine geänderte
+  Funktion zählt nicht, ein geändertes Biom schon, siehe
+  [Assets](assets.md), „Datapacks der Welt“. Ein Test hält den Wert für
+  feste Dateien als Konstante fest (`fingerabdruck_der_dateien_bleibt`). Den Inhalt liest er nicht; eine kopierte Datei hat eine neue
   Zeit und zählt als anders.
 - **Der Cache des Client-Jars** aus `--download-client-jar` trägt je Datei
   die Bauzeit des Jars: Neu ausgepackt bleibt der Fingerabdruck gleich. Wer

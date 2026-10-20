@@ -475,10 +475,11 @@ pub fn zeichenstand(look: &str) -> u32 {
 /// Zeichnung es zeigt; `jedes_goldbild_hat_einen_look` fällt bei einem
 /// Goldbild, das hier fehlt.
 #[cfg(test)]
-const GOLDBILDER_JE_LOOK: [(&str, &str); 12] = [
+const GOLDBILDER_JE_LOOK: [(&str, &str); 13] = [
     ("metatile", "map"),
     ("metatile-4x3", "map"),
     ("metatile-cinematic", "cinematic"),
+    ("metatile-datapack", "map"),
     ("metatile-flat", "flat"),
     ("metatile-north-45", "map"),
     ("metatile-nw", "map"),
@@ -494,7 +495,7 @@ const GOLDBILDER_JE_LOOK: [(&str, &str); 12] = [
 /// `zeichenstand_folgt_den_goldbildern`.
 #[cfg(test)]
 const GOLDBILDER: [(&str, u64); 3] = [
-    ("map", 0x3d3c_aa69_f916_b834),
+    ("map", 0x44f0_fa44_6f7d_7b9b),
     ("cinematic", 0x8338_0150_d842_fd85),
     ("flat", 0x9da5_830a_c6ae_0047),
 ];
@@ -659,6 +660,31 @@ fn zeichnet(inhalt: Inhalt) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Der Fingerabdruck der Dateien bleibt, wie er war: Eine Welt ohne
+    /// Datapacks hat dieselben Wurzeln wie vor #288 und mit ihnen denselben
+    /// Stand, `--update` geht weiter. Ändert er sich, braucht jeder Baum
+    /// einen vollen Lauf.
+    /// Siehe docs/benutzung/assets.md, „Datapacks der Welt“.
+    #[test]
+    fn fingerabdruck_der_dateien_bleibt() {
+        let wurzel = tempfile::tempdir().unwrap();
+        let zeit =
+            std::time::UNIX_EPOCH + std::time::Duration::from_nanos(1_781_611_408_123_456_700);
+        for (rel, inhalt) in [("a/b.json", "{}"), ("a/c/d.png", "png"), ("e.mcmeta", "")] {
+            let pfad = wurzel.path().join(rel);
+            std::fs::create_dir_all(pfad.parent().unwrap()).unwrap();
+            std::fs::write(&pfad, inhalt).unwrap();
+            std::fs::File::options()
+                .write(true)
+                .open(&pfad)
+                .unwrap()
+                .set_modified(zeit)
+                .unwrap();
+        }
+        let wurzeln = [wurzel.path().to_path_buf(), wurzel.path().join("a/b.json")];
+        assert_eq!(fingerabdruck_der_dateien(&wurzeln), 0xee5a_22b3_126b_f1a6);
+    }
 
     fn fertig(hash: u64, oben: Option<i32>) -> Inhalt {
         Inhalt::Fertig(Abdruck { hash, oben })

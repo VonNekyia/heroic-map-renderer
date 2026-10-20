@@ -1,9 +1,11 @@
 ---
 title: Assets und Biomdaten
-description: Welche Asset- und Datenwurzeln der Renderer braucht, wie er sie mit Zustimmung selbst aus dem Client-JAR von Mojang nimmt oder man sie von Hand holt, und in welcher Reihenfolge er sie stapelt, samt Biomen und Bannermustern.
+description: Welche Asset- und Datenwurzeln der Renderer braucht, wie er sie mit Zustimmung selbst aus dem Client-JAR von Mojang nimmt oder man sie von Hand holt, wie er die Datapacks der Welt liest und in welcher Reihenfolge er alles stapelt, samt Biomen und Bannermustern.
 code:
   - renderer/src/cli.rs
   - renderer/src/cli/client.rs
+  - renderer/src/cli/datenpakete.rs
+  - renderer/src/world/mod.rs
   - renderer/src/cli/zip.rs
   - renderer/src/assets/pack.rs
   - renderer/src/assets/colors.rs
@@ -17,8 +19,9 @@ Der Renderer braucht einen vollständigen Asset-Baum aus dem Client-JAR der
 unterstützten Versionen, heute 26.2 oder 26.3 ([0059](../entscheidungen/0059-welten-aus-26-2-und-26-3.md)), und für die Biomfarben die Daten aus
 demselben JAR. Beides nimmt der Renderer mit `--download-client-jar` selbst
 aus dem Jar, siehe „Von Mojang laden“, oder es kommt von Hand über
-`--assets` und `--data`, jeweils mehrfach; spätere Wurzeln gewinnen. Wie der Renderer eine
-Wurzel liest, steht in [Packs und Wurzeln](../renderer/packs.md).
+`--assets` und `--data`, jeweils mehrfach; spätere Wurzeln gewinnen. Die
+Datapacks der Welt liest er selbst dazu, siehe „Datapacks der Welt“. Wie der
+Renderer eine Wurzel liest, steht in [Packs und Wurzeln](../renderer/packs.md).
 
 ## Von Mojang laden
 
@@ -134,8 +137,9 @@ Wasser und die Temperatur für seine Wärme. Ein Biom ohne Definition wird `plai
 `--data` hat auch `plains` keine, und Cinematic nimmt die Farben des
 Dimensionstyps und die Temperatur 0,8, siehe
 [Cinematic](../renderer/cinematic.md), „Farbe des Himmels“ und „Wärme“.
-Datenpakete mit eigenen Biomen kommen als weitere Wurzeln dazu, spätere
-überschreiben frühere, auch Vanilla-Biome, die ein Paket umdefiniert:
+Die Datapacks der Welt liest der Renderer selbst, siehe „Datapacks der
+Welt“. Weitere Daten mit eigenen Biomen kommen als weitere Wurzeln dazu,
+spätere überschreiben frühere, auch Vanilla-Biome, die sie umdefinieren:
 
 ```bash
 --data ./vanilla-data --data ./weitere-daten
@@ -168,6 +172,109 @@ Datenpaketen: `<DIR>/<namespace>/dimension/**/*.json` und
 `<DIR>/<namespace>/dimension_type/**/*.json`, in denselben Wurzeln wie die
 Biome. Welcher Typ zu welcher Dimension gehört:
 [Dimensionstypen](../renderer/dimensionstypen.md).
+
+## Datapacks der Welt
+
+Die Datapacks einer Welt liest der Renderer selbst, ohne Schalter: Ihre
+Biome färben Gras, Laub und Wasser, statt wie `plains` auszusehen (#288).
+Dazu kommen ihre Bannermuster und Dimensionen. Warum so:
+[0115](../entscheidungen/0115-datapacks-aus-der-welt.md). Belegt am
+Client-Jar von 26.2 und 26.3, siehe „Belege“ unten.
+
+- **Welche:** `Data.DataPacks` aus `level.dat` der Weltwurzel, die Listen
+  `Enabled` und `Disabled` (`DataPackConfig.CODEC`). Fehlt der Eintrag,
+  gilt wie im Spiel `Enabled = [vanilla]` (`DataPackConfig.DEFAULT`).
+  - Die Packs liegen unter `<weltwurzel>/datapacks/`, nur auf der obersten
+    Ebene: ein Ordner mit der Datei `pack.mcmeta` oder eine Datei auf
+    `.zip`, in dieser Schreibung.
+  - Die ID ist `file/<name>`, beim Zip mit `.zip`.
+  - Ohne Weltwurzel oder ohne `datapacks/` gibt es keine.
+- **Reihe** wie `MinecraftServer.configurePackRepository`:
+  1. die IDs aus `Enabled`, die es unter `datapacks/` gibt, in ihrer Reihe;
+  2. dahinter jedes Pack, das in keiner der beiden Listen steht, nach ID.
+     So liest der Renderer ein neu abgelegtes Pack, wie es das Spiel beim
+     nächsten Start lädt.
+  - `Disabled` liest er nicht. IDs ohne Pack unter `datapacks/`, etwa
+    `vanilla` oder `paper`, fallen weg.
+  - Ein späteres Pack überschreibt ein früheres je Datei. Alle stehen hinter
+    den Wurzeln aus dem Jar und aus `--data`.
+- **Overlays** wie `OverlayMetadataSection.overlaysForVersion`:
+  - Es gilt jeder Eintrag aus `overlays.entries`, dessen Bereich von
+    `min_format` bis `max_format` das Datenformat der Welt einschliesst.
+    Einen Eintrag ganz ohne Format übergeht das Spiel mit einer Warnung,
+    der Renderer still (`PackFormat.validateHolderList`).
+  - Das Datenformat folgt der Datenversion aus `level.dat`: 107.1 für eine
+    Welt aus 26.2, 121.0 für eine aus 26.3 und für eine ohne Datenversion.
+  - Ein Format ist eine Zahl oder `[major, minor]`; eine Zahl heisst unten
+    `major.0` und oben `major.*`.
+  - Das letzte geltende Overlay liegt zuoberst, darunter die früheren,
+    zuunterst `data/` (26.2 `CompositePackResources`, 26.3
+    `OverlayedPackResources`).
+  - Ist die Angabe kaputt, etwa nur `min_format` oder ein `directory`
+    ausserhalb von `[-_a-zA-Z0-9.]`, lädt das Spiel das Pack nicht; der
+    Renderer übergeht es.
+- **Was er liest:** je Pack nur die `.json` unter
+  `<namensraum>/worldgen/biome/`, `banner_pattern/`, `dimension/` und
+  `dimension_type/` in `data/` und den geltenden Overlays. Ein Pack ohne
+  sie, etwa `file/bukkit` auf Paper, bringt keine Wurzel.
+- **Cache:** Das Gelesene legt er je Pack als Datenwurzel unter
+  `<cache>/datapacks/<kennung>` ab, im Cache wie für das Jar, siehe „Von
+  Mojang laden“; `--cache-dir` gilt auch hier.
+  - Die Kennung ist FNV-1a über ID, Datenformat, Overlays und je gelesener
+    Datei Pfad, Länge und Zeit. Liegt der Ordner schon da, gilt er.
+  - Jede Datei trägt ihre Zeit, aus einem Zip die des Zips.
+  - Abgelegt wird erst in einen Ordner des Prozesses, dann umbenannt, wie
+    beim Jar.
+  - Alte Ordner bleiben liegen, je Stand eines Packs einige 100 kB.
+- **Übergangen,** mit Grund in der Ausgabe, ohne Abbruch: ein Pack mit
+  `pack.mcmeta` ohne `pack.description` oder ohne gültiges JSON, ein Zip,
+  das sich nicht lesen lässt, ein Link, dem das Spiel nur mit
+  `allowed_symlinks.txt` folgt, und ohne Cache jedes Pack, das etwas trägt.
+- **Ausgabe,** nur wenn die Welt Packs hat:
+
+  ```text
+  Datapacks:  2 aus der Welt: file/biome.zip (Zip, Overlays neu), file/eigene (Ordner)
+              ohne Biome, Bannermuster und Dimensionen: file/bukkit
+              file/alt.zip übergangen: Zip kaputt
+  ```
+
+  Unter `Assets:` zählt danach je Pack eine Zeile Biome, Bannermuster und
+  Dimensionen „aus file/…“.
+- **Updates:** Die Wurzeln der Packs kommen in den Fingerabdruck der Daten.
+  Eine Welt ohne Packs mit Listen behält ihren Stand. Ändert sich ein Pack,
+  das etwas trägt, oder kommt eins dazu, verlangt `--update` erst einen
+  vollen Lauf, siehe [Updates](updates.md), „Anderer Renderer, andere
+  Assets“.
+
+### Grenzen
+
+- **Vanilla zuunterst:** Die Daten des Spiels stehen immer vor den Packs.
+  Stünde `vanilla` in `Enabled` hinter einem Pack, überschriebe im Spiel
+  Vanilla das Pack; beim Renderer gewinnt das Pack. In gespeicherten
+  Welten steht `vanilla` vorn.
+- **`formats` allein:** Ein Overlay, das nur `formats` nennt, die Angabe bis
+  Format 81, gilt in 26.2 und 26.3 nie; der Renderer übergeht es. Das Spiel
+  prüft die Einträge strenger: Reicht `formats` über 81 hinaus, lädt es das
+  Pack nicht; beginnt ein Eintrag bei Format 81 oder darunter, muss jeder
+  `formats` tragen (`PackFormat.validateHolderList`,
+  `PackFormat$IntermediaryFormat.validate`). Der Renderer liest ein solches
+  Pack trotzdem.
+- **`filter`:** Den Abschnitt `filter` in `pack.mcmeta`, mit dem ein Pack
+  Dateien früherer Packs ausblendet, liest der Renderer nicht.
+- **Andere Ordner:** Packs, die ein Server ausserhalb von `datapacks/`
+  einbindet, sieht der Renderer nicht. Paper wählt wie Vanilla.
+
+### Belege
+
+Belegt am Client-Jar von 26.2 und 26.3 mit javap:
+`DataPackConfig.CODEC` und `DEFAULT`, `WorldDataConfiguration.MAP_CODEC`,
+`FolderRepositorySource.discoverPacks`, `PackDetector`,
+`MinecraftServer.configurePackRepository`, `Pack.readPackMetadata`,
+`OverlayMetadataSection.overlaysForVersion`, `PackFormat.BOTTOM_CODEC` und
+`TOP_CODEC`, `CompositePackResources` in 26.2 und `OverlayedPackResources`
+in 26.3, die Datenformate aus `version.json` der Jars. Die Feature-Packs
+`minecart_improvements`, `redstone_experiments` und `trade_rebalance` und
+`paper` tragen kein `worldgen/biome`.
 
 ## Was eine Datenwurzel tragen muss
 

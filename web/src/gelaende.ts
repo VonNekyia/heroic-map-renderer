@@ -134,12 +134,12 @@ const PROBEN = 512;
  * Ist der Zug länger als `PROBEN` Zellen, schneidet er an Linien im Abstand
  * Länge / `PROBEN` statt `c`.
  */
-export function abtasten(punkte: readonly Punkt[], geschlossen: boolean, zelle: number): Punkt[] {
+export function abtasten(punkte: readonly Punkt[], geschlossen: boolean, zelle: number, deckel = PROBEN): Punkt[] {
   const aus: Punkt[] = [];
   const n = punkte.length;
   let laenge = 0;
   for (let i = 0; i < (geschlossen ? n : n - 1); i++) laenge += Math.hypot(punkte[(i + 1) % n]![0] - punkte[i]![0], punkte[(i + 1) % n]![1] - punkte[i]![1]);
-  const c = Math.max(zelle, laenge / PROBEN);
+  const c = Math.max(zelle, laenge / deckel);
   for (let i = 0; i < (geschlossen ? n : n - 1); i++) {
     const [a, b] = [punkte[i]!, punkte[(i + 1) % n]!];
     const ts = [0, 1];
@@ -158,6 +158,110 @@ export function abtasten(punkte: readonly Punkt[], geschlossen: boolean, zelle: 
       if (ts[j + 1]! - ts[j]! < 1e-12) continue;
       aus.push(auf(ts[j]!), auf((ts[j]! + ts[j + 1]!) / 2));
     }
+  }
+  if (n > 0) aus.push(geschlossen ? punkte[0]! : punkte[n - 1]!);
+  return aus;
+}
+
+/**
+ * Was die Regel aus 0111 von der Ansicht braucht: `faktor` Pixel des
+ * Schirms je Pixel der feinsten Stufe, `rahmen` der Ausschnitt samt Rand in
+ * Pixeln der feinsten Stufe, `eps` der erlaubte Fehler auf dem Schirm in
+ * Pixeln. Siehe docs/entscheidungen/0111-geometrie-nach-bildschirmfehler.md.
+ */
+export interface Schirm {
+  faktor: number;
+  rahmen: Rechteck;
+  eps: number;
+}
+
+/** Der Abstand des Punkts p von der Strecke a–b. */
+function abstand(p: Punkt, a: Punkt, b: Punkt): number {
+  const [dx, dy] = [b[0] - a[0], b[1] - a[1]];
+  const l2 = dx * dx + dy * dy;
+  const t = l2 ? Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / l2)) : 0;
+  return Math.hypot(p[0] - a[0] - t * dx, p[1] - a[1] - t * dy);
+}
+
+/** Wie viele Pixel der feinsten Stufe ein Block längs x oder z höchstens breit ist. */
+function blockBreite(blick: Blick): number {
+  const o = bildpunkt(0, 0, 0, blick);
+  return Math.max(...[bildpunkt(1, 0, 0, blick), bildpunkt(0, 0, 1, blick)].map(([x, y]) => Math.hypot(x - o[0], y - o[1])));
+}
+
+/**
+ * Das Rechteck der Welt, dessen Punkte zwischen den Höhen `ymin` und `ymax`
+ * im Rahmen `rahmen` der feinsten Stufe liegen können: die Ecken des Rahmens
+ * auf beiden Höhen zurückgerechnet.
+ */
+export function weltRechteck([x0, y0, x1, y1]: Rechteck, blick: Blick, ymin: number, ymax: number): Rechteck {
+  const o = bildpunkt(0, 0, 0, blick);
+  const [ex, ez, ey] = [bildpunkt(1, 0, 0, blick), bildpunkt(0, 0, 1, blick), bildpunkt(0, 1, 0, blick)].map(([a, b]): Punkt => [a - o[0], b - o[1]]) as [Punkt, Punkt, Punkt];
+  const det = ex[0] * ez[1] - ex[1] * ez[0];
+  const welt = ([sx, sy]: Punkt, y: number): Punkt => {
+    const [dx, dy] = [sx - o[0] - y * ey[0], sy - o[1] - y * ey[1]];
+    return [(dx * ez[1] - dy * ez[0]) / det, (ex[0] * dy - ex[1] * dx) / det];
+  };
+  const ecken: Punkt[] = [[x0, y0], [x1, y0], [x0, y1], [x1, y1]];
+  return rechteck([ymin, ymax].flatMap((y) => ecken.map((e) => welt(e, y))));
+}
+
+/** Seiten eines Kreises mit `r` Pixeln Radius auf dem Schirm, so dass die Pfeilhöhe jeder Seite unter `eps` bleibt; mindestens 12. */
+export function kreisSeiten(r: number, eps: number): number {
+  return r <= eps ? 12 : Math.max(12, Math.ceil(Math.PI / Math.acos(1 - eps / r)));
+}
+
+/** Ein Kreis nach 0111: so viele Seiten, wie sein Radius auf dem Schirm braucht. */
+export function kreisNachSchirm([mx, mz]: Punkt, r: number, blick: Blick, s: Schirm): Punkt[] {
+  const n = kreisSeiten(r * blockBreite(blick) * s.faktor, s.eps);
+  return Array.from({ length: n }, (_, i): Punkt => [mx + r * Math.cos((2 * Math.PI * i) / n), mz + r * Math.sin((2 * Math.PI * i) / n)]);
+}
+
+/**
+ * Lässt von Punkten auf dem Schirm nur die, ohne die der Zug mehr als `eps`
+ * abwiche (Douglas-Peucker); Anfang, Ende und die Indizes in `fest` bleiben,
+ * und zwischen ihnen wird je für sich vereinfacht. Gibt die Indizes.
+ */
+export function vereinfache(bild: readonly Punkt[], eps: number, fest: Iterable<number> = []): number[] {
+  const behalte = new Uint8Array(bild.length);
+  if (bild.length) [behalte[0], behalte[bild.length - 1]] = [1, 1];
+  for (const i of fest) behalte[i] = 1;
+  const marken = [...behalte.keys()].filter((i) => behalte[i]);
+  const offen: [number, number][] = marken.slice(1).map((bis, j): [number, number] => [marken[j]!, bis]);
+  while (offen.length) {
+    const [von, bis] = offen.pop()!;
+    let [weit, wo] = [0, -1];
+    for (let i = von + 1; i < bis; i++) {
+      const d = abstand(bild[i]!, bild[von]!, bild[bis]!);
+      if (d > weit) [weit, wo] = [d, i];
+    }
+    if (weit <= eps) continue;
+    behalte[wo] = 1;
+    offen.push([von, wo], [wo, bis]);
+  }
+  return [...behalte.keys()].filter((i) => behalte[i]);
+}
+
+/**
+ * Tastet einen Zug für 0111 ab: Strecken, die im Rahmen liegen können, bei
+ * jeder Höhe des Geländes, an den Zellen wie `abtasten`; Strecken ausserhalb
+ * nur mit ihrem Anfang. Geschlossen kommt die Strecke zurück zum ersten
+ * Punkt dazu. Vereinfacht wird erst nach Glätten und Verdeckung, in `zug`.
+ */
+export function abtastenImRahmen(punkte: readonly Punkt[], geschlossen: boolean, g: Gelaende, blick: Blick, s: Schirm): Punkt[] {
+  const [r0, r1, r2, r3] = s.rahmen;
+  // Gelände kann unter grund liegen, im Meer und in Schluchten; 128 Blöcke reichen bis zum Boden der Welt.
+  const imRahmen = (a: Punkt, b: Punkt): boolean => {
+    const [x0, y0, x1, y1] = rechteck([a, b].flatMap(([x, z]) => [bildpunkt(x, g.grund - 128, z, blick), bildpunkt(x, g.max, z, blick)]));
+    return x1 >= r0 && x0 <= r2 && y1 >= r1 && y0 <= r3;
+  };
+  const aus: Punkt[] = [];
+  const n = punkte.length;
+  for (let i = 0; i < (geschlossen ? n : n - 1); i++) {
+    const [a, b] = [punkte[i]!, punkte[(i + 1) % n]!];
+    // Ohne das Ende: Es ist der Anfang der nächsten Strecke.
+    if (imRahmen(a, b)) aus.push(...abtasten([a, b], false, g.c, Infinity).slice(0, -1));
+    else aus.push(a);
   }
   if (n > 0) aus.push(geschlossen ? punkte[0]! : punkte[n - 1]!);
   return aus;
@@ -495,20 +599,24 @@ export function glaetten(punkte: readonly Punkt[], hoehen: readonly number[]): n
  * `glaetten`. Von oben bleibt der Zug, wie er ist, und liegt eben. Siehe
  * docs/benutzung/ebenen.md, „Ränder, Linien und Kreise“.
  */
-export function zug(punkte: readonly Punkt[], geschlossen: boolean, g: Gelaende, blick: Blick): Zug {
+export function zug(punkte: readonly Punkt[], geschlossen: boolean, g: Gelaende, blick: Blick, schirm?: Schirm): Zug {
   if (blick.p.y === 0) {
     const ebene = geschlossen && punkte.length ? [...punkte, punkte[0]!] : [...punkte];
     const nie = ebene.map(() => false);
     return { punkte: ebene.map(([x, z]) => bildpunkt(x, 0, z, blick)), verdeckt: nie, gestrichelt: nie };
   }
-  const abgetastet = abtasten(punkte, geschlossen, g.c);
+  // Mit Schirm nach 0111 nur im Ausschnitt an den Zellen, sonst überall.
+  const abgetastet = schirm ? abtastenImRahmen(punkte, geschlossen, g, blick, schirm) : abtasten(punkte, geschlossen, g.c);
   const hoehen = glaetten(abgetastet, abgetastet.map(([x, z]) => oberflaeche(g, x, z)));
   const hinter = abgetastet.map(([x, z], i) => verdeckt(g, x, hoehen[i]!, z, blick));
-  return {
-    punkte: abgetastet.map(([x, z], i) => bildpunkt(x, hoehen[i]!, z, blick)),
-    verdeckt: hinter,
-    gestrichelt: gestrichelt(abgetastet, hinter),
-  };
+  const strich = gestrichelt(abgetastet, hinter);
+  const bild = abgetastet.map(([x, z], i) => bildpunkt(x, hoehen[i]!, z, blick));
+  if (!schirm) return { punkte: bild, verdeckt: hinter, gestrichelt: strich };
+  // Erst nach Glätten und Verdeckung vereinfachen; jeder Wechsel von verdeckt oder gestrichelt bleibt, samt dem Punkt davor.
+  const fest: number[] = [];
+  for (let i = 1; i < bild.length; i++) if (hinter[i] !== hinter[i - 1] || strich[i] !== strich[i - 1]) fest.push(i - 1, i);
+  const wahl = vereinfache(bild, schirm.eps / schirm.faktor, fest);
+  return { punkte: wahl.map((i) => bild[i]!), verdeckt: wahl.map((i) => hinter[i]!), gestrichelt: wahl.map((i) => strich[i]!) };
 }
 
 /**

@@ -6,12 +6,14 @@
 import L from 'leaflet';
 import {
   bildpunkt,
+  kreisNachSchirm,
   kreisRing,
   netz,
   oberflaeche,
   rechteck,
   ringImRechteck,
   wand,
+  weltRechteck,
   zug,
   zugImRechteck,
   type Blick,
@@ -19,6 +21,7 @@ import {
   type Polygon,
   type Punkt,
   type Rechteck,
+  type Schirm,
   type Zug,
 } from './gelaende';
 import { farbe, istObjekt, istText, istZahl, punkt, punkte } from './pruefen';
@@ -49,12 +52,20 @@ const GRENZEN = { punkte: 10_000, loecher: 100, radius: 100_000 };
 
 /**
  * Die Wand am Rand einer Fläche im iso: Höhe in Blöcken, Deckkraft am Boden,
- * nach oben linear bis 0, in Bändern. Gewählt in 0104.
+ * nach oben linear bis 0, gewählt in 0104; höchstens so viele Bänder, wie
+ * viele nach 0111 `wandBaender` gibt.
  */
 const WAND = { hoehe: 6, unten: 0.6, baender: 12 };
 
 /** Wie hoch die Wand auf der feinsten Stufe ist, in Pixeln. */
 export const wandHoehe = (blick: Blick): number => WAND.hoehe * blick.p.y;
+
+/**
+ * Wie viele Bänder die Wand hat, wenn sie auf dem Schirm `hoch` Pixel hoch
+ * ist: je Band mindestens 8 px, höchstens 12, unter 1 px keine. Gewählt vom
+ * User am 20.10. in 0111.
+ */
+export const wandBaender = (hoch: number): number => (hoch < 1 ? 0 : Math.max(1, Math.min(WAND.baender, Math.floor(hoch / 8))));
 
 
 /** Ohne Farbe am Rand: die Füllung ohne Alpha, sonst die der Kartenschrift. */
@@ -206,92 +217,116 @@ export function bereich(f: Form): Rechteck {
   return rechteck(f.linie ?? f.polygone.flatMap((q) => q.aussen));
 }
 
-/** Die Polygone einer Region oder eines Kreises; ein Kreis ist ein Vieleck nach `kreisRing`. */
-export const polygone = (f: Form, c: number, eben = false): Polygon[] => (f.kreis ? [{ aussen: kreisRing(f.kreis.mitte, f.kreis.radius, c, eben), loecher: [] }] : f.polygone);
+/** Die Polygone einer Region oder eines Kreises; ein Kreis ist `kreis`, sonst ein Vieleck nach `kreisRing`. */
+export const polygone = (f: Form, c: number, eben = false, kreis?: Punkt[]): Polygon[] =>
+  f.kreis ? [{ aussen: kreis ?? kreisRing(f.kreis.mitte, f.kreis.radius, c, eben), loecher: [] }] : f.polygone;
 
 /** Die Linienzüge eines Rands oder einer Linie, in `area` beschnitten; jedes Stück offen. */
-export function zuege(f: Form, c: number, area: Rechteck | undefined, eben = false): Punkt[][] {
-  const ganz: [Punkt[], boolean][] = f.linie ? [[f.linie, false]] : polygone(f, c, eben).flatMap((p) => [p.aussen, ...p.loecher].map((r): [Punkt[], boolean] => [r, true]));
+export function zuege(f: Form, c: number, area: Rechteck | undefined, eben = false, kreis?: Punkt[]): Punkt[][] {
+  const ganz: [Punkt[], boolean][] = f.linie ? [[f.linie, false]] : polygone(f, c, eben, kreis).flatMap((p) => [p.aussen, ...p.loecher].map((r): [Punkt[], boolean] => [r, true]));
   return ganz.flatMap(([punkte, geschlossen]) =>
     area ? zugImRechteck(punkte, geschlossen, area) : [geschlossen ? [...punkte, punkte[0]!] : punkte],
   );
 }
 
 /**
- * Zeichnet die Formen einer Ebene: erst alle Flächen, dann alle Ränder und
- * Linien, so liegt kein Rand unter einer Fläche derselben Ebene. Eine Fläche
- * mit Namen oder Tafel ist ein Ziel, auch ohne Füllung. Was ausserhalb von
- * `area` liegt, fällt vorher weg.
+ * Zeichnet die Flächen einer Ebene, einmal je `version`; Ränder, Linien und
+ * Wände zeichnet `zeichneRaender` je Ansicht darüber, so liegt kein Rand
+ * unter einer Fläche derselben Ebene. Eine Fläche mit Namen oder Tafel ist
+ * ein Ziel, auch ohne Füllung. Was ausserhalb von `area` liegt, fällt vorher
+ * weg.
  */
-export function zeichne(formen: readonly Form[], z: Zeichnen): { flaechen: L.Layer[]; waende: L.Layer[]; striche: Strich[] } {
+export function zeichneFlaechen(formen: readonly Form[], z: Zeichnen): L.Layer[] {
   // Ausgepackt, und keine Closure greift auf z oder das Gelände: Sonst hielte
   // die Tafel einer Fläche die Höhen am Leben.
   const { renderer, blick, gelaende: g, area, tafel, bediene, eben } = z;
   // Ohne Gelände auf der Höhe von seaLevel, wie oberflaeche sie dann gibt.
   const flach = ([x, zz]: Punkt): Punkt => bildpunkt(x, oberflaeche(g, x, zz), zz, blick);
   const flaechen: L.Layer[] = [];
+  for (const f of formen) {
+    if (!hatFlaeche(f)) continue;
+    const beschnitten = polygone(f, g.c, eben).map((p) => {
+      const im = (r: Punkt[]) => (area ? ringImRechteck(r, area) : r);
+      return { aussen: im(p.aussen), loecher: p.loecher.map(im) };
+    });
+    const ringe =
+      eben && blick.p.y > 0
+        ? beschnitten.flatMap((p) => [p.aussen, ...p.loecher]).filter((r) => r.length >= 3).map((r) => r.map(flach))
+        : netz(beschnitten, g, blick);
+    // Ganz verdeckt oder ausserhalb von area: keine Fläche, also auch kein Ziel.
+    if (!ringe.length) continue;
+    // Im iso füllt die Fläche nicht, sie ist nur Ziel für Name und Tafel; siehe ebenen.md, „Flächen“.
+    const fuellung = f.fuellung;
+    // Ohne Vereinfachen durch Leaflet: Es nähme jeden Ring für sich, gemeinsame Kanten liefen auseinander.
+    const flaeche = L.polygon(ringe.map((r) => r.map(latLng)), {
+      renderer,
+      stroke: false,
+      fillColor: fuellung ?? '#000000',
+      fillOpacity: fuellung && blick.p.y === 0 ? 1 : 0,
+      interactive: f.name !== undefined || f.panel !== undefined,
+      smoothFactor: 0,
+    });
+    // Die Füllung, wie die Ebene sie nennt, auch wo die Fläche sie im iso nicht zeichnet.
+    if (fuellung) flaeche.on('add', () => flaeche.getElement()?.setAttribute('data-fill', fuellung));
+    if (f.name) {
+      const name = document.createElement('span');
+      name.textContent = f.name;
+      flaeche.bindTooltip(name, { sticky: true, className: 'ebene-name' });
+    }
+    const panel = f.panel;
+    if (panel) {
+      const id = f.id;
+      bediene(flaeche, f.name, () => tafel(panel, id));
+    }
+    flaechen.push(flaeche);
+  }
+  return flaechen;
+}
+
+/**
+ * Zeichnet Ränder, Linien und Wände einer Ebene nach 0111: so fein, wie der
+ * Fehler auf dem Schirm es verlangt, nur im Ausschnitt, die Kreise nach
+ * ihrem Radius auf dem Schirm und die Wand mit Bändern nach `wandBaender`.
+ * `punkte` zählt alle Punkte der Pfade. Siehe docs/entscheidungen/0111-geometrie-nach-bildschirmfehler.md.
+ */
+export function zeichneRaender(formen: readonly Form[], z: Zeichnen, schirm: Schirm): { waende: L.Layer[]; striche: Strich[]; punkte: number } {
+  const { renderer, blick, gelaende: g, area, eben } = z;
+  const flach = ([x, zz]: Punkt): Punkt => bildpunkt(x, oberflaeche(g, x, zz), zz, blick);
   const wandLagen: L.Layer[] = [];
   const striche: Strich[] = [];
+  let punkte = 0;
+  // Von oben ist die Wand 0 px hoch, hat also keine Bänder.
+  const baenderZahl = wandBaender(wandHoehe(blick) * schirm.faktor);
+  // Was im Ausschnitt liegen kann, bei jeder Höhe des Geländes; eine Form ganz ausserhalb gibt keinen Punkt.
+  const welt = weltRechteck(schirm.rahmen, blick, g.grund - 128, g.max);
   /** Je Farbe die Ringe der Wände, je Band von unten nach oben. */
   const waende = new Map<string, Punkt[][][]>();
   for (const f of formen) {
-    if (hatFlaeche(f)) {
-      const beschnitten = polygone(f, g.c, eben).map((p) => {
-        const im = (r: Punkt[]) => (area ? ringImRechteck(r, area) : r);
-        return { aussen: im(p.aussen), loecher: p.loecher.map(im) };
-      });
-      const ringe =
-        eben && blick.p.y > 0
-          ? beschnitten.flatMap((p) => [p.aussen, ...p.loecher]).filter((r) => r.length >= 3).map((r) => r.map(flach))
-          : netz(beschnitten, g, blick);
-      // Ganz verdeckt oder ausserhalb von area: keine Fläche, also auch kein Ziel.
-      if (ringe.length) {
-        // Im iso füllt die Fläche nicht, sie ist nur Ziel für Name und Tafel; siehe ebenen.md, „Flächen“.
-        const fuellung = f.fuellung;
-        // Ohne Vereinfachen durch Leaflet: Es nähme jeden Ring für sich, gemeinsame Kanten liefen auseinander.
-        const flaeche = L.polygon(ringe.map((r) => r.map(latLng)), {
-          renderer,
-          stroke: false,
-          fillColor: fuellung ?? '#000000',
-          fillOpacity: fuellung && blick.p.y === 0 ? 1 : 0,
-          interactive: f.name !== undefined || f.panel !== undefined,
-          smoothFactor: 0,
-        });
-        // Die Füllung, wie die Ebene sie nennt, auch wo die Fläche sie im iso nicht zeichnet.
-        if (fuellung) flaeche.on('add', () => flaeche.getElement()?.setAttribute('data-fill', fuellung));
-        if (f.name) {
-          const name = document.createElement('span');
-          name.textContent = f.name;
-          flaeche.bindTooltip(name, { sticky: true, className: 'ebene-name' });
-        }
-        const panel = f.panel;
-        if (panel) {
-          const id = f.id;
-          bediene(flaeche, f.name, () => tafel(panel, id));
-        }
-        flaechen.push(flaeche);
-      }
-    }
     if (f.rand.breite === 0) continue;
-    for (const stueck of zuege(f, g.c, area, eben)) {
+    const [x0, z0, x1, z1] = bereich(f);
+    if (x1 < welt[0] || x0 > welt[2] || z1 < welt[1] || z0 > welt[3]) continue;
+    const kreis = f.kreis ? kreisNachSchirm(f.kreis.mitte, f.kreis.radius, blick, schirm) : undefined;
+    for (const stueck of zuege(f, g.c, area, eben, kreis)) {
       const nie = stueck.map(() => false);
-      const z = eben && blick.p.y > 0 ? { punkte: stueck.map(flach), verdeckt: nie, gestrichelt: nie } : zug(stueck, false, g, blick);
-      striche.push(...laeufe(z, f.rand, renderer));
+      const zz = eben && blick.p.y > 0 ? { punkte: stueck.map(flach), verdeckt: nie, gestrichelt: nie } : zug(stueck, false, g, blick, schirm);
+      punkte += zz.punkte.length;
+      striche.push(...laeufe(zz, f.rand, renderer));
       // Die Wand nur im iso, mit Gelände und nur am Rand einer Fläche, nicht an einer Linie oder einem Kreis ohne Füllung, Namen und Tafel.
-      if (blick.p.y === 0 || eben || !hatFlaeche(f)) continue;
+      if (eben || !hatFlaeche(f) || baenderZahl === 0) continue;
       const farbeWand = f.rand.farbe.slice(0, 7);
-      const baender = waende.get(farbeWand) ?? Array.from({ length: WAND.baender }, (): Punkt[][] => []);
+      const baender = waende.get(farbeWand) ?? Array.from({ length: baenderZahl }, (): Punkt[][] => []);
       waende.set(farbeWand, baender);
-      wand(z, WAND.hoehe * blick.p.y, WAND.baender).forEach((ringe, k) => baender[k]!.push(...ringe));
+      wand(zz, WAND.hoehe * blick.p.y, baenderZahl).forEach((ringe, k) => baender[k]!.push(...ringe));
     }
   }
-  // Die Wände über den Flächen der Ebene, je Farbe und Band ein Pfad; die Ebene zeigt sie nur, wo sie mindestens 1 px hoch sind.
+  // Die Wände über den Flächen der Ebene, je Farbe und Band ein Pfad.
   for (const [farbeWand, baender] of waende) {
     baender.forEach((ringe, k) => {
       if (!ringe.length) return;
-      const deckkraft = WAND.unten * (1 - (k + 0.5) / WAND.baender);
+      punkte += ringe.reduce((summe, r) => summe + r.length, 0);
+      const deckkraft = WAND.unten * (1 - (k + 0.5) / baenderZahl);
       wandLagen.push(L.polygon(ringe.map((r) => [r.map(latLng)]), { renderer, stroke: false, fillColor: farbeWand, fillOpacity: deckkraft, fillRule: 'nonzero', interactive: false, smoothFactor: 0 }));
     });
   }
-  return { flaechen, waende: wandLagen, striche };
+  return { waende: wandLagen, striche, punkte };
 }

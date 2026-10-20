@@ -69,7 +69,9 @@ const punkte = (page: Page) =>
     const art = (p: Element) => (p.getAttribute('stroke') !== 'none' && p.getAttribute('stroke') ? 'strich' : p.getAttribute('fill-rule') === 'nonzero' ? 'wand' : 'flaeche');
     const je: Record<string, number> = {};
     for (const p of pfade) je[art(p)] = (je[art(p)] ?? 0) + (p.getAttribute('d')?.match(/[ML]/g)?.length ?? 0);
-    return { pfade: pfade.length, punkte: pfade.reduce((s, p) => s + (p.getAttribute('d')?.match(/[ML]/g)?.length ?? 0), 0), je };
+    // Mit `?punkte`: die Punkte, die die Karte für Ränder, Linien und Wände rechnet, vor dem Beschneiden durch Leaflet.
+    const raender = [...document.querySelectorAll<HTMLElement>('[data-raender]')].reduce((s, e) => s + Number(e.dataset.raender), 0);
+    return { pfade: pfade.length, punkte: pfade.reduce((s, p) => s + (p.getAttribute('d')?.match(/[ML]/g)?.length ?? 0), 0), je, raender };
   });
 
 /** Summe der langen Aufgaben während eines Verschiebens um 300 px. */
@@ -103,7 +105,7 @@ for (const [b, h] of [
       await kopie(page, kreise);
       const cdp = await page.context().newCDPSession(page);
       const start = Date.now();
-      await page.goto(`/?tiles=/tiles-kopie&${suche}`);
+      await page.goto(`/?tiles=/tiles-kopie&punkte&${suche}`);
       await expect(page.locator('.ebenen')).toBeVisible();
       // Bis die Ebenen stehen: die Zahl der Pfade ändert sich 2 s lang nicht mehr.
       let vorher = -1;

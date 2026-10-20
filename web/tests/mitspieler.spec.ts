@@ -1,6 +1,7 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
+import { createHash } from 'node:crypto';
 import { server, TAUSCH } from './api-server';
-import { DEMO, HAFEN, STAEDTE, welt } from './ebenen-welt';
+import { DEMO, HAFEN, png, STAEDTE, welt } from './ebenen-welt';
 
 const nurStaedte = { liste: () => [STAEDTE], datei: (name: string) => (name === 'staedte' ? { objects: [HAFEN] } : undefined) };
 const ALEX = { uuid: '5f3c2b6e-0d4a-4c1e-9b7a-2e5f6a1d3c90', name: 'Alex<b>!</b>', x: 20, z: -30 };
@@ -139,4 +140,77 @@ test('Mitspieler auch ohne layers.json; ein Gast fragt api/sicht.json nie', asyn
   await page.waitForTimeout(2500);
   expect(gast.anfragen.map((a) => a.pfad)).toEqual(['ich']);
   await expect(page.locator('.mitspieler')).toHaveCount(0);
+});
+
+/** Der Name eines Kopfs: der SHA-256 seiner Bytes. */
+const hash = (daten: Buffer) => createHash('sha256').update(daten).digest('hex');
+const GESICHT = png(8, 8);
+/** Liefert unter koepfe/ je Hash die Bytes oder einen Status; zählt die Anfragen je Pfad. */
+async function koepfe(page: Page, je: Record<string, Buffer | number>): Promise<string[]> {
+  const geholt: string[] = [];
+  await page.route('**/tiles-demo/koepfe/**', (route) => {
+    const name = new URL(route.request().url()).pathname.split('/').pop()!.replace(/\.png$/, '');
+    geholt.push(name);
+    const antwort = je[name];
+    return Buffer.isBuffer(antwort) ? route.fulfill({ body: antwort, contentType: 'image/png' }) : route.fulfill({ status: antwort ?? 404 });
+  });
+  return geholt;
+}
+/** Die Farbe von Pixel (x, y) des Gesichts, in der Mitte seines Felds auf der Leinwand. */
+const pixelIm = (canvas: Locator, x: number, y: number) =>
+  canvas.evaluate((c: HTMLCanvasElement, [x, y]) => {
+    const k = c.width / 8;
+    return [...c.getContext('2d')!.getImageData(x! * k + k / 2, y! * k + k / 2, 1, 1).data];
+  }, [x, y]);
+
+for (const [dpr, k] of [[1, 2], [1.25, 2], [2, 4]] as const) {
+  test.describe(`bei devicePixelRatio ${dpr}`, () => {
+    test.use({ deviceScaleFactor: dpr });
+
+    test(`nach 0114 zeigt ein Mitspieler mit kopf sein Gesicht Pixel für Pixel, je Pixel ${k} Pixel des Geräts; der Betrachter mit gelbem Rahmen; ein neuer kopf zeichnet neu`, async ({ page }) => {
+      await page.addInitScript(() => document.addEventListener('securitypolicyviolation', (e) => ((window as unknown as { csp: string[] }).csp ??= []).push(e.violatedDirective)));
+      const kopf = hash(GESICHT);
+      const anders = 'f'.repeat(64);
+      await koepfe(page, { [kopf]: GESICHT, [anders]: GESICHT });
+      const z = await server(page, { angemeldet: true, ueber: 'ip', sicht: { jetzt: 1000, ich: { x: 35, z: -15, kopf }, spieler: [{ ...ALEX, kopf }] } });
+      await welt(page, nurStaedte);
+      await page.goto(DEMO);
+      const alex = page.locator('.mitspieler:not(.ich) canvas.mitspieler-kopf');
+      await expect(alex).toHaveCount(1);
+      await expect(page.locator('.mitspieler-punkt')).toHaveCount(0);
+      const [breit, hoch, aufDemSchirm] = await alex.evaluate((c: HTMLCanvasElement) => [c.width, c.height, c.getBoundingClientRect().width]);
+      expect([breit, hoch]).toEqual([8 * k, 8 * k]);
+      // Das Layout rundet auf 1/64 px.
+      expect(Math.abs(aufDemSchirm - (8 * k) / dpr)).toBeLessThanOrEqual(1 / 32);
+      for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) expect(await pixelIm(alex, x, y), `${x}, ${y}`).toEqual([(x * 7) % 256, (y * 3) % 256, 128, 255]);
+      const ich = page.locator('.mitspieler.ich canvas.mitspieler-kopf');
+      expect(await ich.evaluate((c) => [getComputedStyle(c).outlineStyle, getComputedStyle(c).outlineWidth, getComputedStyle(c).outlineColor])).toEqual(['solid', '1px', 'rgb(255, 216, 74)']);
+      await expect(page.locator('.mitspieler:not(.ich) .mitspieler-name')).toHaveText('Alex<b>!</b>');
+      // Ein anderer Skin: dieselbe Figur, ein neues Gesicht.
+      await alex.evaluate((c) => ((c as HTMLCanvasElement & { probe?: number }).probe = 1));
+      z.sicht = { jetzt: 1001, ich: { x: 35, z: -15, kopf }, spieler: [{ ...ALEX, kopf: anders }] };
+      await expect.poll(() => page.locator('.mitspieler:not(.ich) canvas.mitspieler-kopf').evaluate((c) => (c as HTMLCanvasElement & { probe?: number }).probe ?? 0), { timeout: 5000 }).toBe(0);
+      expect(await page.evaluate(() => (window as unknown as { csp?: string[] }).csp ?? [])).toEqual([]);
+    });
+  });
+}
+
+test('nach 0114 bleibt ein Mitspieler ein Punkt, wenn kopf nicht 64 Zeichen hex hat (ohne Anfrage), 404 gibt, zu gross ist oder nicht 8 × 8; ein Kopf wird einmal geholt', async ({ page }) => {
+  const gut = hash(GESICHT);
+  const fehlt = '0'.repeat(64);
+  const gross = '1'.repeat(64);
+  const sechzehn = '2'.repeat(64);
+  const geholt = await koepfe(page, { [gut]: GESICHT, [gross]: Buffer.concat([GESICHT, Buffer.alloc(17 * 1024)]), [sechzehn]: png(16, 16) });
+  const mit = (name: string, x: number, kopf: string) => ({ uuid: `${name.padEnd(8, '0')}-0000-4000-8000-000000000000`.slice(0, 36), name, x, z: -30, kopf });
+  const spieler = [mit('Gross', 20, gross), mit('Falsch', 24, 'A'.repeat(64)), mit('Kurz', 28, 'a'.repeat(63)), mit('Fehlt', 32, fehlt), mit('Sechzehn', 36, sechzehn), mit('Gut', 40, gut)];
+  await server(page, { angemeldet: true, ueber: 'ip', sicht: { jetzt: 1000, spieler } });
+  await welt(page, nurStaedte);
+  await page.goto(DEMO);
+  await expect(page.locator('.mitspieler')).toHaveCount(6);
+  const figur = (name: string) => page.locator('.mitspieler', { has: page.locator('.mitspieler-name', { hasText: new RegExp(`^${name}$`) }) });
+  await expect(figur('Gut').locator('canvas.mitspieler-kopf')).toHaveCount(1);
+  for (const name of ['Gross', 'Falsch', 'Kurz', 'Fehlt', 'Sechzehn']) await expect(figur(name).locator('.mitspieler-punkt'), name).toHaveCount(1);
+  // Über mehrere Abrufe von sicht.json bleibt es je Kopf bei einer Anfrage; die falschen fragt die Karte nie.
+  await page.waitForTimeout(4500);
+  expect([...geholt].sort()).toEqual([gut, fehlt, gross, sechzehn].sort());
 });

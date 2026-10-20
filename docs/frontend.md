@@ -753,11 +753,24 @@ liefert: [Plugin](plugin.md), „`Web:` und `sicht.json`“, und
   Seite, verschwinden alle Figuren. Die Uhr des Browsers wird nie mit der des
   Servers verglichen; das Plugin schreibt alle 5 s, auch ohne Bewegung. Ohne
   `jetzt`, also ohne Datei beim Server, gibt es keine.
-- **Figuren:** je Spieler ein Punkt mit dem Namen darunter, der Betrachter
-  gelb. Sie stehen auf der Mitte ihres Blocks, im iso auf der Oberfläche wie
+- **Figuren:** je Spieler sein Gesicht aus dem Skin, sonst ein Punkt, mit
+  dem Namen darunter; der Betrachter mit gelbem Rahmen, als Punkt gelb. Sie
+  stehen auf der Mitte ihres Blocks, im iso auf der Oberfläche wie
   eine Nadel ohne `y`, in einem eigenen Pane über den Nadeln (590). Eine
   bekannte Figur wandert, statt neu zu entstehen; wer fehlt, verschwindet.
   Ohne Glättung zwischen zwei Abrufen.
+- **Köpfe,** entschieden in
+  [0114](entscheidungen/0114-koepfe-der-mitspieler.md): `kopf` in
+  `sicht.json` nennt den SHA-256 des Gesichts unter `koepfe/` der Wurzel,
+  nur mit genau 64 Zeichen hex. Die Karte holt es einmal je Seite, höchstens
+  16 KiB, nur als PNG von 8 × 8, über `createImageBitmap`, und zeichnet es in
+  eine Leinwand, je Pixel 2 · max(1, round(devicePixelRatio)) Pixel des
+  Geräts. Ein neues Icon nur mit anderem Kopf, Namen oder
+  `devicePixelRatio`. Ohne `kopf`, bei 404, zu gross oder nicht 8 × 8 bleibt
+  der Punkt, mit einer Meldung je Kopf.
+  - **Datenschutz:** Der Name der Datei ist der Hash des Bildes, nicht die
+    UUID. Wer `sicht.json` nicht lesen darf, kann einem Kopf keinen Spieler
+    zuordnen; Skins sind ohnehin öffentlich.
 
 ## Skins
 

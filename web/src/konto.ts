@@ -172,18 +172,19 @@ export const ebene = (mod: string, name: string, max: number): Promise<Antwort<u
 /** Der Klick: 202 heisst angenommen, den neuen Zustand kennt erst das Plugin. */
 export const aktion = (k: Knopf): Promise<number> => schicke('aktion', { ebene: k.ebene, objekt: k.objekt, knopf: k.knopf });
 
-/** Ein Mitspieler auf ganzen Blöcken. */
+/** Ein Mitspieler auf ganzen Blöcken; `kopf` ist der SHA-256 seines Gesichts unter `koepfe/`, siehe 0114. */
 export interface Mitspieler {
   uuid: string;
   name: string;
   x: number;
   z: number;
+  kopf?: string;
 }
 
 /** Was `api/sicht.json` sagt: wann das Plugin schrieb, wo der Spieler steht, wenn online, und wen er sieht. */
 export interface Sicht {
   jetzt?: number;
-  ich?: { x: number; z: number };
+  ich?: { x: number; z: number; kopf?: string };
   spieler: Mitspieler[];
 }
 
@@ -195,7 +196,9 @@ export async function sicht(): Promise<Antwort<Sicht>> {
   const wert = await hole('sicht.json', SICHT.bytes);
   if (wert === 'abgemeldet' || wert === 'fehlt') return wert;
   if (!istObjekt(wert)) return { spieler: [] };
-  const lage = (o: unknown) => (istObjekt(o) && istZahl(o.x) && istZahl(o.z) ? { x: o.x, z: o.z } : undefined);
+  // Ein Kopf nur mit genau 64 Zeichen hex, sonst baut die Karte keine Adresse daraus.
+  const lage = (o: unknown) =>
+    istObjekt(o) && istZahl(o.x) && istZahl(o.z) ? { x: o.x, z: o.z, ...(typeof o.kopf === 'string' && /^[0-9a-f]{64}$/.test(o.kopf) ? { kopf: o.kopf } : {}) } : undefined;
   const roh = Array.isArray(wert.spieler) ? wert.spieler.slice(0, SICHT.spieler) : [];
   const spieler: Mitspieler[] = [];
   for (const s of roh) {

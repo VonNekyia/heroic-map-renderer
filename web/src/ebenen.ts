@@ -119,6 +119,8 @@ const ZAEHLEN = new URLSearchParams(location.search).has('punkte');
 
 /** So oft fragt die Karte nach den Mitspielern, und nach so langer Zeit ohne neues `jetzt` gelten sie als veraltet, in ms. */
 const SICHT = { takt: 2000, alt: 15_000 };
+/** Ein Kopf: höchstens so viele Byte, so viele Pixel je Seite; siehe 0114. */
+const KOPF = { bytes: 16 * 1024, seite: 8 };
 
 /** Grenzen aus docs/benutzung/ebenen.md, „Grenzen“. */
 const GRENZEN = { liste: 64 * 1024, datei: 4 * 1024 * 1024, ebenen: 64, objekte: 10_000, nadeln: 1000, bausteine: 64, bild: 512, punkte: 20, banner: [32, 64] };
@@ -1593,21 +1595,71 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
 
   // Die Mitspieler auf der Karte, siehe docs/frontend.md, „Mitspieler“.
   map.createPane('mitspieler').style.zIndex = '590';
-  /** Je Spieler seine Figur; `ich:` vor der UUID für den Betrachter selbst. */
-  const figuren = new Map<string, L.Marker>();
+  /** Je Spieler seine Figur und wofür ihr Icon gezeichnet ist; `ich:` vor der UUID für den Betrachter selbst. */
+  const figuren = new Map<string, { m: L.Marker; fuer: string }>();
+  /** Je Kopf das Gesicht, einmal geholt je Seite; `undefined`, wenn es nicht taugt. */
+  const koepfe = new Map<string, Promise<ImageBitmap | undefined>>();
+  /**
+   * Holt das Gesicht `koepfe/<kopf>.png` aus der Wurzel, höchstens
+   * `KOPF.bytes` und genau 8 × 8, ohne `blob:` oder `data:` für die CSP.
+   * Siehe docs/entscheidungen/0114-koepfe-der-mitspieler.md.
+   */
+  const kopfBild = (kopf: string): Promise<ImageBitmap | undefined> => {
+    let bild = koepfe.get(kopf);
+    if (!bild) {
+      const pfad = `${wurzel}/koepfe/${kopf}.png`;
+      const zuGross = (n: number) => n > KOPF.bytes;
+      const taugtNicht = (warum: string) => {
+        console.warn(`${pfad}: ${warum}, der Spieler bleibt ein Punkt`);
+        return undefined;
+      };
+      bild = (async () => {
+        // Ohne FRISCH: Der Name ist der Hash des Bildes, der Browser darf ihn behalten.
+        const antwort = await fetch(pfad);
+        if (!antwort.ok) return taugtNicht(`${antwort.status}`);
+        // Erst die angesagte Länge, ohne Download, dann die gelesene.
+        if (zuGross(Number(antwort.headers.get('content-length')))) {
+          void antwort.body?.cancel();
+          return taugtNicht(`grösser als ${KOPF.bytes} Byte`);
+        }
+        const daten = await antwort.blob();
+        if (zuGross(daten.size)) return taugtNicht(`grösser als ${KOPF.bytes} Byte`);
+        const b = await createImageBitmap(daten).catch(() => undefined);
+        if (!b) return taugtNicht('kein Bild');
+        return b.width === KOPF.seite && b.height === KOPF.seite ? b : taugtNicht(`${b.width} × ${b.height} statt ${KOPF.seite} × ${KOPF.seite}`);
+      })().catch(() => taugtNicht('nicht zu holen'));
+      koepfe.set(kopf, bild);
+    }
+    return bild;
+  };
   /** Das zuletzt gesehene `jetzt` und wann es kam, nach der Uhr der Seite. */
   let zuletzt: { jetzt?: number; seit: number } = { seit: 0 };
   let sichtLaeuft = false;
   const leereSicht = (): void => {
-    for (const m of figuren.values()) m.remove();
+    for (const { m } of figuren.values()) m.remove();
     figuren.clear();
   };
-  /** Eine Figur: ein Punkt, darunter der Name, nur als Text. */
-  const figur = (name: string, selbst: boolean): L.DivIcon => {
+  /**
+   * Eine Figur: das Gesicht, sonst ein Punkt, darunter der Name, nur als
+   * Text. Ein Pixel des Gesichts ist `k` = 2 · max(1, round(devicePixelRatio))
+   * Pixel des Geräts breit, wie bei den Bannern Pixel auf Pixel.
+   */
+  const figur = (name: string, selbst: boolean, gesicht: ImageBitmap | undefined, k: number): L.DivIcon => {
     const html = L.DomUtil.create('div', 'mitspieler-figur');
-    L.DomUtil.create('span', 'mitspieler-punkt', html);
+    let seite = 12;
+    if (gesicht) {
+      const leinwand = L.DomUtil.create('canvas', 'mitspieler-kopf', html);
+      leinwand.width = leinwand.height = KOPF.seite * k;
+      seite = (KOPF.seite * k) / devicePixelRatio;
+      leinwand.style.width = leinwand.style.height = `${seite}px`;
+      const ctx = leinwand.getContext('2d')!;
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(gesicht, 0, 0, KOPF.seite * k, KOPF.seite * k);
+    } else {
+      L.DomUtil.create('span', 'mitspieler-punkt', html);
+    }
     L.DomUtil.create('span', 'mitspieler-name', html).textContent = name;
-    return L.divIcon({ html, className: selbst ? 'mitspieler ich' : 'mitspieler', iconSize: [12, 12], iconAnchor: [6, 6] });
+    return L.divIcon({ html, className: selbst ? 'mitspieler ich' : 'mitspieler', iconSize: [seite, seite], iconAnchor: [seite / 2, seite / 2] });
   };
   /**
    * Holt die Sicht und stellt die Figuren: neue dazu, bekannte verschoben,
@@ -1626,19 +1678,29 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
       const alle = [...(s.ich && selbst ? [{ uuid: `ich:${selbst.uuid}`, name: selbst.name ?? 'Ich', ...s.ich, selbst: true }] : []), ...s.spieler.map((p) => ({ ...p, selbst: false }))];
       // Die Mitte des Blocks, auf der Oberfläche wie eine Nadel ohne y.
       const lagen = await Promise.all(alle.map(async ({ x, z }) => bildpunkt(x + 0.5, iso ? await oberflaecheJetzt(x + 0.5, z + 0.5) : 0, z + 0.5, blick)));
+      const gesichter = await Promise.all(alle.map((p) => (p.kopf ? kopfBild(p.kopf) : Promise.resolve(undefined))));
       if (!mitspielerAn()) return;
+      const k = 2 * Math.max(1, Math.round(devicePixelRatio));
       const da = new Set<string>();
       alle.forEach((p, i) => {
         const [px, py] = lagen[i]!;
         da.add(p.uuid);
-        const m = figuren.get(p.uuid);
-        if (m) m.setLatLng(L.latLng(py, px));
-        else figuren.set(p.uuid, L.marker(L.latLng(py, px), { icon: figur(p.name, p.selbst), pane: 'mitspieler', interactive: false, keyboard: false }).addTo(map));
+        // Ein neues Icon nur mit anderem Gesicht, anderem Namen oder anderem devicePixelRatio.
+        const fuer = JSON.stringify([gesichter[i] ? p.kopf : undefined, p.name, devicePixelRatio]);
+        const f = figuren.get(p.uuid);
+        if (f) {
+          f.m.setLatLng(L.latLng(py, px));
+          if (f.fuer !== fuer) f.m.setIcon(figur(p.name, p.selbst, gesichter[i], k));
+          f.fuer = fuer;
+        } else {
+          const m = L.marker(L.latLng(py, px), { icon: figur(p.name, p.selbst, gesichter[i], k), pane: 'mitspieler', interactive: false, keyboard: false });
+          figuren.set(p.uuid, { m: m.addTo(map), fuer });
+        }
       });
-      for (const [k, m] of figuren) {
-        if (da.has(k)) continue;
+      for (const [uuid, { m }] of figuren) {
+        if (da.has(uuid)) continue;
         m.remove();
-        figuren.delete(k);
+        figuren.delete(uuid);
       }
     } finally {
       sichtLaeuft = false;

@@ -527,9 +527,18 @@ body {
   background: #ffd84a;
 }
 
+/* Das Gesicht Pixel auf Pixel, gezeichnet in Pixeln des Geräts; der Betrachter mit einem Rahmen in seinem Gelb. */
+.mitspieler-kopf {
+  display: block;
+}
+
+.mitspieler.ich .mitspieler-kopf {
+  outline: 1px solid #ffd84a;
+}
+
 .mitspieler-name {
   position: absolute;
-  top: 14px;
+  top: calc(100% + 2px);
   left: 50%;
   transform: translateX(-50%);
   color: #2b2b2b;

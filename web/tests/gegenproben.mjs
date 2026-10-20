@@ -125,4 +125,12 @@ export default [
   { name: 'vorgabe-ohne-loeschen', datei: 'src/ebenen.ts', alt: '          reihe.setze(undefined);\n          ordne();\n', neu: '          ordne();\n', spec: 'tests/ebenen.spec.ts', titel: 'nach 0113 stellt jeder' },
   { name: 'fokus-weg', datei: 'src/ebenen.ts', alt: '    gedrueckt = { id, schritt };\n', neu: '', spec: 'tests/ebenen.spec.ts', titel: 'nach 0113 stellt jeder' },
   { name: 'umstellen-nur-sichtbare', datei: 'src/ebenen.ts', alt: 'const alle = einreihen(nachServer, reihe.lies()).map((e) => e.id);', neu: 'const alle = eintraege.map((e) => e.id);', spec: 'tests/aktionsebenen.spec.ts', titel: 'nach 0113 bleibt eine Aktionsebene' },
+  // Köpfe der Mitspieler, 0114.
+  { name: 'kopf-ohne-pruefung', datei: 'src/konto.ts', alt: "/^[0-9a-f]{64}$/.test(o.kopf)", neu: 'o.kopf.length > 0', spec: 'tests/mitspieler.spec.ts', titel: 'nach 0114 bleibt ein Mitspieler ein Punkt' },
+  { name: 'kopf-ohne-grenze', datei: 'src/ebenen.ts', alt: 'const zuGross = (n: number) => n > KOPF.bytes;', neu: 'const zuGross = (n: number) => n > Infinity;', spec: 'tests/mitspieler.spec.ts', titel: 'nach 0114 bleibt ein Mitspieler ein Punkt' },
+  { name: 'kopf-jede-groesse', datei: 'src/ebenen.ts', alt: 'return b.width === KOPF.seite && b.height === KOPF.seite ? b :', neu: 'return b.width > 0 ? b :', spec: 'tests/mitspieler.spec.ts', titel: 'nach 0114 bleibt ein Mitspieler ein Punkt' },
+  { name: 'kopf-jedes-mal', datei: 'src/ebenen.ts', alt: '      koepfe.set(kopf, bild);\n', neu: '', spec: 'tests/mitspieler.spec.ts', titel: 'nach 0114 bleibt ein Mitspieler ein Punkt' },
+  { name: 'kopf-ohne-dpr', datei: 'src/ebenen.ts', alt: 'const k = 2 * Math.max(1, Math.round(devicePixelRatio));', neu: 'const k = 2 * Math.max(1, Math.round(1));', spec: 'tests/mitspieler.spec.ts', titel: 'nach 0114 zeigt ein Mitspieler mit kopf' },
+  { name: 'kopf-icon-bleibt', datei: 'src/ebenen.ts', alt: 'if (f.fuer !== fuer) f.m.setIcon(', neu: "if (f.fuer === '') f.m.setIcon(", spec: 'tests/mitspieler.spec.ts', titel: 'nach 0114 zeigt ein Mitspieler mit kopf' },
+  { name: 'ich-ohne-rahmen', datei: 'src/style.css', alt: '.mitspieler.ich .mitspieler-kopf {\n  outline: 1px solid #ffd84a;\n}', neu: '.mitspieler.ich .mitspieler-kopf {\n  outline: 0 solid #ffd84a;\n}', spec: 'tests/mitspieler.spec.ts', titel: 'nach 0114 zeigt ein Mitspieler mit kopf' },
 ];

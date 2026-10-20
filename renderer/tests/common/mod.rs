@@ -264,8 +264,9 @@ fn write_gzip_nbt(path: &Path, value: &impl Serialize) {
 }
 
 /// `level.dat`, die Marke der Weltwurzel, mit der Datenversion von 26.2
-/// wie die übrigen Dateien hier. Der Renderer liest nur sie daraus: den
-/// Seed legt Minecraft seit 26.1 in `world_gen_settings.dat` ab.
+/// wie die übrigen Dateien hier. Der Renderer liest daraus nur sie und die
+/// Datapacks: den Seed legt Minecraft seit 26.1 in `world_gen_settings.dat`
+/// ab.
 pub fn write_level_dat(world: &Path) {
     write_level_dat_mit(world, 4903);
 }
@@ -277,6 +278,24 @@ pub fn write_level_dat_mit(world: &Path, version: i32) {
         "DataVersion".to_string(),
         Value::Int(version),
     )]));
+    let datei = Value::Compound(HashMap::from([("Data".to_string(), daten)]));
+    write_gzip_nbt(&world.join("level.dat"), &datei);
+}
+
+/// Wie `write_level_dat`, mit den Datapacks in `Data.DataPacks`: `aktiv`
+/// als `Enabled`, `aus` als `Disabled`.
+pub fn write_level_dat_mit_paketen(world: &Path, aktiv: &[&str], aus: &[&str]) {
+    use fastnbt::Value;
+    let liste =
+        |ids: &[&str]| Value::List(ids.iter().map(|id| Value::String(id.to_string())).collect());
+    let pakete = Value::Compound(HashMap::from([
+        ("Enabled".to_string(), liste(aktiv)),
+        ("Disabled".to_string(), liste(aus)),
+    ]));
+    let daten = Value::Compound(HashMap::from([
+        ("DataVersion".to_string(), Value::Int(4903)),
+        ("DataPacks".to_string(), pakete),
+    ]));
     let datei = Value::Compound(HashMap::from([("Data".to_string(), daten)]));
     write_gzip_nbt(&world.join("level.dat"), &datei);
 }

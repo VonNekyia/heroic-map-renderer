@@ -6829,6 +6829,164 @@ fn update_braucht_den_stand_und_dieselben_assets() {
     assert_eq!(schnappschuss(baum.path()), vorher, "trotzdem geschrieben");
 }
 
+/// Die Datapacks der Welt, wie das Spiel sie wählt (#288): drei Biome, die
+/// mehrere Packs tragen; das spätere gewinnt. `rot` kommt aus dem Overlay,
+/// das für das Format gilt, nicht aus `data/` und nicht aus dem fremden;
+/// `blau` aus dem zweiten Pack in `Enabled`, `gruen` aus dem, das in keiner
+/// Liste steht und hinten hängt. Das Pack in `Disabled` färbt nichts gelb.
+/// Gras und Laub tragen die Farbe ihres Bioms, die anderen Kanäle bleiben
+/// 0. Ein Pack ohne Biome, Bannermuster und Dimensionen und eine geänderte
+/// Funktion lassen `--update` laufen; ein geändertes Biom verlangt erst
+/// einen vollen Lauf.
+/// Siehe docs/benutzung/assets.md, „Datapacks der Welt“.
+#[test]
+fn datapacks_der_welt() {
+    let welt = tempdir();
+    common::write_world_sections(
+        welt.path(),
+        &[(0, 0), (1, 0), (2, 0)],
+        0..=0,
+        |x, y, z| match y {
+            0 => "minecraft:grass_block",
+            1 if x % 4 == 2 && z % 4 == 2 => "minecraft:jungle_leaves",
+            _ => "minecraft:air",
+        },
+        |cx, _| Some(["beispiel:rot", "beispiel:blau", "beispiel:gruen"][cx as usize]),
+    );
+    common::write_level_dat_mit_paketen(
+        welt.path(),
+        &["vanilla", "file/ordner", "paper", "file/spaeter"],
+        &["file/aus"],
+    );
+    let packs = welt.path().join("datapacks");
+    let schreibe = |rel: &str, inhalt: &str| {
+        let pfad = packs.join(rel);
+        std::fs::create_dir_all(pfad.parent().unwrap()).unwrap();
+        std::fs::write(pfad, inhalt).unwrap();
+    };
+    let biom = |farbe: &str| {
+        format!(
+            r##"{{"has_precipitation": true, "temperature": 0.8, "downfall": 0.4, "effects": {{"water_color": "#3f76e4", "grass_color": "{farbe}", "foliage_color": "{farbe}"}}}}"##
+        )
+    };
+    let meta = r#"{"pack": {"description": ""}, "overlays": {"entries": [
+        {"directory": "neu", "min_format": 100, "max_format": 200},
+        {"directory": "fremd", "min_format": 1, "max_format": 81}]}}"#;
+    let schlicht = r#"{"pack": {"description": ""}}"#;
+    let [rot, gruen, blau, gelb] = ["#ff0000", "#00ff00", "#0000ff", "#ffff00"];
+    for (rel, inhalt) in [
+        ("ordner/pack.mcmeta", meta.to_string()),
+        ("ordner/data/beispiel/worldgen/biome/rot.json", biom(gruen)),
+        (
+            "ordner/neu/data/beispiel/worldgen/biome/rot.json",
+            biom(rot),
+        ),
+        (
+            "ordner/fremd/data/beispiel/worldgen/biome/rot.json",
+            biom(blau),
+        ),
+        ("ordner/data/beispiel/worldgen/biome/blau.json", biom(rot)),
+        ("ordner/data/beispiel/function/f.mcfunction", "say 1".into()),
+        ("spaeter/pack.mcmeta", schlicht.to_string()),
+        ("spaeter/data/beispiel/worldgen/biome/blau.json", biom(blau)),
+        ("spaeter/data/beispiel/worldgen/biome/gruen.json", biom(rot)),
+        ("zuletzt/pack.mcmeta", schlicht.to_string()),
+        (
+            "zuletzt/data/beispiel/worldgen/biome/gruen.json",
+            biom(gruen),
+        ),
+        ("aus/pack.mcmeta", schlicht.to_string()),
+        ("aus/data/beispiel/worldgen/biome/rot.json", biom(gelb)),
+        ("aus/data/beispiel/worldgen/biome/blau.json", biom(gelb)),
+        ("kaputt.zip", "kein Zip".into()),
+    ] {
+        schreibe(rel, &inhalt);
+    }
+    let cache = tempdir();
+    let png = tempdir();
+    let bild = png.path().join("bild.png");
+    let ausgabe = gelungen(&cli(&[
+        OsStr::new("--world"),
+        welt.path().as_os_str(),
+        OsStr::new("--assets"),
+        assets_ref(),
+        OsStr::new("--cache-dir"),
+        cache.path().as_os_str(),
+        OsStr::new("--render"),
+        bild.as_os_str(),
+        OsStr::new("--biome-blend"),
+        OsStr::new("0"),
+        OsStr::new("--scale"),
+        OsStr::new("8"),
+        OsStr::new("--center"),
+        OsStr::new("24"),
+        OsStr::new("8"),
+        OsStr::new("--size"),
+        OsStr::new("512"),
+    ]))
+    .stdout
+    .clone();
+    let ausgabe = String::from_utf8(ausgabe).unwrap();
+    assert!(
+        ausgabe.contains(
+            "Datapacks:  3 aus der Welt: file/ordner (Ordner, Overlays neu), \
+             file/spaeter (Ordner), file/zuletzt (Ordner)\n"
+        ),
+        "{ausgabe}"
+    );
+    assert!(
+        ausgabe.contains("            file/kaputt.zip übergangen: "),
+        "{ausgabe}"
+    );
+    let mut je_kanal = [0; 3];
+    for p in image::open(&bild).unwrap().into_rgba8().pixels() {
+        let an: Vec<usize> = (0..3).filter(|&c| p[c] > 0).collect();
+        match an.as_slice() {
+            [] => {}
+            [kanal] => je_kanal[*kanal] += 1,
+            _ => panic!("{p:?} nicht rein rot, grün oder blau"),
+        }
+    }
+    assert!(je_kanal.iter().all(|&n| n > 1000), "{je_kanal:?}");
+
+    let baum = neuer_baum("2x1-se");
+    let lauf = |update: bool| {
+        let mut extra = vec![
+            "--scale",
+            "12",
+            "--cache-dir",
+            cache.path().to_str().unwrap(),
+        ];
+        extra.extend(update.then_some("--update"));
+        tiles(welt.path(), baum.path(), &extra)
+    };
+    gelungen(&lauf(false));
+    gelungen(&lauf(true));
+    schreibe("leer/pack.mcmeta", schlicht);
+    schreibe("leer/data/beispiel/function/f.mcfunction", "say 1");
+    schreibe("ordner/data/beispiel/function/f.mcfunction", "say 22");
+    let ausgabe = gelungen(&lauf(true)).stdout.clone();
+    assert!(
+        String::from_utf8_lossy(&ausgabe)
+            .contains("ohne Biome, Bannermuster und Dimensionen: file/leer\n"),
+        "{}",
+        String::from_utf8_lossy(&ausgabe)
+    );
+    schreibe(
+        "spaeter/data/beispiel/worldgen/biome/blau.json",
+        &format!("{} ", biom(blau)),
+    );
+    let ausgabe = lauf(true);
+    assert!(!ausgabe.status.success());
+    assert!(
+        String::from_utf8_lossy(&ausgabe.stderr).contains(
+            "stammt von anderen Assets oder Daten (--assets, --data, Datapacks der Welt)"
+        )
+    );
+    gelungen(&lauf(false));
+    gelungen(&lauf(true));
+}
+
 /// Ein Stand eines alten Builds trägt den Fingerabdruck seiner ausführbaren
 /// Datei und gilt als Zeichenstand 1 mit den Tabellen von v0.5.0. Zeichnet
 /// dieser Build noch so, geht das Update und schreibt den heutigen

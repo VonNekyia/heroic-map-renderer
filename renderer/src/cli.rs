@@ -36,6 +36,7 @@ use rayon::prelude::*;
 mod assistent;
 mod banner;
 mod client;
+mod datenpakete;
 mod manifest;
 mod pixel;
 mod schaetzung;
@@ -79,9 +80,9 @@ pub struct Args {
     #[arg(long, value_name = "VERSION", requires = "download_client_jar")]
     client_version: Option<String>,
 
-    /// Mit --download-client-jar der Ordner für das ausgepackte Jar, sonst
-    /// der Cache des Systems; nie unter --tiles
-    #[arg(long, value_name = "DIR", requires = "download_client_jar")]
+    /// Der Ordner für das ausgepackte Client-Jar und die Datapacks der Welt,
+    /// sonst der Cache des Systems; für das Jar nie unter --tiles
+    #[arg(long, value_name = "DIR")]
     cache_dir: Option<PathBuf>,
 
     /// Blockstate an dieser Weltkoordinate ausgeben: --at X Y Z
@@ -565,6 +566,44 @@ fn melde_json(zeile: serde_json::Value) {
     }
 }
 
+/// Die Zeilen `Datapacks:`, nur wenn die Welt welche hat: die gelesenen in
+/// ihrer Reihe, mit Art und Overlays, die ohne etwas zum Lesen und die
+/// übergangenen mit Grund.
+/// Siehe docs/benutzung/assets.md, „Datapacks der Welt“.
+fn melde_datenpakete(gefunden: &datenpakete::Gefunden) {
+    if gefunden.pakete.is_empty() && gefunden.uebergangen.is_empty() {
+        return;
+    }
+    let (mit, ohne): (Vec<_>, Vec<_>) = gefunden.pakete.iter().partition(|p| p.wurzel.is_some());
+    let beschreibe = |p: &datenpakete::Datenpaket| {
+        let art = if p.zip { "Zip" } else { "Ordner" };
+        match p.overlays.as_slice() {
+            [] => format!("{} ({art})", p.id),
+            o => format!("{} ({art}, Overlays {})", p.id, o.join(", ")),
+        }
+    };
+    let liste: Vec<String> = mit.iter().map(|p| beschreibe(p)).collect();
+    println!(
+        "Datapacks:  {} aus der Welt: {}",
+        mit.len(),
+        if liste.is_empty() {
+            "keins".to_string()
+        } else {
+            liste.join(", ")
+        }
+    );
+    if !ohne.is_empty() {
+        let ids: Vec<&str> = ohne.iter().map(|p| p.id.as_str()).collect();
+        println!(
+            "            ohne Biome, Bannermuster und Dimensionen: {}",
+            ids.join(", ")
+        );
+    }
+    for (id, grund) in &gefunden.uebergangen {
+        println!("            {id} übergangen: {grund}");
+    }
+}
+
 /// `Data.DataVersion` der Welt aus `--world`, für die Wahl des Client-Jars.
 fn datenversion(welt: &Option<PathBuf>) -> Result<Option<i32>> {
     Ok(match welt {
@@ -796,11 +835,33 @@ pub fn run() -> Result<()> {
         .map(|[assets, _]| assets.clone())
         .chain(args.assets.iter().cloned())
         .collect();
-    let daten_wurzeln: Vec<PathBuf> = basis
+    let mut daten_wurzeln: Vec<PathBuf> = basis
         .iter()
         .map(|[_, daten]| daten.clone())
         .chain(args.data.iter().cloned())
         .collect();
+    let mut namen: Vec<String> = daten_wurzeln
+        .iter()
+        .map(|dir| dir.display().to_string())
+        .collect();
+    // Die Datapacks der Welt nach allen Datenwurzeln, in der Reihe des
+    // Spiels; nur die, die etwas tragen, was der Renderer liest. Ohne sie
+    // bleiben die Wurzeln und damit der Stand, wie sie waren.
+    // Siehe docs/benutzung/assets.md, „Datapacks der Welt“.
+    let pakete = match args.world.as_deref().map(World::open) {
+        Some(Ok(welt)) => {
+            let cache = client::cache(args.cache_dir.as_deref()).ok();
+            datenpakete::der_welt(&welt, cache.as_deref())?
+        }
+        _ => datenpakete::Gefunden::default(),
+    };
+    melde_datenpakete(&pakete);
+    for paket in &pakete.pakete {
+        if let Some(wurzel) = &paket.wurzel {
+            daten_wurzeln.push(wurzel.clone());
+            namen.push(paket.id.clone());
+        }
+    }
     let mut assets = match asset_wurzeln.as_slice() {
         [] => None,
         roots => {
@@ -814,11 +875,10 @@ pub fn run() -> Result<()> {
                 assets.block_names()?.len(),
                 assets.colors().maps()
             );
-            for dir in &daten_wurzeln {
+            for (dir, name) in daten_wurzeln.iter().zip(&namen) {
                 let [biomes, muster, dimensionen] = assets.load_data(dir)?;
                 println!(
-                    "            {biomes} Biome, {muster} Bannermuster, {dimensionen} Dimensionen und Typen aus {}",
-                    dir.display()
+                    "            {biomes} Biome, {muster} Bannermuster, {dimensionen} Dimensionen und Typen aus {name}"
                 );
             }
             let kaputt = assets.broken_dimensions();
@@ -2643,7 +2703,7 @@ fn stand_fuer_update(dir: &Path, abdruecke: (u64, u64)) -> Result<Stand> {
     );
     ensure!(
         stand.assets == abdruecke.1,
-        "{} stammt von anderen Assets oder Daten (--assets, --data). Erst ein voller Lauf \
+        "{} stammt von anderen Assets oder Daten (--assets, --data, Datapacks der Welt). Erst ein voller Lauf \
          zeichnet alles mit diesen, danach geht --update wieder.",
         pfad.display()
     );

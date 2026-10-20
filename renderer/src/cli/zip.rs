@@ -1,7 +1,8 @@
-//! Dateien eines Zips aus dem Speicher, für das Client-Jar: nur Stored und
-//! Deflate, ohne Zip64 und ohne Verschlüsselung, über flate2. Das Jar ist vor
-//! dem Lesen per SHA-1 geprüft; Länge und CRC-32 jeder Datei prüft der Leser
-//! trotzdem.
+//! Dateien eines Zips aus dem Speicher, für das Client-Jar und die Datapacks
+//! der Welt: nur Stored und Deflate, ohne Zip64 und ohne Verschlüsselung, über
+//! flate2. Das Jar ist vor dem Lesen per SHA-1 geprüft; Länge und CRC-32
+//! jeder Datei prüft der Leser trotzdem. Die Grössen im Verzeichnis eines
+//! Datapacks prüft `cli/datenpakete.rs` vor dem Lesen.
 //! Siehe docs/entscheidungen/0086-client-jar-von-mojang.md.
 
 use std::io::Read;
@@ -91,6 +92,17 @@ impl<'a> Zip<'a> {
             .unwrap_or(UNIX_EPOCH)
     }
 
+    /// Die grösste und die Summe der entpackten Grössen, die das Verzeichnis
+    /// für die Dateien nennt, die `nimm` will.
+    pub(super) fn roh(&self, nimm: impl Fn(&str) -> bool) -> (usize, usize) {
+        self.eintraege
+            .iter()
+            .filter(|e| !e.name.ends_with('/') && nimm(e.name))
+            .fold((0, 0), |(gross, summe), e| {
+                (gross.max(e.roh), summe.saturating_add(e.roh))
+            })
+    }
+
     /// Ruft `tu` für jede Datei, deren Name `nimm` will, mit ihren
     /// entpackten Bytes; Ordner überspringt es. Gibt, wie viele es waren.
     pub(super) fn dateien(
@@ -117,7 +129,8 @@ impl<'a> Zip<'a> {
                 .daten
                 .get(start..start + e.gepackt)
                 .with_context(|| format!("{}: Zip zu kurz", e.name))?;
-            let mut roh = Vec::with_capacity(e.roh);
+            // Höchstens 1 MiB vorab: Das Verzeichnis kann bis 4 GiB nennen.
+            let mut roh = Vec::with_capacity(e.roh.min(1 << 20));
             match e.methode {
                 0 => roh.extend_from_slice(gepackt),
                 // Höchstens ein Byte mehr als angegeben: Mehr wäre ohnehin falsch.

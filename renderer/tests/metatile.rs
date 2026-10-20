@@ -2156,7 +2156,8 @@ fn tempdir() -> TempDir {
 /// 2:1 aus Nordwesten um die Treppe aus Stein, ganz in der einfarbigen
 /// Ansicht von `--flat`; dazu die Mangrovenwurzeln aus #243 in `top-north`
 /// bei scale 4 und die Szene dort in den Stufen der Pyramide mit 2 und 1 px
-/// je Block (#293). Neu erzeugen mit
+/// je Block (#293), und Gras und Laub in den Biomen eines Datapacks (#288).
+/// Neu erzeugen mit
 /// `UPDATE_GOLDEN=1 cargo test --test metatile`.
 #[test]
 fn goldbild_bleibt_gleich() {
@@ -2270,6 +2271,56 @@ fn goldbild_bleibt_gleich() {
     };
     fehler.extend(goldbild(
         "metatile-wurzeln",
+        render_area(&world, &sprites, rect, Y_RANGE).unwrap(),
+    ));
+    // Gras und Laub in zwei Biomen mit eigener `grass_color` und
+    // `foliage_color`, wie sie ein Datapack der Welt bringt (#288).
+    let dir = tempdir();
+    common::write_world_in(
+        dir.path(),
+        &[(0, 0), (1, 0)],
+        |x, y, z| match y {
+            0 => "minecraft:grass_block",
+            1 if x % 4 == 2 && z % 4 == 2 => "minecraft:jungle_leaves",
+            _ => "minecraft:air",
+        },
+        |cx, _| {
+            Some(if cx == 0 {
+                "beispiel:moor"
+            } else {
+                "beispiel:heide"
+            })
+        },
+    );
+    let world = World::open(dir.path()).unwrap();
+    let daten = tempdir();
+    let biome = daten.path().join("beispiel/worldgen/biome");
+    std::fs::create_dir_all(&biome).unwrap();
+    for (name, gras, laub) in [
+        ("moor", "#5d7a3c", "#3f5f28"),
+        ("heide", "#b5a35a", "#8c7a3a"),
+    ] {
+        std::fs::write(
+            biome.join(format!("{name}.json")),
+            format!(
+                r##"{{"has_precipitation": true, "temperature": 0.8, "downfall": 0.4, "effects": {{"water_color": "#3f76e4", "grass_color": "{gras}", "foliage_color": "{laub}"}}}}"##
+            ),
+        )
+        .unwrap();
+    }
+    let mut pack_assets = crate::assets();
+    pack_assets.load_biomes(daten.path()).unwrap();
+    let projection = Projection::new(16);
+    let sprites = tabelle(&mut pack_assets, &world, projection);
+    let (mx, my) = projection.project_block([16, 0, 8]);
+    let rect = ScreenRect {
+        x: mx as i32 - 128,
+        y: my as i32 - 64,
+        width: 256,
+        height: 128,
+    };
+    fehler.extend(goldbild(
+        "metatile-datapack",
         render_area(&world, &sprites, rect, Y_RANGE).unwrap(),
     ));
     assert!(fehler.is_empty(), "{}", fehler.join("\n"));

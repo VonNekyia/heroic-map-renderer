@@ -96,6 +96,15 @@ dem Plugin-Programmierer ab.
   für Bäume, deren Look anders zeichnet. Ein Stand von v0.4.0 oder v0.5.0
   gilt als Zeichenstand 1, solange Zeichenstand und Tabellen die von v0.5.0
   sind.
+- **Ein Update auf dem Stand anderer Assets oder Daten:** die Zeile
+  `Error:` aus `stand_fuer_update` in `cli.rs` mit dem Teiltext „stammt von
+  anderen Assets oder Daten“. Auf ihn stützt sich das Plugin seit
+  plugin#98: Dann nennt `/heroicmap status` „neue Assets: erst /heroicmap
+  render“. Der Teiltext muss bleiben, auch wenn der Satz drumherum sich
+  ändert. Die Zeile kommt nach anderen `--assets` oder `--data` und nach
+  einem Datapack der Welt, das dazukommt oder sich ändert und Biome,
+  Bannermuster oder Dimensionen trägt, siehe
+  [Assets](benutzung/assets.md), „Datapacks der Welt“.
 - **Die Notizen eines Release** sagen, welche Bäume einen vollen Lauf
   brauchen, aus `.github/voller-lauf.sh`; das Plugin liest sie nicht, sein
   CHANGELOG übernimmt sie von Hand. Der Wortlaut, mit den Looks wie in
@@ -115,10 +124,16 @@ dem Plugin-Programmierer ab.
 - **Das Client-Jar:** `--download-client-jar` nur, wenn der Betreiber in
   `config.yml` zugestimmt hat, Vorgabe `false`; `eula=true` des Servers
   zählt nicht (#147, [0086](entscheidungen/0086-client-jar-von-mojang.md)).
-  Dazu `--cache-dir` mit dem Datenordner des Plugins, nie unter einer
-  Wurzel von `--tiles` und nie unter der Seite von `--web`. Den Text der Zustimmung zeigt das Plugin
+  Den Text der Zustimmung zeigt das Plugin
   sinngemäss wie [Assets](benutzung/assets.md), „Von Mojang laden“; ohne
   Zustimmung bricht ein Lauf ohne `--assets` mit diesem Text ab.
+- **Der Cache:** `--cache-dir` mit dem Datenordner des Plugins bei jedem
+  Lauf, auch ohne Zustimmung zum Jar, nie unter einer Wurzel von `--tiles`
+  und nie unter der Seite von `--web`. Darin liegen das ausgepackte Jar und
+  die Datapacks der Welt. Ohne den Schalter landen sie im Cache des
+  Systems; gibt es keinen, übergeht der Renderer jedes Datapack, das etwas
+  trägt. Bis zum Renderer mit #288 gab das Plugin ihn nur mit der
+  Zustimmung.
 - **Die Marke `nur-download`** im Ordner eines Baums, den die Webkarte
   nicht zeigen soll, angelegt vor seinem ersten Lauf: Er fehlt dann in
   `trees.json` und ist nur über den Download zu haben. Fehlt die Marke, ist

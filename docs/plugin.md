@@ -444,6 +444,10 @@ so: [0110](entscheidungen/0110-erkennung-per-ip.md).
   ```
 
   - Offline `{"jetzt":…,"spieler":[]}` ohne `ich`.
+  - `kopf`, optional je Spieler und in `ich`: der SHA-256 seines Gesichts
+    unter `koepfe/` der Wurzel, 64 Zeichen hex klein; erst die Datei, dann
+    der Hash. Format, Datenschutz und Aufräumen:
+    [0114](entscheidungen/0114-koepfe-der-mitspieler.md).
   - Höchstens 256 Spieler und 64 KiB; grösser liefert der Server sie
     nicht.
   - Ohne Änderung alle 5 s neu, mit neuem `jetzt` als Herzschlag.

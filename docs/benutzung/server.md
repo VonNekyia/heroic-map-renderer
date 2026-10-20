@@ -74,6 +74,7 @@ Server:     http://127.0.0.1:8080 mit ./tiles unter /tiles/ und ./web/dist unter
   | `layers/<modname>/<ebene>.json` | die Datei einer Ebene |
   | `layers/<modname>/images/<bild>.png`, `.webp` | ein Bild einer Ebene |
   | `layers/<modname>/banner/<ebene>/<satz>/<entwurf>.png`, `…/<satz>/krone/<entwurf>.png`, `…/<satz>/satz.json` | die Sprites der Banner, ohne und mit Krone, und Fuss und Winkel ihres Satzes, siehe [Ebenen](ebenen.md), „Sprites“ |
+  | `koepfe/<sha256>.png` | der Kopf eines Mitspielers für die Webkarte, siehe unten |
 
   Ein Baum heisst nur `a–z 0–9 -`, die Zahlen stehen, wie der Renderer sie
   schreibt, ohne `+` und führende Nullen. Alles andere gibt `404`, auch
@@ -90,6 +91,20 @@ Server:     http://127.0.0.1:8080 mit ./tiles unter /tiles/ und ./web/dist unter
     und kein `..`.
   - **Bilder** nur direkt in `images/`, ohne Unterordner, als `.png` oder
     `.webp`. Die Karte lädt sie unter `img-src 'self'`.
+- **Die Köpfe der Mitspieler** liefert er aus `koepfe/` in der Wurzel,
+  öffentlich, ohne Token und ohne Blick in `trees.json` (#324). Wer welcher
+  Kopf ist, steht nur in `sicht.json` des Betrachters, siehe
+  „Erkennung per IP“.
+  - **Namen:** genau der SHA-256 der Datei als 64 Zeichen `0–9 a–f`, dann
+    `.png`, ohne Unterordner (`ist_kopf` in
+    [`renderer/src/cli/server.rs`](../../renderer/src/cli/server.rs)). Jeder
+    andere Name gibt `404`, auch einer mit `.` vorn, wie das Plugin halbe
+    Dateien schreibt, und einer in Grossbuchstaben.
+  - **Für immer im Cache:** Unter seinem Namen ändert sich ein Kopf nie. Er
+    trägt darum `public, max-age=31536000, immutable`, dazu ETag und
+    `Last-Modified` wie jede Datei.
+  - **Keine Grenze der Grösse** im Server, wie bei Kacheln und Ebenen; die
+    Karte prüft sie.
 - **Nur Bäume der Webkarte:** Pfade unter `<baum>/` liefert er nur für
   Bäume, die `trees.json` der Wurzel unter `path` nennt, sonst `404`; ohne
   lesbare `trees.json` für keinen. Ein Baum mit der leeren Datei
@@ -142,8 +157,9 @@ Server:     http://127.0.0.1:8080 mit ./tiles unter /tiles/ und ./web/dist unter
 - **`Last-Modified`** an jeder Datei; die Karte zeigt daraus den Stand von
   `map.json`. Eine Zeit vor 1970 oder nach 9999 geht geklemmt hinaus.
 - **`Cache-Control: no-cache`:** Der Browser fragt jedes Mal nach und bekommt
-  für Unverändertes ein kurzes `304`. Nur die gehashten Dateien der Seite
-  unter `/assets/` tragen `max-age=31536000, immutable`.
+  für Unverändertes ein kurzes `304`. Nur was sich unter seinem Namen nie
+  ändert, trägt `public, max-age=31536000, immutable`: die gehashten
+  Dateien der Seite unter `/assets/` und die Köpfe unter `/tiles/koepfe/`.
 - **`304`** bei gleichem `If-None-Match`, auch in einer Liste, mit `W/` oder
   `*`. Steht `If-None-Match` da, zählt `If-Modified-Since` nicht; sonst gibt
   `If-Modified-Since` nur bei gleichem Wert `304`. Verglichen wird auf
@@ -706,7 +722,8 @@ ohne gültiges Zertifikat; dazu der Download mit Token, die der Test selbst
 unterschreibt: jeder Status, Baum und Stufe, der Deckel je Zufall, der Strom
 als ZIP mit `nach` und Abbruch am Deckel, das
 Geheimnis, ein einzelner Baum als Wurzel und dass `/tiles/` nur Bäume aus
-`trees.json` liefert; dazu die Angaben der Seite mit Vorlagen von Hand;
+`trees.json` liefert; die Köpfe nur mit dem SHA-256 als Namen und für immer
+im Cache (`liefert_die_koepfe`); dazu die Angaben der Seite mit Vorlagen von Hand;
 dazu die Webkarte je Spieler: Anmeldung nur von der Karte und jede einmal,
 falsche Fassung, Laufzeit über 5 min und fremdes Geheimnis, das Cookie mit
 und ohne `Secure`, die Dateien nur mit Sitzung und nie im Cache, keine Wege

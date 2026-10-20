@@ -764,7 +764,8 @@ struct Ziel {
     pfad: PathBuf,
     /// Ein Ordner gibt seine `index.html`; nur unter `--web`.
     index: bool,
-    /// Gehasht und nie neu unter demselben Namen: `/assets/` unter `--web`.
+    /// Gehasht und nie neu unter demselben Namen: `/assets/` unter `--web`
+    /// und die Köpfe unter `/tiles/koepfe/`.
     dauerhaft: bool,
     /// Der Baum unter der Wurzel, den `trees.json` nennen muss; nur unter
     /// `/tiles/`.
@@ -906,7 +907,7 @@ async fn ganz(z: Arc<Zustand>, anfrage: Request<Incoming>) -> Response<Full<Byte
         Some(rest) => kachelpfad(&z.kacheln, rest).map(|(pfad, baum)| Ziel {
             pfad,
             index: false,
-            dauerhaft: false,
+            dauerhaft: rest.starts_with("koepfe/"),
             baum: baum.map(str::to_string),
         }),
         None => z
@@ -1163,13 +1164,24 @@ pub(super) fn ist_baum(name: &str) -> bool {
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
 }
 
+/// Ein Kopf unter `koepfe/`: der SHA-256 seiner Bytes als 64 Zeichen hex
+/// klein, dann `.png`. So heisst jeder Kopf nur einmal, und eine halbe
+/// Datei des Plugins mit `.` vorn ist keiner.
+/// Siehe docs/benutzung/server.md, „Was er ausliefert“.
+fn ist_kopf(name: &str) -> bool {
+    name.strip_suffix(".png").is_some_and(|hash| {
+        hash.len() == 64 && hash.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+    })
+}
+
 /// Der Pfad unter `/tiles/`, nur für das, was Karte und Mod brauchen:
 /// `trees.json` und die Höhen der Wurzel, je Baum `map.json`, `manifest`,
 /// seine Höhen und `z/x/y.webp`, dasselbe für einen einzelnen Baum als
 /// Wurzel, dazu die Ebenen: `layers.json`, `layers/<modname>/<ebene>.json`,
 /// ihre Bilder unter `layers/<modname>/images/` und die Sprites der Banner
 /// unter `layers/<modname>/banner/<ebene>/<satz>/`, ohne und mit Krone,
-/// samt `satz.json`. Ein Baum und ein Satz heissen nur `a–z 0–9 -`
+/// samt `satz.json`, und die Köpfe der Mitspieler unter `koepfe/`
+/// ([`ist_kopf`]). Ein Baum und ein Satz heissen nur `a–z 0–9 -`
 /// ([`ist_baum`]), die Zahlen stehen, wie der Renderer sie schreibt. Alles
 /// andere, etwa `stand.bin`, der Stempel eines Satzes oder eine halb
 /// geschriebene Datei, gibt `None`. Dazu der Baum, in dem der Pfad liegt.
@@ -1215,6 +1227,7 @@ fn kachelpfad<'a>(wurzel: &Path, rest: &'a str) -> Option<(PathBuf, Option<&'a s
         {
             (true, None)
         }
+        ["koepfe", name] => (ist_kopf(name), None),
         [b, "map.json" | MANIFEST] => (baum(b), Some(*b)),
         [b, "heights" | "ground", name] => (baum(b) && hoehe(name), Some(*b)),
         [z, x, y] => (kachel(z, x, y), None),
@@ -1352,7 +1365,7 @@ fn lies(
         HeaderValue::from_str(&geaendert).ok()?,
     );
     let cache = match ziel.dauerhaft {
-        true => "max-age=31536000, immutable",
+        true => "public, max-age=31536000, immutable",
         false => "no-cache",
     };
     h.insert(header::CACHE_CONTROL, HeaderValue::from_static(cache));
@@ -1506,6 +1519,7 @@ mod tests {
             "layers/beispiel/banner/staedte/oben/0f8fad5b-d9cb-469f-a165-70867728950e.png",
             "layers/beispiel/banner/staedte/2x1-se-cinematic/krone/nordreich.png",
             "layers/beispiel/banner/staedte/oben/satz.json",
+            "koepfe/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef.png",
         ] {
             assert!(kachelpfad(wurzel, erlaubt).is_some(), "{erlaubt}");
         }
@@ -1527,6 +1541,10 @@ mod tests {
             ("layers.json", None),
             ("layers/beispiel/staedte.json", None),
             ("layers/beispiel/images/burg_16.png", None),
+            (
+                "koepfe/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef.png",
+                None,
+            ),
         ] {
             assert_eq!(kachelpfad(wurzel, pfad).unwrap().1, baum, "{pfad}");
         }
@@ -1614,6 +1632,27 @@ mod tests {
             "layers/beispiel/banner/staedte/oben/con.png",
         ] {
             assert_eq!(kachelpfad(wurzel, verboten), None, "{verboten}");
+        }
+        // Die Köpfe: genau 64 Zeichen hex klein und `.png`, sonst nichts.
+        let k = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        for verboten in [
+            "koepfe".to_string(),
+            "koepfe/".to_string(),
+            "koepfe/.png".to_string(),
+            format!("koepfe/{}.png", &k[..63]),
+            format!("koepfe/{k}0.png"),
+            format!("koepfe/{}.png", k.to_uppercase()),
+            format!("koepfe/{}g.png", &k[..63]),
+            format!("koepfe/{k}.webp"),
+            format!("koepfe/{k}"),
+            format!("koepfe/.{k}.png"),
+            format!("koepfe/{k}.png.12.tmp"),
+            format!("koepfe/a/{k}.png"),
+            format!("koepfe/{k}.png/x"),
+            format!("Koepfe/{k}.png"),
+            format!("t/koepfe/{k}.png"),
+        ] {
+            assert_eq!(kachelpfad(wurzel, &verboten), None, "{verboten}");
         }
     }
 

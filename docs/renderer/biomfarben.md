@@ -214,7 +214,8 @@ Himmels“; `attributes` darf fehlen, ist es da, muss es ein Objekt sein, und
 eine dieser Farben muss eine Farbe sein oder ein Modifikator. Ein Biom, das
 der Codec ablehnt, übergeht der Renderer und nennt es beim Start; der
 Client lüde sein Datenpaket gar nicht. Woher
-die Biomdefinitionen kommen: [Assets und Biomdaten](../benutzung/assets.md).
+die Biomdefinitionen kommen: [Assets und Biomdaten](../benutzung/assets.md),
+die der Datapacks einer Welt dort unter „Datapacks der Welt“.
 
 ## Belege
 

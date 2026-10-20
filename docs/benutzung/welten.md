@@ -128,13 +128,17 @@ auflösen, zählt er so, wie er angegeben ist, auch in seiner Schreibweise:
 
 ## Datenversion
 
-Aus `level.dat` der Weltwurzel liest der Renderer nur `Data.DataVersion`,
+Aus `level.dat` der Weltwurzel liest der Renderer `Data.DataVersion`,
 die Version des Spiels, das die Welt zuletzt gestartet hat, für 26.2 4903,
 für 26.3 5023. Danach wählt er die Sicht in der Ecke der weichen
 Beleuchtung, siehe [Weiche Beleuchtung](../renderer/weiche-beleuchtung.md),
 „Welten aus 26.2“. Der Lauf nennt sie in der Zeile `Version:`. Ohne
 Weltwurzel gibt es keine, dann gilt 26.3. Eine `level.dat`, die sich nicht
 lesen lässt, bricht den Lauf ab.
+
+Ausserdem liest er `Data.DataPacks`, welche Datapacks unter `datapacks/`
+die Welt nutzt, siehe [Assets und Biomdaten](assets.md), „Datapacks der
+Welt“.
 
 ## Wo der Seed steht
 

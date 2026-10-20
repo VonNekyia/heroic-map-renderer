@@ -218,6 +218,59 @@ impl World {
         self.datenversion
     }
 
+    /// Die Weltwurzel, das Verzeichnis mit `level.dat`; `None`, wenn das
+    /// Verzeichnis zu keiner Welt gehört, siehe [`locate`].
+    pub fn wurzel(&self) -> Option<&Path> {
+        self.home.as_ref().map(|(wurzel, _)| wurzel.as_path())
+    }
+
+    /// `Data.DataPacks` aus `level.dat` der Weltwurzel: die aktivierten
+    /// Datapacks in ihrer Reihenfolge und die abgeschalteten, wie
+    /// `DataPackConfig.CODEC` mit `Enabled` und `Disabled`. Fehlt der
+    /// Eintrag oder ist er keiner aus zwei Listen von Texten, gilt wie im
+    /// Spiel `[vanilla]` (`DataPackConfig.DEFAULT`). `None` ohne Weltwurzel.
+    /// Siehe docs/benutzung/assets.md, „Datapacks der Welt“.
+    pub fn datenpakete(&self) -> Result<Option<(Vec<String>, Vec<String>)>> {
+        #[derive(Deserialize)]
+        struct Daten {
+            #[serde(rename = "DataPacks")]
+            pakete: Option<fastnbt::Value>,
+        }
+        #[derive(Deserialize)]
+        struct Level {
+            #[serde(rename = "Data")]
+            daten: Daten,
+        }
+        let Some(wurzel) = self.wurzel() else {
+            return Ok(None);
+        };
+        let level: Level = read_nbt(&wurzel.join("level.dat"))?;
+        let texte = |liste: &fastnbt::Value| -> Option<Vec<String>> {
+            let fastnbt::Value::List(werte) = liste else {
+                return None;
+            };
+            werte
+                .iter()
+                .map(|wert| match wert {
+                    fastnbt::Value::String(id) => Some(id.clone()),
+                    _ => None,
+                })
+                .collect()
+        };
+        let gelesen = level.daten.pakete.and_then(|wert| {
+            let fastnbt::Value::Compound(felder) = wert else {
+                return None;
+            };
+            Some((
+                texte(felder.get("Enabled")?)?,
+                texte(felder.get("Disabled")?)?,
+            ))
+        });
+        Ok(Some(gelesen.unwrap_or_else(|| {
+            (vec!["vanilla".to_string()], Vec::new())
+        })))
+    }
+
     /// Ob die weiche Beleuchtung die Sicht in der Ecke wie 26.2 fragt: in
     /// einer Welt vor [`DATENVERSION_26_3`]. Ohne Datenversion wie 26.3.
     /// Siehe docs/renderer/weiche-beleuchtung.md, „Welten aus 26.2“.

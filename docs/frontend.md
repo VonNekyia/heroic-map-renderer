@@ -590,19 +590,23 @@ Banner, feste Grösse und die Tafel beim Zeigen folgen
     - die Wand hat je Band mindestens 8 px, höchstens 12 Bänder, unter 1 px
       keine; bei scale 16 in 2:1 auf Zoom 0 also 6, auf −1 3, auf −2 1;
     - eine Fläche als Netz nur im Ausschnitt, in Feldern von mindestens
-      4 px auf dem Schirm: die Zelle, so oft verdoppelt, wie es dafür
+      16 px auf dem Schirm: die Zelle, so oft verdoppelt, wie es dafür
       braucht (`feldKante`). Verdeckt nach der Oberfläche in den Mitten der
       Felder; jede Kante an den Zellen abgetastet und auf ε vereinfacht, die
       Ecken der Stücke fest, so vereinfachen zwei Felder ihre gemeinsame
-      Kante gleich und lassen keinen Spalt. Der Rand des Ziels liegt so
-      höchstens ε neben dem der Fläche;
+      Kante gleich und lassen keinen Spalt. Eine Seite eines groben Felds
+      liegt nur innen oder an der Grenze zum Verdeckten und nimmt nur ihre
+      Ecken; damit keine Kante der Fläche auf einer solchen Seite liegt,
+      rückt ein Punkt genau auf einer Linie der groben Felder um 10⁻⁶ Blöcke.
+      Der Rand des Ziels liegt so höchstens ε neben dem der Fläche;
     - die Ziele der Flächen legt die Karte einmal je `version` an und setzt
       je Ansicht nur ihre Ringe; so bleiben Tooltip, eine offene Tafel und
       der Fokus. Eine Fläche ohne Ringe, ganz verdeckt oder ausserhalb, nimmt
       sie weg, auch aus der Reihe für Tab;
     - mit `?punkte` in der Adresse schreibt die Karte die Zahl dieser Punkte
       als `data-punkte` an das Pane der Formen, für Tests und Messungen;
-      gemessen in [Ebenen nach 0111](messungen/2026-10-20-ebenen-nach-0111.md);
+      gemessen in [Ebenen nach 0111](messungen/2026-10-20-ebenen-nach-0111.md)
+      und [Flächen nach 0111](messungen/2026-10-20-flaechen-nach-0111.md);
   - **ohne Gelände,** wenn eine Ebene ganz auf `seaLevel` liegt, ohne Höhen
     oder über der Grenze oben: Flächen und Ränder sind ihre Ringe, ohne Netz,
     ohne Abtasten und ohne Wand. Es ist nichts verdeckt, und es gibt nichts

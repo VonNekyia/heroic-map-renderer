@@ -880,8 +880,10 @@ haben keine Wand. Von oben gibt es keine.
   in Pixeln der feinsten Stufe also 6 · b über dem Rand.
 - **Farbe:** die des Rands ohne Alpha. Ein Rand mit `width: 0` hat keine
   Wand.
-- **Verlauf:** am Boden 0,6 deckend, nach oben linear bis 0, in 12 Bändern
-  gleicher Höhe; Band k von unten hat `0,6 · (1 − (k + ½) / 12)`.
+- **Verlauf:** am Boden 0,6 deckend, nach oben linear bis 0, in n Bändern
+  gleicher Höhe, höchstens 12; Band k von unten hat `0,6 · (1 − (k + ½) / n)`.
+  Die Webkarte nimmt je Band mindestens 8 px auf dem Schirm, siehe
+  [0111](../entscheidungen/0111-geometrie-nach-bildschirmfehler.md).
 - **Verdeckt:** Eine Strecke des Rands, die hinter Gelände liegt, hat keine
   Wand; welche das sind, wie beim Rand, siehe „Was verdeckt ist“.
 - **Gezeichnet** je Ebene, Farbe und Band als ein Pfad, `nonzero`: Je Lauf

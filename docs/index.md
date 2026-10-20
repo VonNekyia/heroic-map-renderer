@@ -186,6 +186,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0108](entscheidungen/0108-pflanzen-von-oben-flach.md): Bodenpflanzen liegen von oben flach, die Textur der ersten senkrechten Fläche über dem ganzen Block, Norden oben; nicht in Cinematic; halb so gross und wenige Punkte an der Vorschau verworfen.
 - [0109](entscheidungen/0109-1-und-2-px-als-stufen.md): Karten mit 1 und 2 px je Block sind die Stufen z − 2 und z − 1 des Baums aus `top-north` mit 4 px, keine eigenen Bäume; mehrere Massstäbe je Baum von selbst; eigene Bäume mit scale 2 und 1 verworfen.
 - [0110](entscheidungen/0110-erkennung-per-ip.md): Erkennung per IP für die Webkarte: genau ein Spieler online je IP, nur zum Ansehen, Klicks nur mit Anmeldung; `ips` als HMAC vom Plugin; `X-Real-IP` nur von einzelnen Proxys; IPv6 über einen Namen nur mit IPv4.
+- [0111](entscheidungen/0111-geometrie-nach-bildschirmfehler.md): Ränder, Linien, Kreise und Wände der Ebenen je Ansicht nach dem Fehler auf dem Schirm, ε = 0,5 px, nur im Ausschnitt, neu nach Zoom und Verschieben; Wand mit Bändern ab 8 px (User, 20.10.); feste Grenze, Vorhang, Canvas verworfen.
 - [0112](entscheidungen/0112-abgebrochene-laeufe-legen-ihr-gebiet-ab.md): Ein abgebrochenes Update und ein Ausschnitt legen ihr Gebiet als Kacheln in `gebiet-offen.bin` ab, statt im Stand Chunks unbekannt zu machen; das nächste Update zeichnet es noch einmal, und es wächst nicht mehr mit jedem Abbruch.
 
 ## Versuche

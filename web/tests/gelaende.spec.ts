@@ -1,6 +1,8 @@
 import { expect, test } from '@playwright/test';
 import {
   abtasten,
+  abtastenImRahmen,
+  kreisSeiten,
   glaetten,
   kreisRing,
   netz,
@@ -18,6 +20,7 @@ import {
   type Blick,
   type Gelaende,
   type Punkt,
+  type Schirm,
 } from '../src/gelaende';
 import { projiziere, zweiZuEins, type Projektion } from '../src/pick';
 
@@ -69,6 +72,73 @@ test('abtasten: Anfang, Schnitte mit den Linien durch die Mitten der Zellen, je 
   expect(ring[0]).toEqual([0, 0]);
   expect(ring.at(-1)).toEqual([0, 0]);
   expect(ring).toContainEqual([2, 2]);
+});
+
+/** Ein Gelände mit Hügeln quer zum Weg: bilinear in Zellen von 4, Höhen 40 bis 100. */
+const huegel = gelaende((i, j) => 70 + 25 * Math.sin(i / 2.3) + 5 * Math.cos(j / 1.7));
+/** Ein Schirm auf Zoom `z` unter der feinsten Stufe, mit einem grossen Rahmen und ε = 0,5 px. */
+const schirm = (z: number, rahmen: [number, number, number, number] = [-1e6, -1e6, 1e6, 1e6]): Schirm => ({ faktor: 2 ** z, rahmen, eps: 0.5 });
+/** Der grösste Abstand der Punkte `dicht` vom Linienzug `zug`. */
+function abweichung(dicht: Punkt[], zug: Punkt[]): number {
+  let max = 0;
+  for (const p of dicht) {
+    let best = Infinity;
+    for (let i = 1; i < zug.length; i++) {
+      const [a, b] = [zug[i - 1]!, zug[i]!];
+      const [dx, dy] = [b[0] - a[0], b[1] - a[1]];
+      const l2 = dx * dx + dy * dy;
+      const t = l2 ? Math.max(0, Math.min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / l2)) : 0;
+      best = Math.min(best, Math.hypot(p[0] - a[0] - t * dx, p[1] - a[1] - t * dy));
+    }
+    max = Math.max(max, best);
+  }
+  return max;
+}
+/** Die Länge eines Zugs. */
+const laenge = (zug: Punkt[]) => zug.slice(1).reduce((summe, p, i) => summe + Math.hypot(p[0] - zug[i]![0], p[1] - zug[i]![1]), 0);
+
+test('kreisSeiten: die Pfeilhöhe jeder Seite unter ε, mit den wenigsten Seiten, die das schaffen, mindestens 12', () => {
+  for (const r of [0.3, 5, 50, 500, 5000, 50_000]) {
+    const n = kreisSeiten(r, 0.5);
+    expect(n).toBeGreaterThanOrEqual(12);
+    expect(r * (1 - Math.cos(Math.PI / n))).toBeLessThanOrEqual(0.5);
+    if (n > 12) expect(r * (1 - Math.cos(Math.PI / (n - 1)))).toBeGreaterThan(0.5);
+  }
+});
+
+/** Ein Zug auf dem Schirm, mal `faktor`. */
+const mal = (punkte: Punkt[], s: Schirm): Punkt[] => punkte.map(([a, b]) => [a * s.faktor, b * s.faktor]);
+
+test('zug mit Schirm: auf dem Schirm höchstens ε vom Zug ohne Schirm, geglättet und an den Zellen; auf jedem Zoom; jeder Wechsel von verdeckt bleibt', () => {
+  const weg: Punkt[] = [[3, 7], [383, 161], [203, 400]];
+  const genau = zug(weg, false, huegel, SE);
+  for (const z of [0, -1, -2, -3, -4, -5]) {
+    const s = schirm(z);
+    const grob = zug(weg, false, huegel, SE, s);
+    expect(abweichung(mal(genau.punkte, s), mal(grob.punkte, s)), `Zoom ${z}`).toBeLessThanOrEqual(0.5 + 1e-9);
+    // Jeder Wechsel bleibt an derselben Stelle: beide Punkte um ihn, nebeneinander.
+    const wechsel = (zz: typeof genau) => zz.punkte.flatMap((p, i) => (i > 0 && zz.verdeckt[i] !== zz.verdeckt[i - 1] ? [[zz.punkte[i - 1], p]] : []));
+    expect(wechsel(grob), `Zoom ${z}`).toEqual(wechsel(genau));
+  }
+});
+
+test('zug mit Schirm: Herauszoomen gibt nie mehr Punkte; je Zug höchstens 2 · Länge in px / ε und die Ecken', () => {
+  const weg: Punkt[] = [[3, 7], [383, 161], [203, 400], [3, 7]];
+  let vorher = Infinity;
+  for (const z of [0, -1, -2, -3, -4, -5, -6]) {
+    const s = schirm(z);
+    const punkte = zug(weg, false, huegel, SE, s).punkte;
+    expect(punkte.length, `Zoom ${z}`).toBeLessThanOrEqual(vorher);
+    vorher = punkte.length;
+    expect(punkte.length, `Zoom ${z}`).toBeLessThanOrEqual((2 * laenge(mal(punkte, s))) / s.eps + weg.length);
+  }
+});
+
+test('abtastenImRahmen: Strecken ausserhalb des Rahmens geben nur ihre Ecken, auf jedem Zoom; innen wie abtasten', () => {
+  const draussen: Punkt[] = [[5000, 5000], [9000, 5000], [9000, 9000]];
+  for (const z of [0, -3, -6]) expect(abtastenImRahmen(draussen, false, huegel, SE, schirm(z, [0, 0, 2000, 2000]))).toEqual(draussen);
+  const innen: Punkt[] = [[3, 7], [83, 61]];
+  expect(abtastenImRahmen(innen, false, huegel, SE, schirm(-2))).toEqual(abtasten(innen, false, 4, Infinity));
 });
 
 test('abtasten: Ein Zug über 512 Zellen schneidet an Linien im Abstand Länge / 512, so bleiben es höchstens etwa 4 · 512 Proben, gleich wie lang', () => {

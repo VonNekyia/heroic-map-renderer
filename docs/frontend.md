@@ -554,11 +554,12 @@ Banner, feste Grösse und die Tafel beim Zeigen folgen
     den Nadeln. Im Fokus hat sie keinen Rahmen, der Kasten um ihre Grenzen
     wäre; für die Tastatur (`:focus-visible`) zeigt sie ihren Umriss als
     Strich von 2 px in `--ui-markiert`;
-  - die Höhen: je Laden einer Ebene einmal, die Regionen aller ihrer Formen
-    in einem und die aller ihrer Schriften in einem: für eine Fläche ihr
-    Rechteck, für Ränder und Linien die Regionen entlang des Zugs, je samt
-    dem Streifen zur Kamera, aus dem Gelände verdecken kann, und nur
-    innerhalb von `area`. Formen nehmen `ground`, je Region ohne Datei
+  - die Höhen: für die Flächen und die Schriften je Laden einer Ebene
+    einmal, die Regionen aller ihrer Flächen in einem und die aller ihrer
+    Schriften in einem; für Ränder und Linien je Ansicht nach 0111, nur die
+    Regionen im Ausschnitt. Für eine Fläche ihr Rechteck, für Ränder und
+    Linien die Regionen entlang des Zugs, je samt dem Streifen zur Kamera,
+    aus dem Gelände verdecken kann, und nur innerhalb von `area`. Formen nehmen `ground`, je Region ohne Datei
     `heights`, mit einem eigenen Cache; Schriften nehmen `heights`, siehe
     [Ebenen](benutzung/ebenen.md), „Die Oberfläche im iso“. Danach
     fallen sie weg. Je Ebene lädt die Webkarte höchstens 32 MiB Höhen für
@@ -567,21 +568,35 @@ Banner, feste Grösse und die Tafel beim Zeigen folgen
     `ground` je Block reicht das für 64 Regionen; braucht eine Ebene mehr,
     liegen ihre Formen mit Meldung auf `heights`. Reicht es auch dafür
     nicht, bei 4 mehr als 1024 Regionen, etwa ohne `area` mit einem riesigen
-    Kreis, liegt die ganze Ebene mit Meldung auf `seaLevel`, auch ihre
-    kleinen Formen. Der Cache für `ground` hält 8 Regionen, der für
+    gefüllten Kreis, liegen alle Flächen der Ebene mit Meldung auf
+    `seaLevel`, auch ihre kleinen. Der Cache für `ground` hält 8 Regionen, der für
     `heights` 64. Die Grenze gilt nur für die Webkarte;
   - die Wand am Rand einer Fläche im iso, siehe [Ebenen](benutzung/ebenen.md),
-    „Die Wand“; im iso füllt eine Fläche nicht, siehe „Flächen“. Die Karte
-    zeigt die Wand nur, solange sie auf dem Schirm mindestens 1 px hoch ist;
-    darunter nimmt sie ihre Pfade von der Karte und hängt sie beim
-    Hineinzoomen wieder an, vor die Ränder;
+    „Die Wand“; im iso füllt eine Fläche nicht, siehe „Flächen“;
+  - **Ränder, Linien, Kreise und Wand nach dem Fehler auf dem Schirm,**
+    entschieden in [0111](entscheidungen/0111-geometrie-nach-bildschirmfehler.md):
+    - je Ansicht gerechnet, für das Fenster plus ein halbes je Seite, 150 ms
+      nach dem letzten `zoomend` oder `moveend`; bleibt der Zoom und liegt
+      das Fenster im gerechneten Ausschnitt, bleibt alles, wie es ist. Die
+      Höhen dafür nur aus den Regionen, die im Ausschnitt liegen können;
+    - eine Form, die bei keiner Höhe im Ausschnitt liegen kann, gibt keinen
+      Punkt; eine Strecke ausserhalb nur ihren Anfang;
+    - im Ausschnitt an den Zellen abgetastet, geglättet und auf Verdeckung
+      geprüft, dann auf dem Schirm vereinfacht, bis kein weggelassener Punkt
+      mehr als ε = 0,5 px vom Zug liegt; jeder Wechsel von verdeckt oder
+      gestrichelt bleibt;
+    - ein Kreis hat so viele Seiten, dass die Pfeilhöhe jeder Seite auf dem
+      Schirm unter ε bleibt, mindestens 12;
+    - die Wand hat je Band mindestens 8 px, höchstens 12 Bänder, unter 1 px
+      keine; bei scale 16 in 2:1 auf Zoom 0 also 6, auf −1 3, auf −2 1;
+    - mit `?punkte` in der Adresse schreibt die Karte die Zahl dieser Punkte
+      als `data-raender` an das Pane der Formen, für Tests und Messungen;
   - **ohne Gelände,** wenn eine Ebene ganz auf `seaLevel` liegt, ohne Höhen
     oder über der Grenze oben: Flächen und Ränder sind ihre Ringe, ohne Netz,
-    ohne Abtasten und ohne Wand; ein Kreis ist ein 128-Eck. Es ist nichts
-    verdeckt, und es gibt nichts zu glätten;
-  - **gedeckelt:** Ein Kreis hat Seiten von einer Zelle, höchstens 512. Ein
-    Zug über mehr als 512 Zellen tastet an Linien im Abstand Länge / 512 ab
-    statt an jeder Zelle. Sonst gäbe ein grosser Kreis Millionen Punkte,
+    ohne Abtasten und ohne Wand. Es ist nichts verdeckt, und es gibt nichts
+    zu glätten;
+  - **Flächen gedeckelt:** Das Netz rechnet die Karte einmal je `version`; ein
+    Kreis hat dafür Seiten von einer Zelle, höchstens 512, ohne Gelände 128,
     siehe [Ebenen im weiten Blick](messungen/2026-10-19-ebenen-im-weiten-blick.md);
   - ausserhalb von `area` wird nichts gezeichnet: Flächen und Züge werden
     vorher beschnitten;
@@ -594,8 +609,8 @@ Banner, feste Grösse und die Tafel beim Zeigen folgen
     [0096](entscheidungen/0096-formen-und-schrift-im-browser.md); was das
     kostet, steht in
     [Flächen im Browser](messungen/2026-10-09-flaechen-im-browser.md);
-  - Ränder und Linien abgetastet an den Zellen; je Punkt geprüft, ob er
-    verdeckt ist, und in Läufe geteilt. Ein sichtbarer Lauf setzt die
+  - Ränder und Linien: je Punkt geprüft, ob er verdeckt ist, und in Läufe
+    geteilt. Ein sichtbarer Lauf setzt die
     Striche des Zugs fort (`dashOffset`, neu bei jedem Zoom); ein
     gestrichelter wird nicht am Rand des Renderers geschnitten
     (`noClip`), sonst sprängen seine Striche beim Verschieben;

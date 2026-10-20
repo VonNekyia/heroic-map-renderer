@@ -11,8 +11,8 @@ import feldKlein from './ebenen/schild_klein.png?url&no-inline';
 import rahmenKlein from './ebenen/schild_klein_rahmen.png?url&no-inline';
 import feldMittel from './ebenen/schild_mittel.png?url&no-inline';
 import rahmenMittel from './ebenen/schild_mittel_rahmen.png?url&no-inline';
-import { bereich, form, hatFlaeche, versetze, wandHoehe, zeichne, zuege, type Form, type Strich } from './formen';
-import { bildpunkt, oberflaeche as hoeheAuf, rechteck, schriftPfad, zurKamera, type Blick, type Gelaende, type Rechteck } from './gelaende';
+import { bereich, form, hatFlaeche, versetze, zeichneFlaechen, zeichneRaender, zuege, type Form, type Strich } from './formen';
+import { bildpunkt, oberflaeche as hoeheAuf, rechteck, schriftPfad, weltRechteck, zurKamera, type Blick, type Gelaende, type Rechteck, type Schirm } from './gelaende';
 import { FRISCH, LEER, type Hoehenkarten } from './hoehen';
 import { REGION } from './pick';
 import { abmelden, aktion, anmelden, ebene as spielerEbene, erkennen, ich, knoepfe as holeKnoepfeVomServer, nimmToken, objektSchluessel, sicht, type Knopf, type Spieler } from './konto';
@@ -105,6 +105,17 @@ const GROESSEN: Groesse[] = ['large', 'medium', 'small'];
 
 /** So oft fragt die Karte `layers.json` nach, in ms. */
 const TAKT = 30_000;
+
+/**
+ * Der Fehler auf dem Schirm, den Ränder, Linien und Wand höchstens haben, in
+ * Pixeln; und wie lange die Karte nach dem letzten Verschieben oder Zoomen
+ * wartet, bevor sie sie neu rechnet, in ms. Siehe
+ * docs/entscheidungen/0111-geometrie-nach-bildschirmfehler.md.
+ */
+const REGEL = { eps: 0.5, warten: 150 };
+
+/** Mit `?punkte` in der Adresse schreibt die Karte die Zahl der Punkte an das Pane der Formen, für Tests und Messungen. */
+const ZAEHLEN = new URLSearchParams(location.search).has('punkte');
 
 /** So oft fragt die Karte nach den Mitspielern, und nach so langer Zeit ohne neues `jetzt` gelten sie als veraltet, in ms. */
 const SICHT = { takt: 2000, alt: 15_000 };
@@ -581,7 +592,7 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
    * nur die Punkte entlang des Zugs; je samt dem Streifen zur Kamera, aus dem
    * Gelände sie verdecken kann, und drei Zellen für Mischen und Ersatz.
    */
-  const regionenFuer = (formen: readonly Form[], schriften: readonly Schriftzug[]): Set<number> => {
+  const regionenFuer = (formen: readonly Form[], schriften: readonly Schriftzug[], nurIn?: Rechteck): Set<number> => {
     const menge = new Set<number>();
     if (!iso || !karten || !heightsCell) return menge;
     const { wx, wz, steigung } = zurKamera(blick);
@@ -589,8 +600,8 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     const nimm = ([x0, z0, x1, z1]: Rechteck): void => {
       let [ax, az] = [Math.min(x0, x0 + wx * weit) - 3 * c, Math.min(z0, z0 + wz * weit) - 3 * c];
       let [bx, bz] = [Math.max(x1, x1 + wx * weit) + 3 * c, Math.max(z1, z1 + wz * weit) + 3 * c];
-      const area = umgebung.area;
-      if (area) [ax, az, bx, bz] = [Math.max(ax, area[0]), Math.max(az, area[1]), Math.min(bx, area[2]), Math.min(bz, area[3])];
+      // Nur in area, und mit `nurIn` nur, was im Ausschnitt liegen kann.
+      for (const r of [umgebung.area, nurIn]) if (r) [ax, az, bx, bz] = [Math.max(ax, r[0]), Math.max(az, r[1]), Math.min(bx, r[2]), Math.min(bz, r[3])];
       // Die obere Kante zählt nicht mit: area endet vor ihr.
       for (let rx = Math.floor(ax / REGION); rx < Math.ceil(bx / REGION); rx++) {
         for (let rz = Math.floor(az / REGION); rz < Math.ceil(bz / REGION); rz++) menge.add(schluessel(rx, rz));
@@ -681,10 +692,14 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     gruppe: L.LayerGroup;
     /** Flächen, Wände, Ränder, Linien und Schrift, in dieser Reihenfolge. */
     formen: L.LayerGroup;
-    /** Die Wände; in `formen` nur, solange sie auf dem Schirm mindestens 1 px hoch sind. */
+    /** Die Formen, aus denen die Karte Ränder, Linien und Wände je Ansicht neu rechnet, und ihr Renderer. */
+    quelle: readonly Form[];
+    renderer: L.Renderer;
+    /** Wände, Ränder und Linien, wie für `schirm` gerechnet; jede neue Rechnung zählt `nummer` hoch. */
     waende: L.Layer[];
-    mitWand: boolean;
     striche: Strich[];
+    schirm: Schirm;
+    nummer: number;
   }
   const geladen = new Map<string, Geladen>();
   /** Je Ebene ein Zähler: Ein Laden, das ein späteres Umschalten überholt, verwirft sich selbst. */
@@ -1024,33 +1039,77 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     renderer: L.Renderer,
     formPane: string,
     tafelDerEbene: (bausteine: unknown[], objekt: string) => HTMLElement,
-  ): Promise<{ flaechen: L.Layer[]; waende: L.Layer[]; striche: Strich[]; schriftLagen: Schrift[] }> => {
+  ): Promise<{ flaechen: L.Layer[]; schriftLagen: Schrift[] }> => {
     // Formen auf dem Boden ohne Laub, die Schrift auf der Oberfläche wie Nadeln und Banner.
     const [boden, oben] = await Promise.all([
-      ladeGelaende(regionenFuer(formen, []), true),
+      // Nur die Flächen: Ränder und Linien holen ihre Höhen je Ansicht, in raenderJetzt.
+      ladeGelaende(regionenFuer(formen.filter(hatFlaeche), []), true),
       schriften.length ? ladeGelaende(regionenFuer([], schriften), false) : eben,
     ]);
-    const { flaechen, waende, striche } = zeichne(formen, { renderer, blick, gelaende: boden, eben: boden === eben, area: umgebung.area, tafel: tafelDerEbene, bediene });
+    const flaechen = zeichneFlaechen(formen, { renderer, blick, gelaende: boden, eben: boden === eben, area: umgebung.area, tafel: tafelDerEbene, bediene });
     const schriftLagen: Schrift[] = [];
     for (const s of schriften) schriftLagen.push(new Schrift(s, schriftPfad(s.pfad, oben, blick), faktor, scale, formPane));
-    return { flaechen, waende, striche, schriftLagen };
+    return { flaechen, schriftLagen };
   };
 
-  /** Ob die Wände auf dem Schirm mindestens 1 px hoch sind; darunter sieht man sie nicht, und Leaflet spart sich die Pfade. */
-  const mitWand = (): boolean => wandHoehe(blick) * faktor() >= 1;
+  /** Das sichtbare Fenster in Pixeln der feinsten Stufe. */
+  const fenster = (): Rechteck => {
+    const b = map.getBounds();
+    return [b.getWest(), Math.min(b.getSouth(), b.getNorth()), b.getEast(), Math.max(b.getSouth(), b.getNorth())];
+  };
+  /** Die Ansicht nach 0111: das Fenster plus ein halbes je Seite, so trägt ein Verschieben bis zum Rand ohne neue Rechnung. */
+  const schirmJetzt = (): Schirm => {
+    const [x0, y0, x1, y1] = fenster();
+    const [w, h] = [(x1 - x0) / 2, (y1 - y0) / 2];
+    return { faktor: faktor(), rahmen: [x0 - w, y0 - h, x1 + w, y1 + h], eps: REGEL.eps };
+  };
 
-  /** Nimmt die Wände einer Ebene von der Karte oder hängt sie an, vor die Ränder, so liegen die Ränder oben. */
-  const wandAnpassen = (g: Geladen): void => {
-    const an = mitWand();
-    if (!g.waende.length || an === g.mitWand) return;
-    g.mitWand = an;
-    if (!an) {
-      for (const w of g.waende) g.formen.removeLayer(w);
-      return;
-    }
+  /**
+   * Ränder, Linien und Wände einer Ebene für die Ansicht jetzt, mit den Höhen
+   * nur der Regionen, die im Ausschnitt liegen können. Eigene Funktion aus
+   * demselben Grund wie `formenUndSchrift`: Die Höhen leben nur im Aufruf.
+   */
+  const raenderJetzt = async (formen: readonly Form[], renderer: L.Renderer): Promise<{ waende: L.Layer[]; striche: Strich[]; punkte: number; schirm: Schirm }> => {
+    const schirm = schirmJetzt();
+    const welt = weltRechteck(schirm.rahmen, blick, umgebung.minY ?? -64, umgebung.maxY ?? 319);
+    const boden = formen.some((f) => f.rand.breite > 0) ? await ladeGelaende(regionenFuer(formen, [], welt), true) : eben;
+    const z = { renderer, blick, gelaende: boden, eben: boden === eben, area: umgebung.area, tafel: () => document.createElement('div'), bediene: () => undefined };
+    return { ...zeichneRaender(formen, z, schirm), schirm };
+  };
+
+  /** Schreibt mit `?punkte` die Punkte von Rändern, Linien und Wänden an das Pane der Formen. */
+  const zaehle = (id: string, punkte: number): void => {
+    if (ZAEHLEN) map.getPane(pane(id).formen)!.dataset.raender = String(punkte);
+  };
+
+  /**
+   * Rechnet Ränder, Linien und Wände einer Ebene neu, wenn sich der Zoom
+   * geändert hat oder das Fenster aus dem gerechneten Ausschnitt läuft.
+   * Ersetzt sie, vor den alten Strichen weg und dann Wände vor Strichen, so
+   * liegen Ränder über der Wand und alles über den Flächen.
+   */
+  const raenderNeu = async (id: string, g: Geladen): Promise<void> => {
+    const [x0, y0, x1, y1] = fenster();
+    const [r0, r1, r2, r3] = g.schirm.rahmen;
+    if (g.schirm.faktor === faktor() && x0 >= r0 && y0 >= r1 && x1 <= r2 && y1 <= r3) return;
+    const nummer = ++g.nummer;
+    const neu = await raenderJetzt(g.quelle, g.renderer);
+    // Ist die Ebene weg, neu geladen oder schon wieder neu gerechnet, gilt dieses Ergebnis nicht.
+    if (geladen.get(id) !== g || g.nummer !== nummer) return;
+    for (const w of g.waende) g.formen.removeLayer(w);
     for (const s of g.striche) g.formen.removeLayer(s.linie);
-    for (const w of g.waende) g.formen.addLayer(w);
-    for (const s of g.striche) g.formen.addLayer(s.linie);
+    for (const w of neu.waende) g.formen.addLayer(w);
+    for (const s of neu.striche) g.formen.addLayer(s.linie);
+    [g.waende, g.striche, g.schirm] = [neu.waende, neu.striche, neu.schirm];
+    versetze(g.striche, faktor());
+    zaehle(id, neu.punkte);
+  };
+  let ansichtWarten: ReturnType<typeof setTimeout> | undefined;
+  const ansichtGeaendert = (): void => {
+    clearTimeout(ansichtWarten);
+    ansichtWarten = setTimeout(() => {
+      for (const [id, g] of geladen) void raenderNeu(id, g).catch((fehler: unknown) => console.error(id, fehler));
+    }, REGEL.warten);
   };
 
   /**
@@ -1120,7 +1179,10 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     }
     const { renderer, formen: formPane } = pane(e.id);
     // Formen und Schrift rechnen einmal je version, hier vor dem Tausch.
-    const { flaechen, waende, striche, schriftLagen } = await formenUndSchrift(formen, schriften, renderer, formPane, tafelDerEbene);
+    const [{ flaechen, schriftLagen }, { waende, striche, punkte, schirm }] = await Promise.all([
+      formenUndSchrift(formen, schriften, renderer, formPane, tafelDerEbene),
+      raenderJetzt(formen, renderer),
+    ]);
     // Icons und Symbole gelten nur für dieses Laden und fallen danach weg.
     const icons = new Map<string, Promise<HTMLCanvasElement>>();
     const symbole = new Map<string, Promise<HTMLImageElement>>();
@@ -1154,11 +1216,11 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     if (!gilt()) return;
     weg(e.id);
     // Erst Flächen, dann Ränder und Linien, zuletzt Schrift.
-    const wand = mitWand();
-    const formGruppe = L.layerGroup([...flaechen, ...(wand ? waende : []), ...striche.map((s) => s.linie), ...schriftLagen]).addTo(map);
+    const formGruppe = L.layerGroup([...flaechen, ...waende, ...striche.map((s) => s.linie), ...schriftLagen]).addTo(map);
     versetze(striche, faktor());
     const gruppe = L.layerGroup(marker.filter((m): m is L.Marker => m !== undefined)).addTo(map);
-    geladen.set(e.id, { version: e.version, stand, gruppe, formen: formGruppe, waende, mitWand: wand, striche });
+    geladen.set(e.id, { version: e.version, stand, gruppe, formen: formGruppe, quelle: formen, renderer, waende, striche, schirm, nummer: 0 });
+    zaehle(e.id, punkte);
   };
 
   const entferne = (id: string): void => {
@@ -1530,11 +1592,9 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
   // Erst anmelden, dann abgleichen: Ein Fehler beim ersten Abgleich hält das
   // Nachfragen nicht auf.
   map.on('zoomend', () => {
-    for (const g of geladen.values()) {
-      wandAnpassen(g);
-      versetze(g.striche, faktor());
-    }
+    for (const g of geladen.values()) versetze(g.striche, faktor());
   });
+  map.on('zoomend moveend', ansichtGeaendert);
   setInterval(() => {
     if (document.visibilityState === 'visible') void nachfragen();
   }, TAKT);

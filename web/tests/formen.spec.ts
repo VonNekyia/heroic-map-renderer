@@ -242,7 +242,7 @@ test('mit groundCell 1 nimmt eine Region ohne Datei in ground die gröberen Zell
   nah(await rahmen(page.locator('path[data-fill="#40E53F55"]')), await sollRahmen(page, GEBIET.polygons[0]!.outer, 31));
 });
 
-test('bräuchte eine Ebene mehr als 64 Regionen ground je Block, liegen ihre Formen mit Meldung auf heights', async ({ page }) => {
+test('bräuchte eine Ebene mehr als 64 Regionen ground je Block, liegen ihre Flächen mit Meldung auf heights; ihr Rand holt ground nur für den Ausschnitt', async ({ page }) => {
   const meldungen: string[] = [];
   page.on('console', (m) => meldungen.push(m.text()));
   const boden: string[] = [];
@@ -254,7 +254,9 @@ test('bräuchte eine Ebene mehr als 64 Regionen ground je Block, liegen ihre For
   await page.goto(`${DEMO}&at=-300,5,-300`);
   await expect(page.locator('path[data-fill="#556677FF"]')).toHaveCount(1);
   expect(meldungen.some((m) => m.includes('Regionen ground, mehr als 64'))).toBe(true);
-  expect(boden).toEqual([]);
+  // Der Rand nach 0111: nur die Regionen, die im Ausschnitt liegen können, weit unter den rund 100 der Ebene.
+  await expect.poll(() => boden.length).toBeGreaterThan(0);
+  expect(new Set(boden).size).toBeLessThan(20);
 });
 
 test('unter Kronen bleibt ein Rand auf dem Boden ganz zu sehen; hinter einem Hang des Bodens dünn, gestrichelt und blass', async ({ page }) => {
@@ -298,17 +300,18 @@ test('ein Haus von 6 Blöcken am Weg hebt die Linie nicht: entlang des Wegs gegl
   expect(Math.abs(dort - sy!)).toBeLessThanOrEqual(1);
 });
 
-test('im iso steht am Rand einer Fläche eine Wand, 6 Blöcke hoch, unten 0,6 deckend, nach oben bis 0; nicht an Linien, nicht ohne Rand, nicht um einen Kreis ohne Füllung, nicht von oben', async ({ page }) => {
+test('im iso steht am Rand einer Fläche eine Wand, 6 Blöcke hoch, unten 0,6 deckend, nach oben bis 0, auf Zoom 0 in 6 Bändern; nicht an Linien, nicht ohne Rand, nicht um einen Kreis ohne Füllung, nicht von oben', async ({ page }) => {
   const ohneRand = rechteck('ohne', 60, -32, 80, 0, { fill: '#AA00AA55', stroke: { width: 0 } });
   const nurUmriss = { id: 'umkreis', type: 'circle', center: [32, -60], radius: 10, stroke: { color: '#00AAAA', width: 2 } };
   const linie = { id: 'weg', type: 'line', points: [[20, -40], [44, -40]], stroke: { color: '#123456', width: 2 } };
   await welt(page, staedte([{ ...GEBIET, stroke: { color: '#40E53FCC' } }, ohneRand, nurUmriss, linie], { hoehe: () => 10 }));
   await page.goto(`${DEMO}&at=32,10,-16`);
   const baender = page.locator('path[fill="#40E53F"]');
-  await expect(baender).toHaveCount(12);
+  // 48 px hoch, je Band mindestens 8 px; siehe wandBaender.
+  await expect(baender).toHaveCount(6);
   // Von unten nach oben, nach der Unterkante jedes Bands: die Deckkraft fällt.
   const vonUnten = (await baender.evaluateAll((l) => l.map((p) => [p.getBoundingClientRect().bottom, Number(p.getAttribute('fill-opacity'))] as const))).sort((a, b) => b[0] - a[0]);
-  vonUnten.forEach(([, d], k) => expect(d).toBeCloseTo(0.6 * (1 - (k + 0.5) / 12), 5));
+  vonUnten.forEach(([, d], k) => expect(d).toBeCloseTo(0.6 * (1 - (k + 0.5) / 6), 5));
   for (const b of await baender.all()) {
     await expect(b).toHaveAttribute('stroke', 'none');
     // Gleich herum gelaufen, siehe wand in gelaende.ts: nur mit nonzero ohne Loch, wo sich Vorder- und Rückseite decken.
@@ -511,14 +514,68 @@ test('ohne Gelände im iso: ein gefüllter Kreis ist ein 128-Eck, ohne Netz und 
   await expect(page.locator('path[fill="#AA5500"]')).toHaveCount(0);
 });
 
-test('die Wand fällt weg, solange sie auf dem Schirm unter 1 px hoch ist, und kommt beim Hineinzoomen unter dem Rand wieder', async ({ page }) => {
-  // maxZoom 6: auf Zoom −6 ist die Wand 6 · 8 / 64 = 0,75 px hoch, auf −5 1,5 px.
+/** Punkte von Rändern, Linien und Wänden einer Ebene, wie die Karte sie mit `?punkte` an das Pane der Formen schreibt. */
+const raenderPunkte = (page: Page) => page.evaluate(() => Number(document.querySelector<HTMLElement>('.leaflet-pane[data-raender]')?.dataset.raender ?? Number.NaN));
+/** Gelände mit kleinen Buckeln, damit die Ränder etwas abzutasten haben. */
+const buckel = (i: number, j: number) => 10 + ((i * 7 + j * 3) % 5);
+
+test('nach 0111: Formen weit ausserhalb des Ausschnitts ändern die Punkte nicht; Herauszoomen erhöht sie nie', async ({ page }) => {
+  const nah = { ...GEBIET, stroke: { color: '#40E53FCC' } };
+  const fern = Array.from({ length: 30 }, (_, i) => rechteck(`fern-${i}`, 5000 + i * 300, 5000, 5200 + i * 300, 5200, { fill: '#123456FF' }));
+  await welt(page, staedte([nah], { hoehe: buckel }));
+  await page.goto(`${DEMO}&punkte&at=32,10,-16&zoom=0`);
+  await expect.poll(() => raenderPunkte(page)).toBeGreaterThan(0);
+  const allein = await raenderPunkte(page);
+  await page.unrouteAll({ behavior: 'ignoreErrors' });
+  await welt(page, staedte([nah, ...fern], { hoehe: buckel }));
+  await page.reload();
+  await expect.poll(() => raenderPunkte(page)).toBe(allein);
+  let vorher = Infinity;
+  for (const zoom of [1, 0, -1, -2]) {
+    await page.goto(`${DEMO}&punkte&at=32,10,-16&zoom=${zoom}`);
+    await expect.poll(() => raenderPunkte(page), { message: `Zoom ${zoom}` }).toBeGreaterThan(0);
+    const n = await raenderPunkte(page);
+    expect(n, `Zoom ${zoom}`).toBeLessThanOrEqual(vorher);
+    vorher = n;
+  }
+});
+
+test('nach 0111: ein grosser Kreis hat höchstens 2 · Umfang auf dem Schirm / ε Punkte, gleich wie gross in Blöcken; neu gerechnet nach dem Verschieben', async ({ page }) => {
+  // Nur Rand, kein Netz und keine Wand; auf Zoom −3 rund 200 px Radius.
+  const kreis = (r: number) => ({ id: 'k', type: 'circle', center: [32, -16], radius: r, stroke: { color: '#5500AA' } });
+  for (const [r, zoom] of [[100, -3], [800, -6]] as const) {
+    await page.unrouteAll({ behavior: 'ignoreErrors' });
+    await welt(page, staedte([kreis(r)], { hoehe: buckel, mehr: { maxZoom: 6 } }));
+    await page.goto(`${DEMO}&punkte&at=32,10,-16&zoom=${zoom}`);
+    await expect.poll(() => raenderPunkte(page)).toBeGreaterThan(0);
+    const n = await raenderPunkte(page);
+    // Der Umfang auf dem Schirm, über 1000 Punkte des Kreises auf Höhe 10 gerechnet.
+    const faktor = 2 ** zoom;
+    const ring = Array.from({ length: 1000 }, (_, i) => projiziere(32 + r * Math.cos((2 * Math.PI * i) / 1000), 11, -16 + r * Math.sin((2 * Math.PI * i) / 1000), zweiZuEins(16)));
+    const umfang = ring.reduce((summe, p, i) => summe + Math.hypot(p[0] - ring[(i + 1) % 1000]![0], p[1] - ring[(i + 1) % 1000]![1]), 0) * faktor;
+    expect(n, `Radius ${r}`).toBeLessThanOrEqual((2 * umfang) / 0.5 + 16);
+  }
+  // Verschoben aus dem gerechneten Ausschnitt: neu gerechnet, die Punkte folgen.
+  const vorher = await raenderPunkte(page);
+  await page.mouse.move(640, 360);
+  await page.mouse.down();
+  await page.mouse.move(-600, 360, { steps: 8 });
+  await page.mouse.up();
+  await expect.poll(() => raenderPunkte(page)).not.toBe(vorher);
+});
+
+test('die Wand hat je Band mindestens 8 px, höchstens 12 Bänder, unter 1 px keine; beim Zoomen neu gerechnet, unter dem Rand', async ({ page }) => {
+  // maxZoom 6: auf Zoom −6 ist die Wand 6 · 8 / 64 = 0,75 px hoch, auf −5 1,5, auf −1 24, auf 0 48, auf 1 96.
   await welt(page, staedte([{ ...GEBIET, stroke: { color: '#40E53FCC' } }], { hoehe: () => 10, mehr: { maxZoom: 6 } }));
   await page.goto(`${DEMO}&at=32,10,-16&zoom=-6`);
   await expect(page.locator('path[stroke="#40E53FCC"]').first()).toBeAttached();
   await expect(page.locator('path[fill="#40E53F"]')).toHaveCount(0);
   await page.locator('.leaflet-control-zoom-in').click();
-  await expect(page.locator('path[fill="#40E53F"]')).toHaveCount(12);
+  await expect(page.locator('path[fill="#40E53F"]')).toHaveCount(1);
+  for (const [zoom, n] of [[-1, 3], [1, 12], [0, 6]] as const) {
+    await page.goto(`${DEMO}&at=32,10,-16&zoom=${zoom}`);
+    await expect(page.locator('path[fill="#40E53F"]'), `Zoom ${zoom}`).toHaveCount(n);
+  }
   // Die Ränder liegen über der Wand: im SVG nach ihr.
   const ueber = await page.evaluate(() => {
     const wand = document.querySelector('path[fill="#40E53F"]')!;
@@ -526,8 +583,9 @@ test('die Wand fällt weg, solange sie auf dem Schirm unter 1 px hoch ist, und k
     return (wand.compareDocumentPosition(rand) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
   });
   expect(ueber).toBe(true);
+  // Herauszoomen rechnet neu: 3 Bänder.
   await page.locator('.leaflet-control-zoom-out').click();
-  await expect(page.locator('path[fill="#40E53F"]')).toHaveCount(0);
+  await expect(page.locator('path[fill="#40E53F"]')).toHaveCount(3);
 });
 
 test('Flächen liegen nach order übereinander; eine ohne Namen und Tafel lässt Klicks zu den Flächen darunter durch', async ({ page }) => {
@@ -558,8 +616,9 @@ test('bräuchte eine Ebene mehr als 1024 Regionen Höhen, liegt sie mit Meldung 
   const meldungen: string[] = [];
   page.on('console', (m) => meldungen.push(m.text()));
   let hoehen = 0;
-  // Der Demobaum hat kein area: Ein Kreis mit 50 000 Blöcken Radius streift Tausende Regionen.
-  await welt(page, staedte([{ id: 'riesig', type: 'circle', center: [0, 0], radius: 50_000, stroke: { color: '#0F0F0F', width: 1 } }]));
+  // Der Demobaum hat kein area: Ein gefüllter Kreis mit 50 000 Blöcken Radius deckt Tausende Regionen. Nach 0111 holt nur noch
+  // die Fläche Höhen für die ganze Form, der Rand nur für den Ausschnitt.
+  await welt(page, staedte([{ id: 'riesig', type: 'circle', center: [0, 0], radius: 50_000, fill: '#0F0F0F55', stroke: { color: '#0F0F0F', width: 1 } }]));
   page.on('request', (r) => {
     if (r.url().includes('/heights/')) hoehen++;
   });
@@ -581,7 +640,7 @@ test('Höhen lädt die Karte nur innerhalb von area, jede Region einmal, auch f�
     rechteck('b', -50, -50, -20, -20, { fill: '#222222FF' }),
     { id: 'l', type: 'line', points: [[-200, -30], [300, -30]], stroke: { color: '#333333' } },
   ];
-  await welt(page, { ...staedte(objekte, { mehr: { area: [-512, -512, 0, 0] }, hoehe: () => 5 }), liste: () => [{ ...STAEDTE, visible: false }] });
+  await welt(page, { ...staedte(objekte, { mehr: { area: [-512, -512, 0, 0], minZoom: -6 }, hoehe: () => 5 }), liste: () => [{ ...STAEDTE, visible: false }] });
   // Der Blick weit weg, so holt die Karte selbst keine dieser Regionen; die Ebene erst nach dem Laden.
   await page.goto(`${DEMO}&at=-1500,5,-1500`);
   await page.waitForLoadState('networkidle');
@@ -589,9 +648,14 @@ test('Höhen lädt die Karte nur innerhalb von area, jede Region einmal, auch f�
   await page.locator('.ebenen summary').click();
   await page.locator('.ebenen input').check();
   await expect(page.locator('path[data-fill="#222222FF"]')).toHaveCount(1);
-  await expect(page.locator('path[stroke="#333333"]')).toHaveCount(1);
-  // Genau die eine Region in area, genau einmal.
+  // Genau die eine Region in area, genau einmal, für die Flächen.
   expect(anfragen).toEqual(['-1.-1.bin']);
+  // Die Linie liegt weit ausserhalb des Ausschnitts: nach 0111 kein Pfad. Weit herausgezoomt ist sie da, wieder nur mit Höhen
+  // aus area; die Mitte der Ansicht holt selbst nur Regionen um (−1500, −1500).
+  await expect(page.locator('path[stroke="#333333"]')).toHaveCount(0);
+  await page.goto(`${DEMO}&at=-1500,5,-1500&zoom=-6`);
+  await expect(page.locator('path[stroke="#333333"]').first()).toBeAttached();
+  expect(anfragen.filter((a) => !/^-\d+\.-\d+\.bin$/.test(a))).toEqual([]);
 });
 
 test('eine Linie, die eine Region nur an der Ecke streift, lädt auch deren Höhen', async ({ page }) => {
@@ -601,14 +665,14 @@ test('eine Linie, die eine Region nur an der Ecke streift, lädt auch deren Höh
   });
   // Von (400, 600) nach (600, 400): rund 34 Blöcke um (500, 500) liegen in der Region (0, 0).
   const ecke = { id: 'ecke', type: 'line', points: [[400, 600], [600, 400]], stroke: { color: '#444444' } };
-  await welt(page, { ...staedte([ecke]), liste: () => [{ ...STAEDTE, visible: false }] });
-  // Der Blick weit weg, so holt die Karte selbst die Region (0, 0) nicht; die Ebene erst nach dem Laden.
-  await page.goto(`${DEMO}&at=-1500,0,-1500`);
+  await welt(page, { ...staedte([ecke], { mehr: { minZoom: -6 } }), liste: () => [{ ...STAEDTE, visible: false }] });
+  // Weit weg und weit herausgezoomt: Die Linie liegt im Ausschnitt, die Mitte der Ansicht holt selbst nur Regionen um (−1000, −1000).
+  await page.goto(`${DEMO}&at=-1000,0,-1000&zoom=-6`);
   await page.waitForLoadState('networkidle');
   anfragen.length = 0;
   await page.locator('.ebenen summary').click();
   await page.locator('.ebenen input').check();
-  await expect(page.locator('path[stroke="#444444"]')).toHaveCount(1);
+  await expect(page.locator('path[stroke="#444444"]').first()).toBeAttached();
   expect(anfragen).toContain('0.0.bin');
 });
 

@@ -23,6 +23,13 @@ const LISTEN: [&str; 4] = [
     "dimension_type/",
 ];
 
+/// Grenzen für das Zip eines Packs: die Datei selbst, jede gelesene Datei
+/// darin und alle zusammen, entpackt, wie das Verzeichnis sie nennt.
+/// Darüber übergeht der Renderer das Pack, statt den Speicher zu füllen.
+const ZIP_HOECHSTENS: u64 = 256 << 20;
+const JE_DATEI: usize = 16 << 20;
+const ENTPACKT: usize = 256 << 20;
+
 /// Je ID eines Packs der Welt sein Pfad und ob es ein Zip ist.
 type Vorhanden = BTreeMap<String, (PathBuf, bool)>;
 
@@ -303,40 +310,59 @@ fn sammle(ordner: &Path, unter: &str, dateien: &mut BTreeMap<String, Quelle>) ->
     Ok(())
 }
 
+/// Nennt das Verzeichnis für die Dateien, die `nimm` will, mehr als die
+/// Grenzen erlauben, ist das ein Fehler.
+fn in_grenzen(zip: &Zip, nimm: impl Fn(&str) -> bool) -> Result<()> {
+    let (gross, summe) = zip.roh(nimm);
+    ensure!(
+        gross <= JE_DATEI && summe <= ENTPACKT,
+        "entpackt zu gross: {} MiB in einer Datei, {} MiB zusammen; erlaubt sind {} und {}",
+        gross >> 20,
+        summe >> 20,
+        JE_DATEI >> 20,
+        ENTPACKT >> 20
+    );
+    Ok(())
+}
+
 fn aus_zip(pfad: &Path, format: (i32, i32)) -> Result<(Vec<String>, BTreeMap<String, Quelle>)> {
-    let bytes = std::fs::read(pfad).context("lesen")?;
+    let info = std::fs::metadata(pfad)?;
+    ensure!(
+        info.len() <= ZIP_HOECHSTENS,
+        "Zip grösser als {} MiB",
+        ZIP_HOECHSTENS >> 20
+    );
     // Jede Datei trägt die Zeit des Zips: ein neues Zip, ein neuer Stand.
-    let zeit = std::fs::metadata(pfad)?.modified()?;
+    let zeit = info.modified()?;
+    let bytes = std::fs::read(pfad).context("lesen")?;
     let zip = Zip::lies(&bytes)?;
     let mut meta = None;
-    zip.dateien(
-        |n| n == "pack.mcmeta",
-        |_, b| {
-            meta = Some(meta_von(b)?);
-            Ok(())
-        },
-    )?;
+    let ist_meta = |n: &str| n == "pack.mcmeta";
+    in_grenzen(&zip, ist_meta)?;
+    zip.dateien(ist_meta, |_, b| {
+        meta = Some(meta_von(b)?);
+        Ok(())
+    })?;
     let meta = meta.context("ohne pack.mcmeta")?;
     let overlays = overlays(&meta, format)?;
     let mut je_schicht: Vec<BTreeMap<String, Vec<u8>>> = vec![BTreeMap::new(); overlays.len() + 1];
     let vorsilben: Vec<String> = std::iter::once("data/".to_string())
         .chain(overlays.iter().map(|o| format!("{o}/data/")))
         .collect();
-    zip.dateien(
-        |n| {
-            vorsilben
-                .iter()
-                .any(|v| n.strip_prefix(v.as_str()).is_some_and(gelistet))
-        },
-        |name, b| {
-            for (i, v) in vorsilben.iter().enumerate() {
-                if let Some(rel) = name.strip_prefix(v.as_str()).filter(|r| gelistet(r)) {
-                    je_schicht[i].insert(rel.to_string(), b.to_vec());
-                }
+    let ist_gelistet = |n: &str| {
+        vorsilben
+            .iter()
+            .any(|v| n.strip_prefix(v.as_str()).is_some_and(gelistet))
+    };
+    in_grenzen(&zip, ist_gelistet)?;
+    zip.dateien(ist_gelistet, |name, b| {
+        for (i, v) in vorsilben.iter().enumerate() {
+            if let Some(rel) = name.strip_prefix(v.as_str()).filter(|r| gelistet(r)) {
+                je_schicht[i].insert(rel.to_string(), b.to_vec());
             }
-            Ok(())
-        },
-    )?;
+        }
+        Ok(())
+    })?;
     let mut dateien = BTreeMap::new();
     for schicht in je_schicht {
         for (rel, b) in schicht {
@@ -411,6 +437,9 @@ fn ablegen(
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// 2026-06-16, ein DOS-Datum für die Zips der Tests.
+    const DATUM: u16 = ((2026 - 1980) << 9) | (6 << 5) | 16;
 
     fn schreibe(wurzel: &Path, rel: &str, inhalt: &str) {
         let pfad = wurzel.join(rel);
@@ -527,7 +556,6 @@ mod tests {
         for (rel, text) in DATEIEN {
             schreibe(&ordner, rel, text);
         }
-        const DATUM: u16 = ((2026 - 1980) << 9) | (6 << 5) | 16;
         let mut eintraege = vec![("pack.mcmeta", META.as_bytes(), true, DATUM)];
         eintraege.extend(DATEIEN.map(|(rel, text)| (rel, text.as_bytes(), false, DATUM)));
         let zip = welt.path().join("paket.zip");
@@ -576,5 +604,52 @@ mod tests {
         assert!(lies_mit(&leer, false, None).is_err());
         std::fs::write(&zip, "kein Zip").unwrap();
         assert!(lies_mit(&zip, true, Some(cache.path())).is_err());
+    }
+
+    /// Ein Zip, das zu viel nennt, übergeht der Renderer, bevor er entpackt:
+    /// über 16 MiB für eine gelesene Datei, über 256 MiB für alle, auch für
+    /// `pack.mcmeta`, und ein Zip über 256 MiB.
+    #[test]
+    fn zu_grosse_zips() {
+        let welt = tempfile::tempdir().unwrap();
+        let pfad = welt.path().join("gross.zip");
+        let namen: Vec<String> = (0..17)
+            .map(|i| format!("data/beispiel/worldgen/biome/b{i}.json"))
+            .collect();
+        let mut eintraege = vec![("pack.mcmeta", META.as_bytes(), false, DATUM)];
+        eintraege.extend(
+            namen
+                .iter()
+                .map(|n| (n.as_str(), b"{}".as_slice(), false, DATUM)),
+        );
+        let zip = super::super::zip::schreibe(&eintraege, 0);
+        let fehler = || {
+            format!(
+                "{:#}",
+                lies("file/gross.zip", &pfad, true, (107, 1), None).unwrap_err()
+            )
+        };
+        // Setzt im Verzeichnis die entpackte Grösse der Einträge.
+        let nennt = |groessen: &[(usize, u32)]| {
+            let mut zip = zip.clone();
+            let koepfe: Vec<usize> = (0..zip.len() - 3)
+                .filter(|&i| zip[i..i + 4] == *b"PK\x01\x02")
+                .collect();
+            for &(nummer, groesse) in groessen {
+                let bei = koepfe[nummer] + 24;
+                zip[bei..bei + 4].copy_from_slice(&groesse.to_le_bytes());
+            }
+            std::fs::write(&pfad, zip).unwrap();
+            fehler()
+        };
+        assert!(nennt(&[(1, (16 << 20) + 1)]).contains("entpackt zu gross"));
+        let alle: Vec<(usize, u32)> = (1..=17).map(|i| (i, 16 << 20)).collect();
+        assert!(nennt(&alle).contains("entpackt zu gross"));
+        assert!(nennt(&[(0, 0xF000_0000)]).contains("entpackt zu gross"));
+        std::fs::File::create(&pfad)
+            .unwrap()
+            .set_len(ZIP_HOECHSTENS + 1)
+            .unwrap();
+        assert!(fehler().contains("Zip grösser als 256 MiB"));
     }
 }

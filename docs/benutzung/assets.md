@@ -230,6 +230,10 @@ Client-Jar von 26.2 und 26.3, siehe „Belege“ unten.
   `pack.mcmeta` ohne `pack.description` oder ohne gültiges JSON, ein Zip,
   das sich nicht lesen lässt, ein Link, dem das Spiel nur mit
   `allowed_symlinks.txt` folgt, und ohne Cache jedes Pack, das etwas trägt.
+- **Grenzen eines Zips,** damit ein fremdes Zip den Speicher nicht füllt:
+  höchstens 256 MiB als Datei; nach seinem Verzeichnis höchstens 16 MiB
+  entpackt für jede gelesene Datei und 256 MiB für alle zusammen. Darüber
+  übergeht der Renderer das Pack, bevor er etwas entpackt.
 - **Ausgabe,** nur wenn die Welt Packs hat:
 
   ```text
@@ -240,6 +244,10 @@ Client-Jar von 26.2 und 26.3, siehe „Belege“ unten.
 
   Unter `Assets:` zählt danach je Pack eine Zeile Biome, Bannermuster und
   Dimensionen „aus file/…“.
+- **Schon per `--data`:** Ein Pack, das bisher ausgepackt per `--data`
+  kam, nimmt man dort heraus. Sonst kommt es doppelt, und das aus der Welt
+  gewinnt. Einen vollen Lauf braucht es so oder so, weil sich die
+  Datenwurzeln ändern.
 - **Updates:** Die Wurzeln der Packs kommen in den Fingerabdruck der Daten.
   Eine Welt ohne Packs mit Listen behält ihren Stand. Ändert sich ein Pack,
   das etwas trägt, oder kommt eins dazu, verlangt `--update` erst einen

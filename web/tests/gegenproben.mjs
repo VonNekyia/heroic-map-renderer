@@ -133,4 +133,6 @@ export default [
   { name: 'kopf-ohne-dpr', datei: 'src/ebenen.ts', alt: 'const k = 2 * Math.max(1, Math.round(devicePixelRatio));', neu: 'const k = 2 * Math.max(1, Math.round(1));', spec: 'tests/mitspieler.spec.ts', titel: 'nach 0114 zeigt ein Mitspieler mit kopf' },
   { name: 'kopf-icon-bleibt', datei: 'src/ebenen.ts', alt: 'if (f.fuer !== fuer) f.m.setIcon(', neu: "if (f.fuer === '') f.m.setIcon(", spec: 'tests/mitspieler.spec.ts', titel: 'nach 0114 zeigt ein Mitspieler mit kopf' },
   { name: 'ich-ohne-rahmen', datei: 'src/style.css', alt: '.mitspieler.ich .mitspieler-kopf {\n  outline: 1px solid #ffd84a;\n}', neu: '.mitspieler.ich .mitspieler-kopf {\n  outline: 0 solid #ffd84a;\n}', spec: 'tests/mitspieler.spec.ts', titel: 'nach 0114 zeigt ein Mitspieler mit kopf' },
+  // Kein Fokusring nach einem Mausklick auf eine Fläche.
+  { name: 'name-mit-fokus', datei: 'src/formen.ts', alt: "if (!f.panel) flaeche.on('add', () => ohne(flaeche.getElement()!, 'focus blur'));", neu: "if (!f.panel && f.id === '') flaeche.on('add', () => ohne(flaeche.getElement()!, 'focus blur'));", spec: 'tests/formen.spec.ts', titel: 'nach einem Mausklick auf eine Fläche' },
 ];

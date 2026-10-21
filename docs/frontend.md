@@ -562,7 +562,12 @@ Banner, feste Grösse und die Tafel beim Zeigen folgen
     öffnet die Tafel mit dem Fokus darin, Escape gibt ihn zurück, wie bei
     den Nadeln. Im Fokus hat sie keinen Rahmen, der Kasten um ihre Grenzen
     wäre; für die Tastatur (`:focus-visible`) zeigt sie ihren Umriss als
-    Strich von 2 px in `--ui-markiert`;
+    Strich von 2 px in `--ui-markiert`. Eine Fläche nur mit `name` ist kein
+    Ziel für Tab und nimmt auch beim Klick keinen Fokus: Leaflet hängt für
+    den Tooltip `focus` und `blur` an den Pfad, und mit diesen Listenern
+    machte Chromium ihn per Klick fokussierbar, zeichnete seinen Fokusring
+    um den Rahmen der Fläche und nahm der Karte die Pfeiltasten. Die Karte
+    nimmt diese beiden Listener darum wieder ab;
   - die Höhen: für die Schriften je Laden einer Ebene einmal, die Regionen
     aller ihrer Schriften in einem; für die Formen je Ansicht nach 0111, die
     Regionen aller ihrer Formen im Ausschnitt in einem. Für eine Fläche ihr

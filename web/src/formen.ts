@@ -257,6 +257,12 @@ export function flaechenZiele(formen: readonly Form[], z: Pick<Zeichnen, 'render
       const name = document.createElement('span');
       name.textContent = f.name;
       flaeche.bindTooltip(name, { sticky: true, className: 'ebene-name' });
+      // Leaflet hängt für den Tooltip focus und blur an den Pfad; damit macht Chromium ihn per Klick fokussierbar,
+      // zeichnet seinen Fokusring um die Grenzen und nimmt der Karte die Tastatur. Ohne Tafel ist die Fläche kein
+      // Ziel für Tab, also weg damit, nach dem add von bindTooltip. Mit zwei Argumenten nimmt Leaflet 1.9 jeden
+      // Listener dieser Arten; die Typen kennen die Form nicht. Siehe docs/frontend.md, „Ebenen“.
+      const ohne = L.DomEvent.off as unknown as (el: Element, arten: string) => void;
+      if (!f.panel) flaeche.on('add', () => ohne(flaeche.getElement()!, 'focus blur'));
     }
     const panel = f.panel;
     if (panel) {

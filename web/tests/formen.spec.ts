@@ -362,6 +362,39 @@ test('ground holt die Karte nur für Flächen, Ränder und Linien, nicht für Na
   expect(boden).toEqual([]);
 });
 
+test('nach einem Mausklick auf eine Fläche mit Tafel oder nur mit Namen steht kein Fokusring um sie; ohne Tafel behält die Karte die Tastatur', async ({ page }) => {
+  const mitTafel = { ...GEBIET, name: 'Mit Tafel', panel: { blocks: [{ type: 'title', text: 'T' }] } };
+  const nurName = rechteck('nur', 60, -32, 92, 0, { fill: '#3F40E555', name: 'Nur Name' });
+  await welt(page, staedte([mitTafel, nurName]));
+  await page.goto(DEMO);
+  for (const [farbe, x, z] of [['#40E53F55', 20, -28], ['#3F40E555', 64, -28]] as const) {
+    const flaeche = page.locator(`path[data-fill="${farbe}"]`);
+    await expect(flaeche).toHaveCount(1);
+    // Ein Ring läge um den Rahmen der Fläche; verglichen wird der Streifen an ihrer linken oberen Ecke.
+    const b = (await flaeche.boundingBox())!;
+    const ecke = { x: Math.max(0, b.x - 6), y: Math.max(0, b.y - 6), width: 24, height: 24 };
+    const vorher = await page.screenshot({ clip: ecke });
+    const [px, py] = await aufDemSchirm(page, ...projiziere(x, 1, z, zweiZuEins(16)));
+    await page.mouse.click(px!, py!);
+    await page.waitForTimeout(200);
+    expect(await page.screenshot({ clip: ecke }), farbe).toEqual(vorher);
+    const aktiv = await page.evaluate(() => {
+      const a = document.activeElement!;
+      return { pfad: a.tagName === 'path', tabindex: a.getAttribute('tabindex'), outline: getComputedStyle(a).outlineStyle };
+    });
+    if (aktiv.pfad) expect(aktiv.outline, farbe).toBe('none');
+    // Ohne Tafel ist die Fläche kein Ziel; der Fokus bleibt bei der Karte, die Pfeiltasten verschieben sie weiter.
+    if (farbe === '#3F40E555') expect(aktiv, 'nur mit Namen').toEqual(expect.objectContaining({ pfad: false }));
+    await page.keyboard.press('Escape');
+    if (farbe === '#40E53F55') {
+      // Escape gibt den Fokus aus der Tafel zurück, für die Tastatur sichtbar: der Umriss als Strich, kein Kasten.
+      await expect(flaeche).toBeFocused();
+      expect(await flaeche.evaluate((p) => [p.matches(':focus-visible'), getComputedStyle(p).outlineStyle, getComputedStyle(p).strokeWidth])).toEqual([true, 'none', '2px']);
+    }
+    await page.mouse.click(600, 650);
+  }
+});
+
 test('eine Fläche nennt beim Zeigen ihren Namen als Text und hält beim Klick ihre Tafel; eine Nadel liegt über ihr', async ({ page }) => {
   const gebiet = { ...GEBIET, name: '<b>Gebiet</b>', panel: { blocks: [{ type: 'title', text: 'Gebietstafel' }] } };
   await welt(page, staedte([gebiet, HAFEN]));

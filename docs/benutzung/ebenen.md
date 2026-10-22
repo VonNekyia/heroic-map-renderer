@@ -18,6 +18,7 @@ die Sprites der Banner zeichnet der Renderer vorab, siehe „Banner“. Diese Se
 Plugin, Webkarte und Mod (#219). Warum so:
 [0095](../entscheidungen/0095-ebenen.md), für Banner, feste Grösse und Tafel
 beim Zeigen [0097](../entscheidungen/0097-banner-feste-groesse-tafel-beim-zeigen.md),
+für die Grösse weit draussen [0116](../entscheidungen/0116-nadeln-und-banner-unter-16-bloecken-je-pixel.md),
 für Banner, die der Renderer zeichnet, [0100](../entscheidungen/0100-der-renderer-zeichnet-die-banner.md),
 für Aktionsebenen und Knöpfe [0107](../entscheidungen/0107-aktionsebenen.md).
 Was die Webkarte davon schon zeigt: [Frontend](../frontend.md), „Ebenen“.
@@ -172,8 +173,8 @@ selbst, die Webkarte im Browser.
 ### Nadel
 
 Ein Punkt der Karte als Wappenschild mit Symbol und Namen, etwa ein
-Wegpunkt. `size` wählt die Grösse fest; sie bleibt auf jeder Stufe gleich,
-siehe „Nadeln und Banner“ unter „Zeichnen“. Für Orte wie Städte gibt es das
+Wegpunkt. `size` wählt die Grösse; wie sie beim Zoomen bleibt, steht
+unter „Nadeln und Banner“ im Abschnitt „Zeichnen“. Für Orte wie Städte gibt es das
 Banner.
 
 ```json
@@ -195,7 +196,7 @@ Banner.
 | `at` | der Punkt | Pflicht |
 | `y` | der Block, auf dem die Nadel steht; ihr Fuss liegt auf seiner Oberseite, `y + 1` | die Höhe aus `map.json` |
 | `name` | steht unter der Nadel, höchstens 64 Zeichen | ohne |
-| `size` | Grösse, fest auf jeder Stufe: `large`, `medium` oder `small` | `medium` |
+| `size` | Grösse: `large`, `medium` oder `small`, siehe „Nadeln und Banner“ unter „Zeichnen“ | `medium` |
 | `symbol` | Bilder der Ebene im Schild, siehe „Bilder“: `large` genau 16 × 16 Pixel, `medium` genau 9 × 9; fehlt eins, steht das Schild in dieser Grösse leer. `small` hat nie ein Symbol | ohne |
 | `color` | Farbe des Schilds | `#D9443A` |
 
@@ -255,8 +256,9 @@ teilen, etwa alle Städte einer Nation; so reichen die 200 je Ebene auch für
 | `name` | steht unter dem Banner, höchstens 64 Zeichen | ohne |
 
 - **Pixel auf Pixel:** in der Grösse des Sprites oder Bilds, in Pixeln der
-  Ansicht, nie skaliert, auf jeder Stufe gleich. Wie die Webkarte rundet,
-  steht unter „Nadeln und Banner“ im Abschnitt „Zeichnen“.
+  Ansicht, nie geglättet. Wie die Webkarte rundet und wann sie es weit
+  draussen halbiert, steht unter „Nadeln und Banner“ im Abschnitt
+  „Zeichnen“.
 - **Fuss:** beim Bild die Unterkante, `⌊Breite / 2⌋` Pixel rechts seiner
   linken Kante, so wie bei der Nadel; beim Sprite der aus `satz.json`,
   siehe „Sprites“.
@@ -324,7 +326,7 @@ layers/<modname>/banner/<ebene>/<satz>/satz.json
 - **Welches Sprite:** Ein Baum, der nicht von oben schaut, nimmt seinen
   Satz; jeder Baum von oben, `top-north`, `top` und `--flat`, und der Mod
   nehmen `oben`. Mit `capital` das aus `krone/`.
-- **Grösse:** fest, auf jeder Stufe gleich, höchstens 32 × 64. Ein Pixel des
+- **Grösse:** höchstens 32 × 64. Ein Pixel des
   Modells ist ein Pixel des Sprites, in jeder Kamera. Das Tuch ist 20 Pixel
   breit; von vorn 20 × 40, schräg fällt seine Unterkante um `20 · H / W`
   Pixel, in `2:1` um 10.
@@ -938,18 +940,24 @@ vor dem Punkt: diagonal ab der nächsten Mitte auf der Linie, genordet ab der
 ### Nadeln und Banner
 
 - **Fuss:** `P(x, y + 1, z)` mit `y` aus dem Objekt oder `H(x, z)`.
-- **Grösse:** fest, auf jeder Stufe gleich, siehe
-  [0097](../entscheidungen/0097-banner-feste-groesse-tafel-beim-zeigen.md):
-  die Nadel in ihrer `size`, siehe „Nadel“, das Banner in der Grösse seines
-  Bilds, in Pixeln der Ansicht, siehe „Gemeinsame Felder“; im Mod wie
-  seine Wegpunkte. Auf der Webkarte ist ein Pixel des Bilds eine ganze
-  Zahl Pixel des Geräts breit, gerundet aus `devicePixelRatio`. Sie hängt
-  nicht am Zoom.
+- **Grösse:** die Nadel in ihrer `size`, siehe „Nadel“, das Banner in der
+  Grösse seines Bilds, in Pixeln der Ansicht, siehe „Gemeinsame Felder“,
+  nach [0097](../entscheidungen/0097-banner-feste-groesse-tafel-beim-zeigen.md);
+  im Mod wie seine Wegpunkte, fest auf jeder Stufe. Auf der Webkarte ist ein
+  Pixel des Bilds eine ganze Zahl Pixel des Geräts breit, gerundet aus
+  `devicePixelRatio`, und sie hängt am Massstab, [0116](../entscheidungen/0116-nadeln-und-banner-unter-16-bloecken-je-pixel.md):
+  - bis 16 Blöcke je CSS-Pixel die volle Grösse, also solange ein Block
+    mindestens 1/16 Pixel breit ist, gemessen an der längeren seiner Kanten
+    in x und z;
+  - darunter je Stufe die Hälfte, Bild und Name zusammen, das Bild ohne
+    Glätten auf ganze Pixel des Geräts gerundet;
+  - fiele der Name unter 6 Pixel, fehlt er, und kleiner werden sie ab da
+    nicht mehr: bei 16 Pixel Schrift die zweite Stufe unter der Grenze.
 - **Name:** immer, mittig unter dem Fuss der Nadel oder des Banners, und
   er sieht aus wie die Kartenschrift, nicht wie die Oberfläche: Schrift
   `map`, Farbe `#2B2B2B`, Kontur `#F2E8D0` 2 Pixel breit, ohne Kasten.
-  Die Grösse ist fest, auf jeder Stufe gleich: auf der Webkarte
-  Schriftgrösse 16 Pixel, im Mod 10 Einheiten seiner Oberfläche, im
+  Die Grösse: auf der Webkarte Schriftgrösse 16 Pixel, weit draussen mit
+  der Nadel kleiner, siehe „Grösse“; im Mod fest 10 Einheiten seiner Oberfläche, im
   Verhältnis wie die Breite der Tafel, 200 zu 320. So zeigt ein Plugin für
   Städte die Namen am Banner, ohne eigene Kartenschrift.
 - **Name einer Nadel:** gerade und waagrecht wie bisher, mittig unter dem

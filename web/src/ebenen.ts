@@ -12,7 +12,7 @@ import rahmenKlein from './ebenen/schild_klein_rahmen.png?url&no-inline';
 import feldMittel from './ebenen/schild_mittel.png?url&no-inline';
 import rahmenMittel from './ebenen/schild_mittel_rahmen.png?url&no-inline';
 import { bereich, flaechenZiele, form, hatFlaeche, versetze, zeichneAnsicht, zuege, type Form, type Strich } from './formen';
-import { bildpunkt, oberflaeche as hoeheAuf, rechteck, schriftPfad, weltRechteck, zurKamera, type Blick, type Gelaende, type Rechteck, type Schirm } from './gelaende';
+import { bildpunkt, blockBreite, oberflaeche as hoeheAuf, rechteck, schriftPfad, weltRechteck, zurKamera, type Blick, type Gelaende, type Rechteck, type Schirm } from './gelaende';
 import { FRISCH, LEER, type Hoehenkarten } from './hoehen';
 import { REGION } from './pick';
 import { abmelden, aktion, anmelden, ebene as spielerEbene, erkennen, ich, knoepfe as holeKnoepfeVomServer, nimmToken, objektSchluessel, sicht, type Knopf, type Spieler } from './konto';
@@ -251,6 +251,17 @@ function banner(wert: unknown): Banner | undefined {
  * Siehe docs/benutzung/ebenen.md, „Nadeln und Banner“.
  */
 const NAME = { s: 16, sperrung: 0.125 * 16, tief: 0.75 * 16, oeffnung: (2 * Math.PI) / 3 };
+
+/**
+ * Nadeln und Banner haben ihre volle Grösse, solange ein Block auf dem
+ * Schirm mindestens `grenze` CSS-Pixel breit ist, also bis 16 Blöcke je
+ * Pixel; darunter je Stufe die Hälfte, bis ihr Name kleiner als `nameMin`
+ * Pixel würde. Dann fehlt er, und kleiner werden sie nicht mehr. Siehe
+ * docs/entscheidungen/0116-nadeln-und-banner-unter-16-bloecken-je-pixel.md.
+ */
+const GROESSE = { grenze: 1 / 16, nameMin: 6 };
+/** Die kleinste Stufe: die erste, auf der der Name unter `nameMin` fiele. */
+const STUFE_MAX = Math.ceil(Math.log2(NAME.s / GROESSE.nameMin));
 let bogenNummer = 0;
 
 /**
@@ -803,17 +814,18 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
    * und solange eine gehaltene Tafel offen ist, öffnet Zeigen keine andere.
    * Gibt zurück, womit Tastatur sie öffnet, dann mit dem Fokus darin. `ort`
    * sagt, wo sie erscheint, ohne Ereignis für die Tastatur; `hoehe` hebt sie
-   * über das Icon, damit sie es nicht deckt.
+   * über das Icon, damit sie es nicht deckt, gefragt bei jedem Öffnen: Das
+   * Icon wird beim Zoomen kleiner.
    */
   const tafelAn = (
     ziel: L.Marker | L.Polygon,
     inhalt: () => HTMLElement,
     element: () => Element | undefined,
     ort: (ereignis?: L.LeafletMouseEvent) => L.LatLng,
-    hoehe = 0,
+    hoehe: () => number = () => 0,
   ): ((perTastatur: boolean) => void) => {
     // 7 ist der Versatz, den Leaflet sonst hat.
-    const popup = L.popup({ ...TAFEL, offset: [0, 7 - hoehe] }).setContent(inhalt);
+    const popup = L.popup({ ...TAFEL, offset: [0, 7 - hoehe()] }).setContent(inhalt);
     let gehalten = false;
     let perTastatur = false;
     let auf: ReturnType<typeof setTimeout> | undefined;
@@ -841,6 +853,7 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
       clearTimeout(zu);
       // Nur eine gehaltene Tafel verschiebt die Karte; beim Zeigen liesse das einen festgehaltenen Block los.
       popup.options.autoPan = gehalten;
+      popup.options.offset = [0, 7 - hoehe()];
       popup.setLatLng(wo);
       if (!map.hasLayer(popup)) popup.openOn(map);
       else fokus();
@@ -946,59 +959,98 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     });
   };
 
+  /** Die Stufe der Grösse jetzt, nach dem Massstab der Karte, höchstens `STUFE_MAX`. Siehe `GROESSE`. */
+  const groessenStufe = (): number => {
+    const px = blockBreite(blick) * faktor();
+    return Math.min(STUFE_MAX, Math.max(0, Math.ceil(Math.log2(GROESSE.grenze / px) - 1e-9)));
+  };
+
   /**
-   * Das Icon einer Nadel oder eines Banners: das Bild Pixel auf Pixel, der
-   * Fuss unten bei ⌊b / 2⌋, der Name darunter. Ein Pixel des Bilds ist
-   * k = max(1, round(devicePixelRatio)) Pixel des Geräts breit, so bleibt
-   * jedes gleich breit, auch bei 1,25 oder 1,5. Siehe docs/frontend.md, „Ebenen“.
+   * Das Icon einer Nadel oder eines Banners auf der Stufe `stufe`: das Bild
+   * Pixel auf Pixel, der Fuss unten bei ⌊b / 2⌋, der Name darunter. Ein
+   * Pixel des Bilds ist k = max(1, round(devicePixelRatio)) Pixel des Geräts
+   * breit, so bleibt jedes gleich breit, auch bei 1,25 oder 1,5; je Stufe
+   * die Hälfte, ohne Glätten. Der Name wird mit kleiner und fehlt unter
+   * `GROESSE.nameMin`. Siehe docs/frontend.md, „Ebenen“.
    */
   const ortIcon = (
     bild: CanvasImageSource,
     b: number,
     h: number,
     name: string | undefined,
-    banner?: { fuss: [number, number]; winkel: number },
+    banner: { fuss: [number, number]; winkel: number } | undefined,
+    stufe: number,
   ): L.DivIcon => {
     // Der Fuss als Punkt auf den Kanten der Pixel: bei der Nadel und beim Bild (⌊b / 2⌋, h), beim Sprite aus satz.json.
     const [fx, fy] = banner?.fuss ?? [Math.floor(b / 2), h];
     const k = Math.max(1, Math.round(devicePixelRatio));
     const s = k / devicePixelRatio;
+    const teil = 2 ** -stufe;
+    // Auf dem Gerät gerundet, so bleibt jedes Pixel ganz; das Bild ohne Glätten, je Stufe jedes zweite Pixel.
+    const [gb, gh] = [Math.max(1, Math.round(b * k * teil)), Math.max(1, Math.round(h * k * teil))];
+    const [sb, sh] = [gb / devicePixelRatio, gh / devicePixelRatio];
     const html = L.DomUtil.create('div', 'nadel');
     const kopie = document.createElement('canvas');
-    [kopie.width, kopie.height] = [b * k, h * k];
-    [kopie.style.width, kopie.style.height] = [`${b * s}px`, `${h * s}px`];
+    [kopie.width, kopie.height] = [gb, gh];
+    [kopie.style.width, kopie.style.height] = [`${sb}px`, `${sh}px`];
     const ctx = kopie.getContext('2d')!;
     ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(bild, 0, 0, b * k, h * k);
+    ctx.drawImage(bild, 0, 0, gb, gh);
     html.append(kopie);
-    if (name && banner) {
-      // Gemessen in der Kartenschrift: bannerIcon wartet, bis sie geladen ist.
+    const [ax, ay] = [(fx * sb) / b, (fy * sh) / h];
+    const mitName = name && NAME.s * teil >= GROESSE.nameMin;
+    if (mitName && banner) {
+      // Gemessen in der Kartenschrift: bannerIcon wartet, bis sie geladen ist. Der Bogen wie auf voller Grösse, mit kleiner.
       const svg = nameImBogen(name, h * s, banner.winkel);
-      [svg.style.left, svg.style.top] = [`${fx * s}px`, `${fy * s}px`];
+      [svg.style.left, svg.style.top] = [`${ax}px`, `${ay}px`];
+      if (teil < 1) [svg.style.transform, svg.style.transformOrigin] = [`scale(${teil})`, '0 0'];
       html.append(svg);
-    } else if (name) {
+    } else if (mitName) {
       // Der Name steht in der Kartenschrift; bis sie geladen ist, in der Vorgabe von style.css.
       void ladeSchrift();
-      L.DomUtil.create('span', 'nadel-name', html).textContent = name;
+      const text = L.DomUtil.create('span', 'nadel-name', html);
+      text.textContent = name;
+      if (teil < 1) [text.style.transform, text.style.transformOrigin] = [`translateX(-50%) scale(${teil})`, '50% 0'];
     }
-    return L.divIcon({ html, className: 'nadel-icon', iconSize: [b * s, h * s], iconAnchor: [fx * s, fy * s] });
+    return L.divIcon({ html, className: 'nadel-icon', iconSize: [sb, sh], iconAnchor: [ax, ay] });
   };
 
-  /** Das Icon einer Nadel, fest in ihrer `size`. Icons und Symbole gelten je Laden einer Ebene. */
+  /** Je Nadel und Banner, wie es sein Icon auf einer Stufe zeichnet; beim Zoomen über eine Stufe bekommt es ein neues. */
+  const iconAuf = new WeakMap<L.Marker, (stufe: number) => L.DivIcon>();
+  let stufeJetzt = -1;
+  /** Zeichnet die Icons neu, wenn der Zoom die Stufe der Grösse ändert. */
+  const groesseNachZoom = (): void => {
+    const stufe = groessenStufe();
+    if (stufe === stufeJetzt) return;
+    stufeJetzt = stufe;
+    for (const g of geladen.values()) {
+      g.gruppe.eachLayer((m) => {
+        const neu = iconAuf.get(m as L.Marker);
+        if (!neu) return;
+        // setIcon baut ein neues Element; die Klasse des Ziels einer Tafel kommt mit.
+        const ziel = (m as L.Marker).getElement()?.classList.contains('tafel-ziel');
+        (m as L.Marker).setIcon(neu(stufe));
+        if (ziel) (m as L.Marker).getElement()?.classList.add('tafel-ziel');
+      });
+    }
+  };
+
+  /** Das Icon einer Nadel in ihrer `size`, je Stufe. Icons und Symbole gelten je Laden einer Ebene. */
   const nadelIcon = async (
     n: Nadel,
     ordner: string,
     version: string,
     icons: Map<string, Promise<HTMLCanvasElement>>,
     symbole: Map<string, Promise<HTMLImageElement>>,
-  ): Promise<L.DivIcon> => {
+  ): Promise<(stufe: number) => L.DivIcon> => {
     const pfad = n.size === 'small' ? undefined : n.symbol[n.size];
     const symbol = pfad && `${ordner}/${pfad}?v=${encodeURIComponent(version)}`;
     const schluessel = `${n.size} ${n.color} ${symbol ?? ''}`;
     let leinwand = icons.get(schluessel);
     if (!leinwand) icons.set(schluessel, (leinwand = zeichneNadel(n.size, n.color, symbol, symbole)));
     const { b, h } = SCHILDE[n.size];
-    return ortIcon(await leinwand, b, h, n.name);
+    const fertig = await leinwand;
+    return (stufe) => ortIcon(fertig, b, h, n.name, undefined, stufe);
   };
 
   /**
@@ -1013,7 +1065,7 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     version: string,
     symbole: Map<string, Promise<HTMLImageElement>>,
     satz: Satz | undefined,
-  ): Promise<L.DivIcon | undefined> => {
+  ): Promise<((stufe: number) => L.DivIcon) | undefined> => {
     const [b, h] = GRENZEN.banner as [number, number];
     const v = encodeURIComponent(version);
     const passt = (geholt: HTMLImageElement | undefined) => geholt && geholt.naturalWidth <= b && geholt.naturalHeight <= h;
@@ -1023,7 +1075,7 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
       const [fx, fy] = satz.fuss;
       if (sprite && passt(sprite) && fx <= sprite.naturalWidth && fy <= sprite.naturalHeight) {
         if (banner.name) await ladeSchrift();
-        return ortIcon(sprite, sprite.naturalWidth, sprite.naturalHeight, banner.name, satz);
+        return (stufe) => ortIcon(sprite, sprite.naturalWidth, sprite.naturalHeight, banner.name, satz, stufe);
       }
       console.warn(`Banner ${banner.id}: Sprite ${adresse} fehlt, ist zu gross oder passt nicht zum Fuss aus satz.json${banner.image ? ', nimmt image' : ', übergangen'}`);
     }
@@ -1039,7 +1091,8 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     }
     if (banner.name) await ladeSchrift();
     // Mit image der Fuss unten mittig und der Name ohne Drehung.
-    return ortIcon(geholt, geholt.naturalWidth, geholt.naturalHeight, banner.name, { fuss: [Math.floor(geholt.naturalWidth / 2), geholt.naturalHeight], winkel: 0 });
+    const fuss: [number, number] = [Math.floor(geholt.naturalWidth / 2), geholt.naturalHeight];
+    return (stufe) => ortIcon(geholt, geholt.naturalWidth, geholt.naturalHeight, banner.name, { fuss, winkel: 0 }, stufe);
   };
 
   /**
@@ -1280,7 +1333,7 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
         const [px, py] = bildpunkt(o.at[0], iso ? y : 0, o.at[1], blick);
         // In der Ebene liegt das spätere oben, gleich wo auf dem Schirm.
         const m = L.marker(L.latLng(py, px), {
-          icon,
+          icon: icon(groessenStufe()),
           pane: pane(e.id).nadeln,
           zIndexOffset: index * 100_000,
           interactive: o.panel !== undefined,
@@ -1290,11 +1343,14 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
         });
         const panel = o.panel;
         if (panel) {
-          const oeffne = tafelAn(m, () => tafelDerEbene(panel, o.id), () => m.getElement(), () => m.getLatLng(), (icon.options.iconSize as L.PointTuple)[1]);
+          // Die Höhe des Icons jetzt, auf seiner Stufe: Die Tafel steht darüber.
+          const hoehe = () => (m.options.icon!.options.iconSize as L.PointTuple)[1];
+          const oeffne = tafelAn(m, () => tafelDerEbene(panel, o.id), () => m.getElement(), () => m.getLatLng(), hoehe);
           m.on('keypress', (ereignis) => {
             if (ereignis.originalEvent.key === 'Enter') oeffne(true);
           });
         }
+        iconAuf.set(m, icon);
         return m;
       }),
     );
@@ -1773,6 +1829,7 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     for (const g of geladen.values()) versetze(g.striche, faktor());
   });
   map.on('zoomend moveend', ansichtGeaendert);
+  map.on('zoomend', groesseNachZoom);
   setInterval(() => {
     if (document.visibilityState === 'visible') void nachfragen();
   }, TAKT);

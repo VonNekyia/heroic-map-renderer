@@ -135,4 +135,12 @@ export default [
   { name: 'ich-ohne-rahmen', datei: 'src/style.css', alt: '.mitspieler.ich .mitspieler-kopf {\n  outline: 1px solid #ffd84a;\n}', neu: '.mitspieler.ich .mitspieler-kopf {\n  outline: 0 solid #ffd84a;\n}', spec: 'tests/mitspieler.spec.ts', titel: 'nach 0114 zeigt ein Mitspieler mit kopf' },
   // Kein Fokusring nach einem Mausklick auf eine Fläche.
   { name: 'name-mit-fokus', datei: 'src/formen.ts', alt: "if (!f.panel) flaeche.on('add', () => ohne(flaeche.getElement()!, 'focus blur'));", neu: "if (!f.panel && f.id === '') flaeche.on('add', () => ohne(flaeche.getElement()!, 'focus blur'));", spec: 'tests/formen.spec.ts', titel: 'nach einem Mausklick auf eine Fläche' },
+  // Nadeln und Banner unter 16 Blöcken je Pixel, 0116.
+  { name: 'groesse-immer-voll', datei: 'src/ebenen.ts', alt: 'const GROESSE = { grenze: 1 / 16, nameMin: 6 };', neu: 'const GROESSE = { grenze: 0, nameMin: 6 };', spec: 'tests/ebenen.spec.ts', titel: 'nach 0116 bleiben Nadeln und Banner' },
+  { name: 'grenze-eine-stufe-frueher', datei: 'src/ebenen.ts', alt: 'const GROESSE = { grenze: 1 / 16, nameMin: 6 };', neu: 'const GROESSE = { grenze: 1 / 8, nameMin: 6 };', spec: 'tests/ebenen.spec.ts', titel: 'nach 0116 bleiben Nadeln und Banner' },
+  { name: 'name-immer', datei: 'src/ebenen.ts', alt: 'const mitName = name && NAME.s * teil >= GROESSE.nameMin;', neu: 'const mitName = name && NAME.s * teil >= 0;', spec: 'tests/ebenen.spec.ts', titel: 'nach 0116 bleiben Nadeln und Banner' },
+  { name: 'ohne-kleinste-stufe', datei: 'src/ebenen.ts', alt: 'return Math.min(STUFE_MAX, Math.max(', neu: 'return Math.min(STUFE_MAX + 9, Math.max(', spec: 'tests/ebenen.spec.ts', titel: 'nach 0116 bleiben Nadeln und Banner' },
+  { name: 'zoom-ohne-neues-icon', datei: 'src/ebenen.ts', alt: "  map.on('zoomend', groesseNachZoom);", neu: "  map.on('zoomstart', groesseNachZoom);", spec: 'tests/ebenen.spec.ts', titel: 'nach 0116 bleiben Nadeln und Banner' },
+  { name: 'tafel-ueber-altem-icon', datei: 'src/ebenen.ts', alt: '      popup.options.offset = [0, 7 - hoehe()];\n', neu: '', spec: 'tests/ebenen.spec.ts', titel: 'nach 0116 bleiben Nadeln und Banner' },
+  { name: 'name-nicht-mit-kleiner', datei: 'src/ebenen.ts', alt: "if (teil < 1) [svg.style.transform, svg.style.transformOrigin] = [`scale(${teil})`, '0 0'];", neu: "if (teil < 0) [svg.style.transform, svg.style.transformOrigin] = [`scale(${teil})`, '0 0'];", spec: 'tests/ebenen.spec.ts', titel: 'nach 0116 bleiben Nadeln und Banner' },
 ];

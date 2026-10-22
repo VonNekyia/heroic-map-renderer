@@ -254,21 +254,51 @@ test('ein Symbol in falscher Grösse bleibt weg, das Schild leer, und die Konsol
   expect(ist).toEqual(await schildSoll(page, 'mittel', 15, 23, [0x40, 0xe5, 0x3f], undefined));
 });
 
-test('Nadeln und Banner bleiben beim Hinauszoomen gleich gross, jede mit ihrem Namen in der Kartenschrift, Städte wie Dörfer', async ({ page }) => {
+test('nach 0116 bleiben Nadeln und Banner bis 16 Blöcke je Pixel gleich gross, darunter je Stufe halb so gross, bis der Name unter 6 px fiele; dann ohne Namen in der kleinsten Stufe', async ({ page }) => {
   const dorf = { ...HAFEN, id: 'dorf', name: 'Dorf', size: 'small', at: [30.5, -20.5], panel: undefined };
   const fahne = { id: 'fahne', type: 'banner', at: [40.5, -10.5], image: 'images/fahne.png', name: 'Fahne' };
-  // scale 4: Auf Stufe −8 ist ein Block 1/64 Pixel breit; früher war dort jede Nadel aus.
-  await welt(page, staedte([HAFEN, dorf, fahne], { mehr: { scale: 4, minZoom: -6 }, bild: (n) => (n === 'fahne.png' ? png(22, 40) : BILDER[n]) }));
-  for (const zoom of [0, -8]) {
+  // Wie der Baum des Users: von oben genordet, 4 Pixel je Block. Auf Zoom −6 ist ein Block 1/16 Pixel breit.
+  const vonOben = { camera: 'top-north', scale: 4, projection: { azimuth: 'north', u: 4, v: 4, y: 0 }, minZoom: -10 };
+  await welt(page, staedte([HAFEN, dorf, fahne], { mehr: vonOben, bild: (n) => (n === 'fahne.png' ? png(22, 40) : BILDER[n]) }));
+  const voll = ['Dorf 9 × 15', 'Fahne 22 × 40', 'Hafenstadt 23 × 33'];
+  for (const [zoom, groessen, mitNamen] of [
+    [0, voll, true],
+    [-6, voll, true],
+    // Je Stufe die Hälfte, auf ganze Pixel des Geräts gerundet; der Name 8 px.
+    [-7, ['Dorf 5 × 8', 'Fahne 11 × 20', 'Hafenstadt 12 × 17'], true],
+    // Der Name fiele auf 4 px: ohne Namen, und kleiner als hier wird es nicht.
+    [-8, ['Dorf 2 × 4', 'Fahne 6 × 10', 'Hafenstadt 6 × 8'], false],
+    [-10, ['Dorf 2 × 4', 'Fahne 6 × 10', 'Hafenstadt 6 × 8'], false],
+  ] as const) {
     await page.goto(`${DEMO}&at=35,0,-15&zoom=${zoom}`);
+    await expect(page.locator('.nadel-icon')).toHaveCount(3);
     // Nadeln mit geradem Namen, das Banner mit dem Namen im Bogen.
-    await expect(page.locator('.nadel-name')).toHaveCount(2);
-    await expect(page.locator('.nadel-bogen textPath')).toHaveText('Fahne');
-    const groessen = await page.locator('.nadel-icon').evaluateAll((l) =>
+    await expect(page.locator('.nadel-name'), `Zoom ${zoom}`).toHaveCount(mitNamen ? 2 : 0);
+    await expect(page.locator('.nadel-bogen'), `Zoom ${zoom}`).toHaveCount(mitNamen ? 1 : 0);
+    const gemessen = await page.locator('.nadel-icon').evaluateAll((l) =>
       l.map((e) => `${e.getAttribute('title')} ${e.getBoundingClientRect().width} × ${e.getBoundingClientRect().height}`).sort(),
     );
-    expect(groessen, `Zoom ${zoom}`).toEqual(['Dorf 9 × 15', 'Fahne 22 × 40', 'Hafenstadt 23 × 33']);
+    expect(gemessen, `Zoom ${zoom}`).toEqual(groessen);
+    if (zoom === -7) {
+      // Der Name mit kleiner: die gerade Schrift 8 px hoch, der Bogen auf die Hälfte um den Fuss.
+      expect(await page.locator('.nadel-name').first().evaluate((e) => e.getBoundingClientRect().height)).toBeCloseTo(8, 0);
+      expect(await page.locator('.nadel-bogen').evaluate((e) => [getComputedStyle(e).transform, getComputedStyle(e).transformOrigin])).toEqual(['matrix(0.5, 0, 0, 0.5, 0, 0)', '0px 0px']);
+    }
   }
+  // Beim Zoomen über die Grenze bekommt die Nadel ein neues Icon, ohne neues Laden.
+  await page.goto(`${DEMO}&at=35,0,-15&zoom=-6`);
+  await expect(page.locator('.nadel-icon[title="Fahne"]')).toHaveCount(1);
+  await page.locator('.leaflet-control-zoom-out').click();
+  await expect.poll(() => page.locator('.nadel-icon[title="Fahne"]').evaluate((e) => e.getBoundingClientRect().width)).toBe(11);
+  // Die Tafel steht über dem kleinen Icon wie sonst über dem grossen: ihre Spitze 7 px unter seiner Oberkante.
+  const hafen = page.locator('.nadel-icon[title="Hafenstadt"]');
+  await expect.poll(() => hafen.evaluate((e) => e.getBoundingClientRect().height)).toBe(17);
+  await hafen.hover();
+  const spitze = page.locator('.leaflet-popup-tip-container');
+  await expect(spitze).toBeVisible();
+  const [oben, unten] = [(await hafen.boundingBox())!.y, (await spitze.boundingBox())!];
+  expect(Math.abs(unten.y + unten.height - (oben + 7))).toBeLessThanOrEqual(1);
+  await page.goto(`${DEMO}&at=35,0,-15&zoom=0`);
   // Die Namen wie die Kartenschrift, 16 Pixel, ohne Kasten, auch ohne Kartenschrift in der Ebene.
   const stil = await page.locator('.nadel-name').first().evaluate((e) => {
     const s = getComputedStyle(e);

@@ -184,7 +184,7 @@ function abstand(p: Punkt, a: Punkt, b: Punkt): number {
 }
 
 /** Wie viele Pixel der feinsten Stufe ein Block längs x oder z höchstens breit ist. */
-function blockBreite(blick: Blick): number {
+export function blockBreite(blick: Blick): number {
   const o = bildpunkt(0, 0, 0, blick);
   return Math.max(...[bildpunkt(1, 0, 0, blick), bildpunkt(0, 0, 1, blick)].map(([x, y]) => Math.hypot(x - o[0], y - o[1])));
 }

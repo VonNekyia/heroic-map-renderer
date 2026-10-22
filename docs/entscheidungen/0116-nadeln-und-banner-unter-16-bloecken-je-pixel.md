@@ -15,8 +15,9 @@ code:
 Der User auf der Webkarte, Baum `top-north-s` (scale 4, von oben), am
 22.10.: Bis Zoom −6 stehen die Stadtnamen gut, danach überlappen sie und
 müssten kleiner werden. Bis dahin galt aus
-[0097](0097-banner-feste-groesse-tafel-beim-zeigen.md), „Feste Grösse“:
-Nadeln und Banner samt Namen sind auf jeder Stufe gleich gross. Weit
+[0097](0097-banner-feste-groesse-tafel-beim-zeigen.md), „Entscheidung“, der
+Punkt zur festen Grösse: Nadeln und Banner samt Namen sind auf jeder Stufe
+gleich gross. Weit
 draussen rücken die Orte auf dem Schirm zusammen, die Bilder nicht.
 
 ## Entscheidung

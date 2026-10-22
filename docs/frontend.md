@@ -418,7 +418,11 @@ ist, ohne Leaflet, und [`pruefen.ts`](../web/src/pruefen.ts) für die
 Eingaben.
 
 Banner, feste Grösse und die Tafel beim Zeigen folgen
-[0097](entscheidungen/0097-banner-feste-groesse-tafel-beim-zeigen.md).
+[0097](entscheidungen/0097-banner-feste-groesse-tafel-beim-zeigen.md). Unter 16 Blöcken je Pixel werden
+Nadeln und Banner je Stufe kleiner, siehe
+[0116](entscheidungen/0116-nadeln-und-banner-unter-16-bloecken-je-pixel.md)
+und [Ebenen](benutzung/ebenen.md), „Nadeln und Banner“; beim Zoomen über
+eine Stufe bekommen sie ein neues Icon, neu geladen wird nichts.
 
 ![Eine Ebene auf dem Ufer der Testwelt, links schräg in 2:1, rechts von oben](bilder/ebenen-testwelt.webp)
 

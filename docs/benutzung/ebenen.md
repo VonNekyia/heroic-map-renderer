@@ -20,7 +20,8 @@ Plugin, Webkarte und Mod (#219). Warum so:
 beim Zeigen [0097](../entscheidungen/0097-banner-feste-groesse-tafel-beim-zeigen.md),
 für die Grösse weit draussen [0116](../entscheidungen/0116-nadeln-und-banner-unter-16-bloecken-je-pixel.md),
 für Banner, die der Renderer zeichnet, [0100](../entscheidungen/0100-der-renderer-zeichnet-die-banner.md),
-für Aktionsebenen und Knöpfe [0107](../entscheidungen/0107-aktionsebenen.md).
+für Aktionsebenen und Knöpfe [0107](../entscheidungen/0107-aktionsebenen.md),
+für Köpfe statt Nadeln [0118](../entscheidungen/0118-koepfe-in-ebenen.md).
 Was die Webkarte davon schon zeigt: [Frontend](../frontend.md), „Ebenen“.
 
 ## Überblick
@@ -131,7 +132,8 @@ selbst, die Webkarte im Browser.
     dort ein Fehler, denn alles unter `layers/` ist öffentlich. Banner hat
     sie nur mit `design`; ihre Sprites gehen über den Kanal des Plugins,
     siehe „An den Mod“. Der Mod zeichnet ihre Nadeln als Nadel der Karte in
-    `color`.
+    `color`. Köpfe (`head`) darf sie haben, siehe „Nadel“: Ein Kopf liegt
+    nicht unter `layers/`.
 - **`objects`:** die Objekte, in der Reihenfolge, in der sie liegen; ein
   späteres liegt über einem früheren derselben Art.
 
@@ -199,6 +201,7 @@ Banner.
 | `size` | Grösse: `large`, `medium` oder `small`, siehe „Nadeln und Banner“ unter „Zeichnen“ | `medium` |
 | `symbol` | Bilder der Ebene im Schild, siehe „Bilder“: `large` genau 16 × 16 Pixel, `medium` genau 9 × 9; fehlt eins, steht das Schild in dieser Grösse leer. `small` hat nie ein Symbol | ohne |
 | `color` | Farbe des Schilds | `#D9443A` |
+| `head` | ein Kopf statt des Schilds, siehe „Kopf“ unten | ohne |
 
 - **Die Nadel der Karte** ist ein Wappenschild auf einer Nadel, in drei
   Grössen, je in Pixeln der Ansicht:
@@ -221,6 +224,27 @@ Banner.
   nicht genau seine Grösse, bleibt das Schild leer. Die Bilder von Schild
   und Nadel liefert jede Ansicht selbst.
 - **Fuss:** die Spitze der Nadel, in der Mitte der Unterkante.
+- **Kopf** (`head`): genau 64 Zeichen `0–9 a–f`, der Name eines Kopfs
+  `koepfe/<head>.png` in der Wurzel neben `layers/`, ein PNG 8 × 8, Gesicht
+  mit Hutschicht wie die Köpfe der Mitspieler nach
+  [0114](../entscheidungen/0114-koepfe-der-mitspieler.md). Jeder andere Wert
+  gilt wie ohne `head`.
+
+  ```json
+  { "id": "npc-12", "type": "pin", "at": [120.5, -340.5], "y": 70, "name": "Händlerin", "head": "3f1c…" }
+  ```
+
+  - Mit `head` zeigt die Ansicht das Gesicht statt Schild und Nadel,
+    darunter `name`, beim Zeigen die `panel`. `size`, `symbol` und `color`
+    gelten nur für die Nadel.
+  - Die Nadel bleibt, solange der Kopf fehlt oder nicht taugt: kein `200`,
+    grösser als 16 KiB, kein Bild genau 8 × 8. Eine ältere Ansicht übergeht
+    `head` und zeigt die Nadel.
+  - Das Plugin schreibt `head` erst, wenn die Datei liegt. Den Kopf macht es
+    aus einer Textur, die ein Plugin über seine API nennt; die Datei nennt
+    nie die Textur. Holen, Rate und Aufräumen beschreibt die Doku des
+    Plugins, warum so: [0118](../entscheidungen/0118-koepfe-in-ebenen.md).
+  - Auch eine Ebene mit `permission` darf Köpfe haben.
 
 ### Banner
 
@@ -669,6 +693,7 @@ es und nennt es in der Konsole oder im Log.
 | Punkte je Objekt, über alle Ringe | 10 000 |
 | Löcher je Polygon | 100 |
 | Bilder je Ebene | 200 |
+| Verschiedene Köpfe (`head`) je Ebene | 256 |
 | Entwürfe je Ebene | 200 |
 | Lagen je Entwurf | 16 |
 | Punkte je Reihe einer Wertung | 20 |
@@ -698,6 +723,10 @@ und Linien, über seinen Kanal. Regionen braucht der Mod auch zum Anheften
   Plugins.
 - **Liste:** dieselben Felder wie `layers.json`; dazu nennt sie die Adresse
   des Servers, von dem der Mod die Bilder holt.
+- **Köpfe:** Eine Nadel mit `head` geht mit `head`. Den Kopf holt der Mod
+  von derselben Adresse wie die Bilder, ohne Token, als
+  `koepfe/<head>.png`, einmal je Name, und prüft ihn wie die Webkarte,
+  siehe „Nadel“, „Kopf“. Taugt er nicht, zeichnet er die Nadel.
 - **Einzelheiten:** Nachrichten und Rechte beschreibt das Plugin in seiner
   Doku. Infotafeln holt der Mod später, wenn der Zeiger auf dem Ziel ruht.
 - **Banner geheimer Ebenen:** Ihr Sprite fragt der Mod über den Kanal an,
@@ -962,6 +991,12 @@ vor dem Punkt: diagonal ab der nächsten Mitte auf der Linie, genordet ab der
   Städte die Namen am Banner, ohne eigene Kartenschrift.
 - **Name einer Nadel:** gerade und waagrecht wie bisher, mittig unter dem
   Fuss, ohne Sperrung.
+- **Kopf einer Nadel** (`head`): statt Schild und Nadel das Gesicht, Pixel
+  auf Pixel ohne Glätten, die Mitte des Gesichts auf dem Fuss. Auf der
+  Webkarte ist ein Pixel des Gesichts 2 · max(1, round(devicePixelRatio))
+  Pixel des Geräts, wie bei den Mitspielern, und weit draussen wird es
+  kleiner wie die Nadel, siehe „Grösse“. Der Name steht gerade und mittig
+  unter dem Gesicht. Im Mod zeichnet es der Mod nach seiner Doku.
 - **Name eines Banners:** auf einem Bogen unter dem Fuss, nach unten
   gewölbt, jedes Zeichen aufrecht zum Bogen wie die Kartenschrift an ihrem
   Pfad, siehe [0102](../entscheidungen/0102-name-im-bogen.md). In Einheiten

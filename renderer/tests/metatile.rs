@@ -134,7 +134,9 @@ fn verdecken_aendert_kein_pixel() {
 /// Biomfarbe wie Fichte mit fester Farbe: Jeder Pixel, der sich ändert,
 /// liegt im Rechteck um diesen Block und ist rot wie die Farbe, und in
 /// jedem Rechteck ändert sich einer, auch aus der Gegenrichtung. Die Lagen
-/// sind in x und z verschieden, sonst fiele ein Tausch nicht auf.
+/// sind in x und z verschieden, sonst fiele ein Tausch nicht auf. Fassung 2
+/// mit derselben Farbe, dazu Zweit- und Blütenfarbe, zeichnet Byte für Byte
+/// wie Fassung 1.
 /// Siehe docs/benutzung/laubfarben.md, „Wirkung“.
 #[test]
 fn eigene_laubfarbe_faerbt_genau_ihren_block() {
@@ -147,14 +149,15 @@ fn eigene_laubfarbe_faerbt_genau_ihren_block() {
         }
     }
     let lagen = [[3, 1, 4], [10, 1, 12]];
-    let welt = |mit: bool| {
+    let welt = |fassung: Option<u8>| {
         let dir = tempdir();
+        let dazu = [1 << 24 | 0x12_3456, 1 << 24 | 0xff_c0cb];
         common::write_world_bukkit(dir.path(), &[(0, 0)], szene, |_, _| {
-            mit.then(|| common::laubfarben(&[(0xff_2020, &lagen)]))
+            fassung.map(|f| common::laubfarben_nach(f, &[(0xff_2020, &lagen)], dazu))
         });
         dir
     };
-    let (ohne, mit) = (welt(false), welt(true));
+    let (ohne, mit, mit_v2) = (welt(None), welt(Some(1)), welt(Some(2)));
     for name in ["se", "nw"] {
         let richtung = Richtung::parse(name, Kamera::ZWEI_ZU_EINS).unwrap();
         let projection = Projection::new(16).aus(richtung);
@@ -170,6 +173,10 @@ fn eigene_laubfarbe_faerbt_genau_ihren_block() {
             render_area(&world, &sprites, rect, Y_RANGE).unwrap()
         };
         let (a, b) = (bild(&ohne), bild(&mit));
+        assert!(
+            bild(&mit_v2).as_raw() == b.as_raw(),
+            "{name}: Fassung 2 zeichnet anders als Fassung 1"
+        );
         let um = lagen.map(|[x, y, z]| rect_um(projection, [x, y, z], [x + 1, y + 1, z + 1]));
         let mut je_block = [0; 2];
         for (px, py, p) in a.enumerate_pixels() {

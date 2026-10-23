@@ -160,11 +160,25 @@ pub fn chunk_nbt_ganz(
 /// `ChunkBukkitValues`: je Gruppe Farbe und Lagen im Chunk.
 /// Siehe docs/benutzung/laubfarben.md.
 pub fn laubfarben(gruppen: &[(u32, &[[i32; 3]])]) -> fastnbt::Value {
+    laubfarben_nach(1, gruppen, [0, 0])
+}
+
+/// Wie [`laubfarben`], nach `fassung`; in Fassung 2 trägt jede Gruppe
+/// dieselbe Zweit- und Blütenfarbe `dazu`.
+pub fn laubfarben_nach(
+    fassung: u8,
+    gruppen: &[(u32, &[[i32; 3]])],
+    dazu: [u32; 2],
+) -> fastnbt::Value {
     use fastnbt::Value;
-    let mut bytes: Vec<u8> = vec![1];
+    let mut bytes: Vec<u8> = vec![fassung];
     bytes.extend((gruppen.len() as i32).to_be_bytes());
     for (farbe, lagen) in gruppen {
         bytes.extend(farbe.to_be_bytes());
+        if fassung == 2 {
+            dazu.iter()
+                .for_each(|wert| bytes.extend(wert.to_be_bytes()));
+        }
         bytes.extend((lagen.len() as i32).to_be_bytes());
         for [x, y, z] in *lagen {
             bytes.extend((x | z << 4 | (y + 2048) << 8).to_be_bytes());

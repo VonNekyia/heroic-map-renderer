@@ -50,8 +50,9 @@ Tuch stand so schräg wie die Blöcke daneben, in `2:1` mit der Unterkante um
 - **Kosten:** einmal je Satz und Entwurf zwei Sprites neu, rund 2,9 ms je
   Sprite, siehe [2026-10-11, Sprites der Banner](../messungen/2026-10-11-banner-sprites.md).
   Danach wie vorher.
-- **Webkarte und Mod** ändern nichts dafür. Die Webkarte setzt den Namen ohnehin
-  waagrecht, und der Mod nimmt `oben`.
+- **Webkarte und Mod** ändern nichts dafür. Die Webkarte dreht den Namen um
+  `angle`; mit 0 steht er waagrecht, ohne Änderung im Frontend. Der Mod
+  nimmt `oben`.
 
 ## Verworfene Alternativen
 

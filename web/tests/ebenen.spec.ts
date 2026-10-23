@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { createHash } from 'node:crypto';
 import { deflateSync } from 'node:zlib';
 import { projiziere, zweiZuEins } from '../src/pick';
 import { aufDemSchirm, BILDER, DEMO, fuss, HAFEN, KREISE, LEER, png, STAEDTE, staedte, welt } from './ebenen-welt';
@@ -254,26 +255,86 @@ test('ein Symbol in falscher Grösse bleibt weg, das Schild leer, und die Konsol
   expect(ist).toEqual(await schildSoll(page, 'mittel', 15, 23, [0x40, 0xe5, 0x3f], undefined));
 });
 
+/** Ein Gesicht 8 × 8 und sein Name, der SHA-256 seiner Bytes, wie 0114. */
+const GESICHT = { png: png(8, 8), name: createHash('sha256').update(png(8, 8)).digest('hex') };
+/** Liefert unter koepfe/ je Name die Bytes oder einen Status; zählt die Anfragen. */
+async function koepfe(page: Page, je: Record<string, Buffer | number>): Promise<string[]> {
+  const geholt: string[] = [];
+  await page.route('**/tiles-demo/koepfe/**', (route) => {
+    const name = new URL(route.request().url()).pathname.split('/').pop()!.replace(/\.png$/, '');
+    geholt.push(name);
+    const antwort = je[name];
+    return Buffer.isBuffer(antwort) ? route.fulfill({ body: antwort, contentType: 'image/png' }) : route.fulfill({ status: antwort ?? 404 });
+  });
+  return geholt;
+}
+
+test('nach 0118 zeigt eine Nadel mit head das Gesicht, die Mitte auf dem Fuss, den Namen darunter, die Tafel darüber; fehlt der Kopf, ist er kaputt oder head kein Name, die Nadel', async ({ page }) => {
+  const meldungen: string[] = [];
+  page.on('console', (m) => meldungen.push(m.text()));
+  const [fehlt, kaputt] = ['0'.repeat(64), '1'.repeat(64)];
+  const mit = (name: string, at: [number, number], head: string) => ({ ...HAFEN, id: name, name, at, y: 5, head });
+  await welt(page, staedte([mit('Kopf', [30.5, -20.5], GESICHT.name), mit('Fehlt', [40.5, -10.5], fehlt), mit('Kaputt', [25.5, -25.5], kaputt), mit('Gross', [20.5, -30.5], GESICHT.name.toUpperCase())]));
+  const geholt = await koepfe(page, { [GESICHT.name]: GESICHT.png, [kaputt]: Buffer.from('kein png') });
+  await page.goto(DEMO);
+  await expect(page.locator('.nadel-icon')).toHaveCount(4);
+  // Das Gesicht: ein Pixel 2 Pixel des Geräts bei devicePixelRatio 1, ohne Glätten.
+  const leinwand = page.locator('.nadel-icon[title="Kopf"] canvas');
+  expect(await leinwand.evaluate((c: HTMLCanvasElement) => [c.width, c.height, c.getBoundingClientRect().width, c.getBoundingClientRect().height])).toEqual([16, 16, 16, 16]);
+  const ist = await leinwand.evaluate((c: HTMLCanvasElement) => [...c.getContext('2d')!.getImageData(0, 0, 16, 16).data]);
+  const soll: number[] = [];
+  for (let py = 0; py < 16; py++) for (let px = 0; px < 16; px++) soll.push(((px >> 1) * 7) % 256, ((py >> 1) * 3) % 256, 128, 255);
+  expect(ist).toEqual(soll);
+  // Die Mitte des Gesichts auf dem Fuss, genau; der Fuss auf der Oberseite des Blocks.
+  const icon = page.locator('.nadel-icon[title="Kopf"]');
+  expect(await icon.evaluate((e) => [(e as HTMLElement).style.marginLeft, (e as HTMLElement).style.marginTop])).toEqual(['-8px', '-8px']);
+  const sollFuss = await aufDemSchirm(page, ...projiziere(30.5, 6, -20.5, zweiZuEins(16)));
+  const kasten = (await icon.boundingBox())!;
+  expect(Math.abs(kasten.x + 8 - sollFuss[0]!)).toBeLessThanOrEqual(1);
+  expect(Math.abs(kasten.y + 8 - sollFuss[1]!)).toBeLessThanOrEqual(1);
+  // Der Name gerade und mittig unter dem Gesicht.
+  const name = (await icon.locator('.nadel-name').boundingBox())!;
+  expect(Math.abs(name.y - (kasten.y + kasten.height))).toBeLessThanOrEqual(1);
+  expect(Math.abs(name.x + name.width / 2 - (kasten.x + 8))).toBeLessThanOrEqual(1);
+  // Die übrigen bleiben Nadeln in ihrer Grösse, mit Namen.
+  for (const n of ['Fehlt', 'Kaputt', 'Gross']) {
+    expect(await page.locator(`.nadel-icon[title="${n}"] canvas`).evaluate((c: HTMLCanvasElement) => [c.width, c.height]), n).toEqual([23, 33]);
+    await expect(page.locator(`.nadel-icon[title="${n}"] .nadel-name`), n).toHaveText(n);
+  }
+  // Die Tafel beim Zeigen, ihre Spitze 7 px unter der Oberkante des Gesichts.
+  await icon.hover();
+  const spitze = page.locator('.leaflet-popup-tip-container');
+  await expect(spitze).toBeVisible();
+  await expect(page.locator('.tafel')).toContainText('Hafenstadt');
+  const s = (await spitze.boundingBox())!;
+  expect(Math.abs(s.y + s.height - (kasten.y + 7))).toBeLessThanOrEqual(1);
+  // Je Name eine Anfrage; den in Grossbuchstaben fragt die Karte nie.
+  expect([...geholt].sort()).toEqual([GESICHT.name, fehlt, kaputt].sort());
+  expect(meldungen.filter((m) => m.includes('ohne Gesicht')).length).toBe(2);
+});
+
 test('nach 0116 bleiben Nadeln und Banner bis 16 Blöcke je Pixel gleich gross, darunter je Stufe halb so gross, bis der Name unter 6 px fiele; dann ohne Namen in der kleinsten Stufe', async ({ page }) => {
   const dorf = { ...HAFEN, id: 'dorf', name: 'Dorf', size: 'small', at: [30.5, -20.5], panel: undefined };
   const fahne = { id: 'fahne', type: 'banner', at: [40.5, -10.5], image: 'images/fahne.png', name: 'Fahne' };
+  const kopf = { ...HAFEN, id: 'kopf', name: 'Kopf', head: GESICHT.name, at: [25.5, -25.5], panel: undefined };
   // Wie der Baum des Users: von oben genordet, 4 Pixel je Block. Auf Zoom −6 ist ein Block 1/16 Pixel breit.
   const vonOben = { camera: 'top-north', scale: 4, projection: { azimuth: 'north', u: 4, v: 4, y: 0 }, minZoom: -10 };
-  await welt(page, staedte([HAFEN, dorf, fahne], { mehr: vonOben, bild: (n) => (n === 'fahne.png' ? png(22, 40) : BILDER[n]) }));
-  const voll = ['Dorf 9 × 15', 'Fahne 22 × 40', 'Hafenstadt 23 × 33'];
+  await welt(page, staedte([HAFEN, dorf, fahne, kopf], { mehr: vonOben, bild: (n) => (n === 'fahne.png' ? png(22, 40) : BILDER[n]) }));
+  await koepfe(page, { [GESICHT.name]: GESICHT.png });
+  const voll = ['Dorf 9 × 15', 'Fahne 22 × 40', 'Hafenstadt 23 × 33', 'Kopf 16 × 16'];
   for (const [zoom, groessen, mitNamen] of [
     [0, voll, true],
     [-6, voll, true],
     // Je Stufe die Hälfte, auf ganze Pixel des Geräts gerundet; der Name 8 px.
-    [-7, ['Dorf 5 × 8', 'Fahne 11 × 20', 'Hafenstadt 12 × 17'], true],
+    [-7, ['Dorf 5 × 8', 'Fahne 11 × 20', 'Hafenstadt 12 × 17', 'Kopf 8 × 8'], true],
     // Der Name fiele auf 4 px: ohne Namen, und kleiner als hier wird es nicht.
-    [-8, ['Dorf 2 × 4', 'Fahne 6 × 10', 'Hafenstadt 6 × 8'], false],
-    [-10, ['Dorf 2 × 4', 'Fahne 6 × 10', 'Hafenstadt 6 × 8'], false],
+    [-8, ['Dorf 2 × 4', 'Fahne 6 × 10', 'Hafenstadt 6 × 8', 'Kopf 4 × 4'], false],
+    [-10, ['Dorf 2 × 4', 'Fahne 6 × 10', 'Hafenstadt 6 × 8', 'Kopf 4 × 4'], false],
   ] as const) {
     await page.goto(`${DEMO}&at=35,0,-15&zoom=${zoom}`);
-    await expect(page.locator('.nadel-icon')).toHaveCount(3);
-    // Nadeln mit geradem Namen, das Banner mit dem Namen im Bogen.
-    await expect(page.locator('.nadel-name'), `Zoom ${zoom}`).toHaveCount(mitNamen ? 2 : 0);
+    await expect(page.locator('.nadel-icon')).toHaveCount(4);
+    // Nadeln und Kopf mit geradem Namen, das Banner mit dem Namen im Bogen.
+    await expect(page.locator('.nadel-name'), `Zoom ${zoom}`).toHaveCount(mitNamen ? 3 : 0);
     await expect(page.locator('.nadel-bogen'), `Zoom ${zoom}`).toHaveCount(mitNamen ? 1 : 0);
     const gemessen = await page.locator('.nadel-icon').evaluateAll((l) =>
       l.map((e) => `${e.getAttribute('title')} ${e.getBoundingClientRect().width} × ${e.getBoundingClientRect().height}`).sort(),

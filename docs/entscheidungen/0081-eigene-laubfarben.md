@@ -19,6 +19,8 @@ Blatttextur wie der Client, statt der Näherung unten. Im Punkt „nur
 tönbares Laub“ abgelöst durch
 [0089](0089-ungetoentes-laub-mit-eigener-farbe.md): Die eigene Farbe tönt
 auch die sieben Sorten, die das Spiel nicht tönt, über eine graue Kopie.
+Im Format ergänzt durch [0117](0117-laubfarben-fassung-2.md): Der
+Renderer liest auch Fassung 2.
 
 ## Anlass
 

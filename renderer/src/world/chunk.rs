@@ -99,17 +99,19 @@ pub const LAUBFARBEN: &str = "heroicmap:leaf_colors";
 /// Bit 24 einer Laubfarbe: Das Spiel nimmt eine hellere Blatttextur.
 pub const LAUB_HELL: u32 = 1 << 24;
 
-/// Die Laubfarben eines Chunks nach Fassung 1 des Vertrags: je Stelle, als
-/// Schlüssel des Vertrags, ihre Farbe, nach dem Schlüssel sortiert, bei
-/// doppelter Stelle die letzte. Stellen ausserhalb der Höhe jeder Dimension,
-/// y von −2032 bis 2031, fallen weg. `Err` nennt, warum die Bytes dem
-/// Vertrag nicht folgen.
+/// Die Laubfarben eines Chunks nach Fassung 1 oder 2 des Vertrags: je
+/// Stelle, als Schlüssel des Vertrags, ihre Farbe, nach dem Schlüssel
+/// sortiert, bei doppelter Stelle die letzte. Stellen ausserhalb der Höhe
+/// jeder Dimension, y von −2032 bis 2031, fallen weg. Zweitfarbe und
+/// Blütenfarbe aus Fassung 2 prüft es und lässt sie fallen; gezeichnet
+/// werden sie noch nicht. `Err` nennt, warum die Bytes dem Vertrag nicht
+/// folgen.
 /// Siehe docs/benutzung/laubfarben.md, „Format“.
 fn laubfarben(bytes: &[u8]) -> Result<Vec<(u32, u32)>, String> {
     let Some((&fassung, mut rest)) = bytes.split_first() else {
         return Err("leer".into());
     };
-    if fassung != 1 {
+    if !matches!(fassung, 1 | 2) {
         return Err(format!("Fassung {fassung}"));
     }
     let mut zahl = || -> Result<i32, String> {
@@ -126,6 +128,14 @@ fn laubfarben(bytes: &[u8]) -> Result<Vec<(u32, u32)>, String> {
         let farbe = zahl()? as u32;
         if farbe >> 25 != 0 {
             return Err(format!("Farbe {farbe:#x}"));
+        }
+        if fassung == 2 {
+            for name in ["Zweitfarbe", "Blütenfarbe"] {
+                let wert = zahl()? as u32;
+                if wert >> 25 != 0 {
+                    return Err(format!("{name} {wert:#x}"));
+                }
+            }
         }
         let anzahl = zahl()?;
         if anzahl < 0 {
@@ -1784,16 +1794,58 @@ mod tests {
 
     /// Bytes nach Fassung 1 des Vertrags: je Gruppe Farbe und Lagen im Chunk.
     fn laub_bytes(gruppen: &[(u32, &[[i32; 3]])]) -> Vec<u8> {
-        let mut bytes = vec![1];
+        let gruppen: Vec<_> = gruppen.iter().map(|&(f, l)| (f, None, l)).collect();
+        laub_bytes_nach(1, &gruppen)
+    }
+
+    /// Eine Gruppe: Farbe, in Fassung 2 Zweit- und Blütenfarbe, Lagen.
+    type Gruppe<'a> = (u32, Option<[u32; 2]>, &'a [[i32; 3]]);
+
+    /// Bytes nach `fassung`: je Gruppe Farbe, in Fassung 2 dazu Zweit- und
+    /// Blütenfarbe, dann die Lagen im Chunk.
+    fn laub_bytes_nach(fassung: u8, gruppen: &[Gruppe]) -> Vec<u8> {
+        let mut bytes = vec![fassung];
         bytes.extend((gruppen.len() as i32).to_be_bytes());
-        for (farbe, lagen) in gruppen {
+        for (farbe, dazu, lagen) in gruppen {
             bytes.extend(farbe.to_be_bytes());
+            for wert in dazu.iter().flatten() {
+                bytes.extend(wert.to_be_bytes());
+            }
             bytes.extend((lagen.len() as i32).to_be_bytes());
             for [x, y, z] in *lagen {
                 bytes.extend((x | z << 4 | (y + 2048) << 8).to_be_bytes());
             }
         }
         bytes
+    }
+
+    /// Fassung 2 trägt je Gruppe Zweit- und Blütenfarbe, vorhanden mit Bit
+    /// 24 oder nicht. Gezeichnet werden sie noch nicht: Farben und Abdruck
+    /// sind dieselben wie mit Fassung 1 und denselben Farben.
+    #[test]
+    fn laubfarben_nach_fassung_2_wie_fassung_1() {
+        let rot = 0xff_0000;
+        let hell = LAUB_HELL | 0x00_ff00;
+        let (a, b) = ([[1, 70, 2], [15, -64, 14]], [[1, 70, 2], [0, 2031, 0]]);
+        let v1 = laub(laub_bytes(&[(rot, &a), (hell, &b)]));
+        let v2 = laub(laub_bytes_nach(
+            2,
+            &[
+                (
+                    rot,
+                    Some([LAUB_HELL | 0x12_3456, LAUB_HELL | 0xff_c0cb]),
+                    &a,
+                ),
+                (hell, Some([0, 0x00_0000]), &b),
+            ],
+        ));
+        assert_eq!(v2.laubfarben_fehler(), None);
+        assert_eq!(
+            v2.laubfarben().collect::<Vec<_>>(),
+            v1.laubfarben().collect::<Vec<_>>()
+        );
+        assert!(v2.laubfarben().count() > 0);
+        assert_eq!(v2.abdruck(), v1.abdruck());
     }
 
     /// Ein Chunk mit diesem Wert unter `ChunkBukkitValues`.
@@ -1864,7 +1916,13 @@ mod tests {
         use fastnbt::Value;
         let gut = laub_bytes(&[(0x123456, &[[0, 0, 0]])]);
         let mut fassung = gut.clone();
-        fassung[0] = 2;
+        fassung[0] = 3;
+        // Fassung 2 mit dem Aufbau von Fassung 1: Die Zahl der Stellen gilt
+        // dann als Zweitfarbe, und hinten fehlen Bytes.
+        let mut v2_wie_v1 = gut.clone();
+        v2_wie_v1[0] = 2;
+        let lage = [[0, 0, 0]];
+        let v2 = |zweit, bluete| laub_bytes_nach(2, &[(0x123456, Some([zweit, bluete]), &lage)]);
         let mut farbe = gut.clone();
         farbe[5] = 0x02;
         let mut lage = gut.clone();
@@ -1874,11 +1932,19 @@ mod tests {
         gruppen[1..5].copy_from_slice(&(-1i32).to_be_bytes());
         let mut stellen = gut.clone();
         stellen[9..13].copy_from_slice(&i32::MIN.to_be_bytes());
-        let falle: [(Vec<u8>, &str); 8] = [
+        let v2_kurz = {
+            let b = v2(LAUB_HELL, LAUB_HELL);
+            b[..b.len() - 1].to_vec()
+        };
+        let falle: [(Vec<u8>, &str); 12] = [
             (gruppen, "-1 Gruppen"),
             (stellen, "-2147483648 Stellen"),
             (Vec::new(), "leer"),
-            (fassung, "Fassung 2"),
+            (fassung, "Fassung 3"),
+            (v2_wie_v1, "zu kurz"),
+            (v2(1 << 25, 0), "Zweitfarbe"),
+            (v2(0, 0x8000_0000), "Blütenfarbe"),
+            (v2_kurz, "zu kurz"),
             (gut[..gut.len() - 1].to_vec(), "zu kurz"),
             ([gut.clone(), vec![0]].concat(), "1 Bytes nach dem Ende"),
             (farbe, "Farbe"),

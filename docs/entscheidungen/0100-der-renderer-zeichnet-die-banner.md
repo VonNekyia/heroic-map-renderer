@@ -12,7 +12,9 @@ code:
 # 0100: Der Renderer zeichnet die Banner
 
 Ergänzt durch [0102](0102-name-im-bogen.md) im Punkt „Der Name“: Er läuft
-im Bogen, der mit der Unterkante des Tuchs dreht.
+im Bogen, der mit der Unterkante des Tuchs dreht. Im Punkt „Blick“ abgelöst
+durch [0120](0120-banner-von-vorn.md): Jeder Satz zeichnet von vorn wie
+`oben`, der Winkel ist überall 0.
 
 ## Anlass
 

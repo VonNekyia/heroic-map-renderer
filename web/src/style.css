@@ -204,11 +204,24 @@ body {
   text-align: center;
 }
 
-/* Der Umschalter zwischen den Bäumen aus trees.json. */
+/* Der Umschalter zwischen den Bäumen aus trees.json: mit 2D und 3D ein Knopf, sonst eine Liste. */
 .baeume {
   background: var(--ui-knopf);
   color: var(--ui-schrift);
   font: 13px var(--ui-schrift-text);
+}
+
+.zwei-drei {
+  min-width: 44px;
+  min-height: 30px;
+  border: 0;
+  border-radius: var(--ui-radius);
+  font-weight: bold;
+  cursor: pointer;
+}
+
+.zwei-drei:hover {
+  background: var(--ui-knopf-darueber);
 }
 
 /* Oben rechts die Liste der Ebenen zum Umschalten. Siehe docs/frontend.md,

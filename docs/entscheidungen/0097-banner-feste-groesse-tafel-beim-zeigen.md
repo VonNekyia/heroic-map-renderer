@@ -10,10 +10,11 @@ code:
 
 # 0097: Banner für Orte, feste Grösse, Tafel beim Zeigen
 
-Zum Teil abgelöst durch
-[0116](0116-nadeln-und-banner-unter-16-bloecken-je-pixel.md): Auf der
-Webkarte gilt die feste Grösse nur bis 16 Blöcke je Pixel, darunter werden
-Nadeln und Banner je Stufe halb so gross.
+Ergänzt durch [0119](0119-namen-stufenlos-icons-fest.md): Auf der Webkarte bleibt die feste
+Grösse; unter 16 Blöcken je Pixel wird nur der Name stufenlos kleiner und
+blendet aus. Die Stufen aus
+[0116](0116-nadeln-und-banner-unter-16-bloecken-je-pixel.md) dazwischen
+sind abgelöst.
 
 Ergänzt durch [0100](0100-der-renderer-zeichnet-die-banner.md): Banner aus
 einem Entwurf, die der Renderer je Baum zeichnet, und Banner für Ebenen mit

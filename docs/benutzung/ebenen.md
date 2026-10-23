@@ -18,7 +18,7 @@ die Sprites der Banner zeichnet der Renderer vorab, siehe „Banner“. Diese Se
 Plugin, Webkarte und Mod (#219). Warum so:
 [0095](../entscheidungen/0095-ebenen.md), für Banner, feste Grösse und Tafel
 beim Zeigen [0097](../entscheidungen/0097-banner-feste-groesse-tafel-beim-zeigen.md),
-für die Grösse weit draussen [0116](../entscheidungen/0116-nadeln-und-banner-unter-16-bloecken-je-pixel.md),
+für den Namen weit draussen [0119](../entscheidungen/0119-namen-stufenlos-icons-fest.md),
 für Banner, die der Renderer zeichnet, [0100](../entscheidungen/0100-der-renderer-zeichnet-die-banner.md),
 für Aktionsebenen und Knöpfe [0107](../entscheidungen/0107-aktionsebenen.md),
 für Köpfe statt Nadeln [0118](../entscheidungen/0118-koepfe-in-ebenen.md).
@@ -972,21 +972,20 @@ vor dem Punkt: diagonal ab der nächsten Mitte auf der Linie, genordet ab der
 - **Grösse:** die Nadel in ihrer `size`, siehe „Nadel“, das Banner in der
   Grösse seines Bilds, in Pixeln der Ansicht, siehe „Gemeinsame Felder“,
   nach [0097](../entscheidungen/0097-banner-feste-groesse-tafel-beim-zeigen.md);
-  im Mod wie seine Wegpunkte, fest auf jeder Stufe. Auf der Webkarte ist ein
+  fest auf jeder Stufe, im Mod wie seine Wegpunkte. Auf der Webkarte ist ein
   Pixel des Bilds eine ganze Zahl Pixel des Geräts breit, gerundet aus
-  `devicePixelRatio`, und sie hängt am Massstab, [0116](../entscheidungen/0116-nadeln-und-banner-unter-16-bloecken-je-pixel.md):
+  `devicePixelRatio`. Nur der Name hängt dort am Massstab,
+  [0119](../entscheidungen/0119-namen-stufenlos-icons-fest.md):
   - bis 16 Blöcke je CSS-Pixel die volle Grösse, also solange ein Block
     mindestens 1/16 Pixel breit ist, gemessen an der längeren seiner Kanten
     in x und z;
-  - darunter je Stufe die Hälfte, Bild und Name zusammen, das Bild ohne
-    Glätten auf ganze Pixel des Geräts gerundet;
-  - fiele der Name unter 6 Pixel, fehlt er, und kleiner werden sie ab da
-    nicht mehr: bei 16 Pixel Schrift die zweite Stufe unter der Grenze.
+  - darunter stufenlos kleiner, mit dem Massstab, animiert wie der Zoom;
+  - ab 8 Pixel Schrift abwärts blendet er aus, bei 5 Pixel ist er weg.
 - **Name:** immer, mittig unter dem Fuss der Nadel oder des Banners, und
   er sieht aus wie die Kartenschrift, nicht wie die Oberfläche: Schrift
   `map`, Farbe `#2B2B2B`, Kontur `#F2E8D0` 2 Pixel breit, ohne Kasten.
-  Die Grösse: auf der Webkarte Schriftgrösse 16 Pixel, weit draussen mit
-  der Nadel kleiner, siehe „Grösse“; im Mod fest 10 Einheiten seiner Oberfläche, im
+  Die Grösse: auf der Webkarte Schriftgrösse 16 Pixel, weit draussen
+  kleiner, siehe „Grösse“; im Mod fest 10 Einheiten seiner Oberfläche, im
   Verhältnis wie die Breite der Tafel, 200 zu 320. So zeigt ein Plugin für
   Städte die Namen am Banner, ohne eigene Kartenschrift.
 - **Name einer Nadel:** gerade und waagrecht wie bisher, mittig unter dem
@@ -994,8 +993,8 @@ vor dem Punkt: diagonal ab der nächsten Mitte auf der Linie, genordet ab der
 - **Kopf einer Nadel** (`head`): statt Schild und Nadel das Gesicht, Pixel
   auf Pixel ohne Glätten, die Mitte des Gesichts auf dem Fuss. Auf der
   Webkarte ist ein Pixel des Gesichts 2 · max(1, round(devicePixelRatio))
-  Pixel des Geräts, wie bei den Mitspielern, und weit draussen wird es
-  kleiner wie die Nadel, siehe „Grösse“. Der Name steht gerade und mittig
+  Pixel des Geräts, wie bei den Mitspielern, fest auf jeder Stufe wie die
+  Nadel, siehe „Grösse“. Der Name steht gerade und mittig
   unter dem Gesicht. Im Mod zeichnet es der Mod nach seiner Doku.
 - **Name eines Banners:** auf einem Bogen unter dem Fuss, nach unten
   gewölbt, jedes Zeichen aufrecht zum Bogen wie die Kartenschrift an ihrem

@@ -44,9 +44,8 @@ Reviewer am 24.10.
 - **Grenze:** 256 verschiedene Köpfe je Ebene. Darüber weist das Plugin den
   Aufruf ab, wie bei jeder Grenze des Formats. Höchstens 64 Ebenen mal 256
   Köpfe sind 16 384 Dateien, unter 6 MB.
-- **Aufräumen:** Was eine Ebene nennt, bleibt, und es zählt nicht gegen die
-  4096 Köpfe aus 0114. Beim Schreiben der Ebene setzt das Plugin die Zeit
-  jedes genannten Kopfs auf jetzt; sonst gilt 0114.
+- **Aufräumen:** Was eine Ebene nennt, bleibt, wie alt es auch ist, und es
+  zählt nicht gegen die 4096 Köpfe aus 0114. Für die übrigen gilt 0114.
 - **Auch Ebenen mit `permission`** dürfen Köpfe zeigen, anders als Bilder:
   Ein Kopf liegt nicht unter `layers/`, er ist das Gesicht eines Skins, das
   ohnehin öffentlich ist, und sein Name ist der Hash des Bildes. Der Server

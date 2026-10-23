@@ -73,11 +73,11 @@ export default [
   { name: 'nach-1-5-s-frei', datei: 'src/ebenen.ts', alt: 'const NACH_KLICK = [300, 500, 700, 1500];', neu: 'const NACH_KLICK = [300, 500, 700];', spec: 'tests/aktionsebenen.spec.ts', titel: 'kommt nach einem Klick 3 s kein' },
   { name: 'knopf-ohne-tafel-fehlt', datei: 'src/ebenen.ts', alt: '&& mitKnopf(o.id)) o.panel = [];', neu: '&& mitKnopf(o.id) && !o.id) o.panel = [];', spec: 'tests/aktionsebenen.spec.ts', titel: 'ein Objekt ohne Tafel bekommt' },
   // 2D/3D statt der Liste.
-  { name: 'grenze-nach-scale', datei: 'src/main.ts', alt: 'const hoechste = info.maxZoom + extraZoom(info.scale);', neu: 'const hoechste = info.maxZoom + 2;', spec: 'tests/smoke.spec.ts', titel: 'beim Wechsel bleibt ein Block gleich gross' },
-  { name: 'knopf-auch-ohne-2d', datei: 'src/main.ts', alt: '  if (zweiD && dreiD) {', neu: '  if (zweiD || dreiD) {', spec: 'tests/smoke.spec.ts', titel: 'ohne 2D ist der Umschalter eine Liste' },
+  { name: 'grenze-nach-scale', datei: 'src/main.ts', alt: 'const hoechste = info.maxZoom + extraZoom(info.scale);', neu: 'const hoechste = info.maxZoom + extraZoom(16);', spec: 'tests/smoke.spec.ts', titel: 'beim Wechsel bleibt ein Block gleich gross' },
+  { name: 'zweid-auch-von-oben', datei: 'src/main.ts', alt: "camera === 'top-north' && look !== 'flat';", neu: "camera.startsWith('top') && look !== 'flat';", spec: 'tests/smoke.spec.ts', titel: 'ohne 2D ist der Umschalter eine Liste' },
   { name: 'knopf-zeigt-den-jetzigen', datei: 'src/main.ts', alt: 'const ziel = aktuell === zweiD ? dreiD : zweiD;', neu: 'const ziel = aktuell === zweiD ? zweiD : dreiD;', spec: 'tests/smoke.spec.ts', titel: 'mit 2D und 3D ein Knopf' },
   { name: 'zweid-auch-einfarbig', datei: 'src/main.ts', alt: "const istZweiD = ({ camera, look }: Baum): boolean => camera === 'top-north' && look !== 'flat';", neu: "const istZweiD = ({ camera, look }: Baum): boolean => camera === 'top-north' && look !== 'x';", spec: 'tests/smoke.spec.ts', titel: 'mit 2D und 3D ein Knopf' },
-  { name: 'wechsel-ohne-scale', datei: 'src/main.ts', alt: '    if (ziel) url.searchParams.set(', neu: '    if (ziel && !ziel) url.searchParams.set(', spec: 'tests/smoke.spec.ts', titel: 'mit 2D und 3D ein Knopf' },
+  { name: 'wechsel-ohne-scale', datei: 'src/main.ts', alt: '    if (ziel) url.searchParams.set(', neu: '    if (ziel && ziel.info.scale < 0) url.searchParams.set(', spec: 'tests/smoke.spec.ts', titel: 'mit 2D und 3D ein Knopf' },
   // Abgebrochene Kacheln unter der CSP.
   { name: 'abbruch-mit-data', datei: 'src/main.ts', alt: "      el.removeAttribute('src');\n      el.remove();", neu: "      el.src = L.Util.emptyImageUrl;\n      el.remove();", spec: 'tests/smoke.spec.ts', titel: 'Zoomen bricht laufende Kacheln ab' },
   // Erstes Zeichnen und Fokus der Flächen.

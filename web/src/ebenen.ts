@@ -41,6 +41,8 @@ interface Nadel {
   size: Groesse;
   symbol: { large?: string; medium?: string };
   color: string;
+  /** Der Name eines Kopfs unter `koepfe/`; taugt er, zeigt die Karte das Gesicht statt der Nadel. */
+  head?: string;
   panel?: unknown[];
 }
 
@@ -215,6 +217,7 @@ function nadel(wert: unknown): Nadel | undefined {
     size: GROESSEN.includes(wert.size as Groesse) ? (wert.size as Groesse) : 'medium',
     symbol: { large: bild(symbol.large), medium: bild(symbol.medium) },
     color: farbe(wert.color) ?? '#D9443A',
+    head: typeof wert.head === 'string' && /^[0-9a-f]{64}$/.test(wert.head) ? wert.head : undefined,
     panel: istObjekt(wert.panel) && Array.isArray(wert.panel.blocks) ? wert.panel.blocks : undefined,
   };
 }
@@ -967,7 +970,8 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
 
   /**
    * Das Icon einer Nadel oder eines Banners auf der Stufe `stufe`: das Bild
-   * Pixel auf Pixel, der Fuss unten bei ⌊b / 2⌋, der Name darunter. Ein
+   * Pixel auf Pixel, der Fuss unten bei ⌊b / 2⌋ oder bei `ort.fuss`, der
+   * Name darunter, mit `ort.winkel` im Bogen. Ein
    * Pixel des Bilds ist k = max(1, round(devicePixelRatio)) Pixel des Geräts
    * breit, so bleibt jedes gleich breit, auch bei 1,25 oder 1,5; je Stufe
    * die Hälfte, ohne Glätten. Der Name wird mit kleiner und fehlt unter
@@ -978,11 +982,11 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     b: number,
     h: number,
     name: string | undefined,
-    banner: { fuss: [number, number]; winkel: number } | undefined,
+    ort: { fuss: [number, number]; winkel?: number } | undefined,
     stufe: number,
   ): L.DivIcon => {
-    // Der Fuss als Punkt auf den Kanten der Pixel: bei der Nadel und beim Bild (⌊b / 2⌋, h), beim Sprite aus satz.json.
-    const [fx, fy] = banner?.fuss ?? [Math.floor(b / 2), h];
+    // Der Fuss als Punkt auf den Kanten der Pixel: bei der Nadel und beim Bild (⌊b / 2⌋, h), beim Sprite aus satz.json, beim Kopf die Mitte.
+    const [fx, fy] = ort?.fuss ?? [Math.floor(b / 2), h];
     const k = Math.max(1, Math.round(devicePixelRatio));
     const s = k / devicePixelRatio;
     const teil = 2 ** -stufe;
@@ -999,9 +1003,9 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     html.append(kopie);
     const [ax, ay] = [(fx * sb) / b, (fy * sh) / h];
     const mitName = name && NAME.s * teil >= GROESSE.nameMin;
-    if (mitName && banner) {
+    if (mitName && ort?.winkel !== undefined) {
       // Gemessen in der Kartenschrift: bannerIcon wartet, bis sie geladen ist. Der Bogen wie auf voller Grösse, mit kleiner.
-      const svg = nameImBogen(name, h * s, banner.winkel);
+      const svg = nameImBogen(name, h * s, ort.winkel);
       [svg.style.left, svg.style.top] = [`${ax}px`, `${ay}px`];
       if (teil < 1) [svg.style.transform, svg.style.transformOrigin] = [`scale(${teil})`, '0 0'];
       html.append(svg);
@@ -1035,7 +1039,47 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     }
   };
 
-  /** Das Icon einer Nadel in ihrer `size`, je Stufe. Icons und Symbole gelten je Laden einer Ebene. */
+  /** Je Kopf das Gesicht, einmal geholt je Seite, für Mitspieler und Nadeln; `undefined`, wenn es nicht taugt. */
+  const koepfe = new Map<string, Promise<ImageBitmap | undefined>>();
+  /**
+   * Holt das Gesicht `koepfe/<kopf>.png` aus der Wurzel, höchstens
+   * `KOPF.bytes` und genau 8 × 8, ohne `blob:` oder `data:` für die CSP.
+   * Siehe docs/entscheidungen/0114-koepfe-der-mitspieler.md.
+   */
+  const kopfBild = (kopf: string): Promise<ImageBitmap | undefined> => {
+    let bild = koepfe.get(kopf);
+    if (!bild) {
+      const pfad = `${wurzel}/koepfe/${kopf}.png`;
+      const zuGross = (n: number) => n > KOPF.bytes;
+      const taugtNicht = (warum: string) => {
+        console.warn(`${pfad}: ${warum}, ohne Gesicht`);
+        return undefined;
+      };
+      bild = (async () => {
+        // Ohne FRISCH: Der Name ist der Hash des Bildes, der Browser darf ihn behalten.
+        const antwort = await fetch(pfad);
+        if (!antwort.ok) return taugtNicht(`${antwort.status}`);
+        // Erst die angesagte Länge, ohne Download, dann die gelesene.
+        if (zuGross(Number(antwort.headers.get('content-length')))) {
+          void antwort.body?.cancel();
+          return taugtNicht(`grösser als ${KOPF.bytes} Byte`);
+        }
+        const daten = await antwort.blob();
+        if (zuGross(daten.size)) return taugtNicht(`grösser als ${KOPF.bytes} Byte`);
+        const b = await createImageBitmap(daten).catch(() => undefined);
+        if (!b) return taugtNicht('kein Bild');
+        return b.width === KOPF.seite && b.height === KOPF.seite ? b : taugtNicht(`${b.width} × ${b.height} statt ${KOPF.seite} × ${KOPF.seite}`);
+      })().catch(() => taugtNicht('nicht zu holen'));
+      koepfe.set(kopf, bild);
+    }
+    return bild;
+  };
+
+  /**
+   * Das Icon einer Nadel in ihrer `size`, je Stufe; mit tauglichem `head`
+   * das Gesicht, ein Pixel 2 Pixel der Nadel, die Mitte auf dem Fuss. Siehe
+   * docs/benutzung/ebenen.md, „Nadel“. Icons und Symbole gelten je Laden einer Ebene.
+   */
   const nadelIcon = async (
     n: Nadel,
     ordner: string,
@@ -1043,6 +1087,8 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     icons: Map<string, Promise<HTMLCanvasElement>>,
     symbole: Map<string, Promise<HTMLImageElement>>,
   ): Promise<(stufe: number) => L.DivIcon> => {
+    const gesicht = n.head && (await kopfBild(n.head));
+    if (gesicht) return (stufe) => ortIcon(gesicht, 2 * KOPF.seite, 2 * KOPF.seite, n.name, { fuss: [KOPF.seite, KOPF.seite] }, stufe);
     const pfad = n.size === 'small' ? undefined : n.symbol[n.size];
     const symbol = pfad && `${ordner}/${pfad}?v=${encodeURIComponent(version)}`;
     const schluessel = `${n.size} ${n.color} ${symbol ?? ''}`;
@@ -1343,8 +1389,8 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
         });
         const panel = o.panel;
         if (panel) {
-          // Die Höhe des Icons jetzt, auf seiner Stufe: Die Tafel steht darüber.
-          const hoehe = () => (m.options.icon!.options.iconSize as L.PointTuple)[1];
+          // Vom Fuss bis zur Oberkante des Icons jetzt, auf seiner Stufe: Die Tafel steht darüber, auch beim Kopf mit dem Fuss in der Mitte.
+          const hoehe = () => (m.options.icon!.options.iconAnchor as L.PointTuple)[1];
           const oeffne = tafelAn(m, () => tafelDerEbene(panel, o.id), () => m.getElement(), () => m.getLatLng(), hoehe);
           m.on('keypress', (ereignis) => {
             if (ereignis.originalEvent.key === 'Enter') oeffne(true);
@@ -1653,41 +1699,6 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
   map.createPane('mitspieler').style.zIndex = '590';
   /** Je Spieler seine Figur und wofür ihr Icon gezeichnet ist; `ich:` vor der UUID für den Betrachter selbst. */
   const figuren = new Map<string, { m: L.Marker; fuer: string }>();
-  /** Je Kopf das Gesicht, einmal geholt je Seite; `undefined`, wenn es nicht taugt. */
-  const koepfe = new Map<string, Promise<ImageBitmap | undefined>>();
-  /**
-   * Holt das Gesicht `koepfe/<kopf>.png` aus der Wurzel, höchstens
-   * `KOPF.bytes` und genau 8 × 8, ohne `blob:` oder `data:` für die CSP.
-   * Siehe docs/entscheidungen/0114-koepfe-der-mitspieler.md.
-   */
-  const kopfBild = (kopf: string): Promise<ImageBitmap | undefined> => {
-    let bild = koepfe.get(kopf);
-    if (!bild) {
-      const pfad = `${wurzel}/koepfe/${kopf}.png`;
-      const zuGross = (n: number) => n > KOPF.bytes;
-      const taugtNicht = (warum: string) => {
-        console.warn(`${pfad}: ${warum}, der Spieler bleibt ein Punkt`);
-        return undefined;
-      };
-      bild = (async () => {
-        // Ohne FRISCH: Der Name ist der Hash des Bildes, der Browser darf ihn behalten.
-        const antwort = await fetch(pfad);
-        if (!antwort.ok) return taugtNicht(`${antwort.status}`);
-        // Erst die angesagte Länge, ohne Download, dann die gelesene.
-        if (zuGross(Number(antwort.headers.get('content-length')))) {
-          void antwort.body?.cancel();
-          return taugtNicht(`grösser als ${KOPF.bytes} Byte`);
-        }
-        const daten = await antwort.blob();
-        if (zuGross(daten.size)) return taugtNicht(`grösser als ${KOPF.bytes} Byte`);
-        const b = await createImageBitmap(daten).catch(() => undefined);
-        if (!b) return taugtNicht('kein Bild');
-        return b.width === KOPF.seite && b.height === KOPF.seite ? b : taugtNicht(`${b.width} × ${b.height} statt ${KOPF.seite} × ${KOPF.seite}`);
-      })().catch(() => taugtNicht('nicht zu holen'));
-      koepfe.set(kopf, bild);
-    }
-    return bild;
-  };
   /** Das zuletzt gesehene `jetzt` und wann es kam, nach der Uhr der Seite. */
   let zuletzt: { jetzt?: number; seit: number } = { seit: 0 };
   let sichtLaeuft = false;

@@ -10,6 +10,10 @@ code:
 
 # 0102: Der Name eines Banners im Bogen
 
+Im schrägen Satz abgelöst durch [0120](0120-banner-von-vorn.md): Jeder Satz
+zeichnet das Banner von vorn, der Winkel ist 0, und der Bogen dreht nicht
+mehr.
+
 ## Anlass
 
 Der User will den Namen unter einem Banner gebogen, für das Aussehen, auf

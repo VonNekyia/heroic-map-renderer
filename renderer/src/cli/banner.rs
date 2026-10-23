@@ -128,8 +128,10 @@ pub(super) fn banners(
 }
 
 /// Die Sätze: immer `oben`, dazu je Baum aus `trees.json` unter `tiles`,
-/// der nicht von oben schaut, einer mit seinem `path`. Ohne `tiles` nur
-/// `oben`, so für geheime Ebenen.
+/// der nicht von oben schaut, einer mit seinem `path`, gezeichnet wie
+/// `oben`: von vorn aus `north-45`, Richtung `s`, in jeder Kamera und
+/// Richtung des Baums. Ohne `tiles` nur `oben`, so für geheime Ebenen.
+/// Siehe docs/entscheidungen/0120-banner-von-vorn.md.
 fn saetze(tiles: Option<&Path>) -> Result<Vec<Satz>> {
     let kamera = Kamera::Nord45;
     let richtung = Richtung::parse("s", kamera).map_err(anyhow::Error::msg)?;
@@ -163,7 +165,7 @@ fn saetze(tiles: Option<&Path>) -> Result<Vec<Satz>> {
                 eprintln!("{}: Baum `{name}` übergangen", pfad.display());
             }
             Ok((Kamera::Oben | Kamera::ObenNord, _)) => {}
-            Ok((kamera, richtung)) => saetze.push(Satz {
+            Ok(_) => saetze.push(Satz {
                 name: name.to_string(),
                 kamera,
                 richtung,
@@ -416,6 +418,7 @@ mod tests {
 
     /// Ein Satz je Baum, der nicht von oben schaut, unter seinem `path`,
     /// auch einer mit Cinematic; immer `oben`; ohne `tiles` nur `oben`.
+    /// Jeder zeichnet wie `oben`, von vorn aus `north-45`, Richtung `s`.
     #[test]
     fn saetze_aus_den_baeumen() {
         let tiles = tempfile::tempdir().unwrap();
@@ -434,9 +437,71 @@ mod tests {
         let liste = saetze(Some(tiles.path())).unwrap();
         let namen: Vec<&str> = liste.iter().map(|s| s.name.as_str()).collect();
         assert_eq!(namen, ["oben", "2x1-se", "2x1-se-cinematic", "north-45-w"]);
-        assert_eq!(liste[0].kamera, Kamera::Nord45);
-        assert_eq!(liste[0].richtung.name(Kamera::Nord45), "s");
+        for satz in &liste {
+            assert_eq!(satz.kamera, Kamera::Nord45, "{}", satz.name);
+            assert_eq!(satz.richtung.name(Kamera::Nord45), "s", "{}", satz.name);
+        }
         assert_eq!(saetze(None).unwrap().len(), 1);
+    }
+
+    /// Ein Satz eines Iso-Baums, wie er vor 0120 schräg aus 2:1, `se`
+    /// gezeichnet war, mit Stempel, Sprites und `satz.json`: Der nächste
+    /// Aufruf zeichnet ihn neu, Byte für Byte wie `oben`, ohne dass
+    /// `BANNERSTAND` steigt, denn der Stempel trägt Kamera und Richtung. Ein
+    /// Aufruf danach ändert nichts mehr.
+    #[test]
+    fn schraeger_satz_wird_neu_gezeichnet() {
+        let dir = tempfile::tempdir().unwrap();
+        let (out, tiles) = (dir.path().join("layers"), dir.path().join("tiles"));
+        std::fs::create_dir_all(&tiles).unwrap();
+        std::fs::write(
+            tiles.join(BAEUME),
+            r#"{"trees": [{"path": "2x1-se", "camera": "2:1", "direction": "se", "look": "map"}]}"#,
+        )
+        .unwrap();
+        let datei = ebene(dir.path(), "staedte.json", STAEDTE);
+        let ebene = lies_ebene(&datei).map_err(|(_, e)| e).unwrap();
+        let schraeg = Kamera::parse("2:1").unwrap();
+        let alt = Satz {
+            name: "2x1-se".to_string(),
+            kamera: schraeg,
+            richtung: Richtung::parse("se", schraeg).unwrap(),
+        };
+        let mut assets = assets();
+        let leinwand = Leinwand::fuer(&mut assets, alt.kamera, alt.richtung).unwrap();
+        let satz_json = serde_json::to_vec_pretty(&json!({
+            "foot": [leinwand.fuss.0, leinwand.fuss.1],
+            "angle": leinwand.winkel,
+        }))
+        .unwrap();
+        let ordner = out.join("beispiel/banner/staedte/2x1-se");
+        assert!(
+            zeichne_satz(&mut assets, &alt, &leinwand, &satz_json, &ebene, &ordner, 7).unwrap()
+        );
+        let schraeges = std::fs::read(ordner.join("nordreich.png")).unwrap();
+
+        let meldung = lauf(std::slice::from_ref(&datei), &out, Some(&tiles));
+        assert_eq!(namen(&meldung, "changed"), ["beispiel:staedte"]);
+        let oben = out.join("beispiel/banner/staedte/oben");
+        for pfad in [
+            "nordreich.png",
+            "white.png",
+            "krone/nordreich.png",
+            "krone/white.png",
+            SATZ,
+        ] {
+            assert_eq!(
+                std::fs::read(ordner.join(pfad)).unwrap(),
+                std::fs::read(oben.join(pfad)).unwrap(),
+                "{pfad}"
+            );
+        }
+        assert_ne!(
+            std::fs::read(ordner.join("nordreich.png")).unwrap(),
+            schraeges
+        );
+        let meldung = lauf(std::slice::from_ref(&datei), &out, Some(&tiles));
+        assert!(namen(&meldung, "changed").is_empty());
     }
 
     /// Ein Aufruf schreibt je Satz und Entwurf beide Sprites auf der

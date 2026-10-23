@@ -190,7 +190,7 @@ heroic-map-renderer --banners <wurzel>/layers/beispiel/staedte.json <wurzel>/lay
   Renderer nur den Satz `oben`.
 - **`--tiles`** nur für `trees.json`: je Baum, der nicht von oben schaut,
   ein Satz unter seinem `path`, auch mit Cinematic, gezeichnet im Look der
-  Karte; dazu immer `oben`. Fehlt `trees.json`, nur `oben`.
+  Karte und von vorn wie `oben` (0120); dazu immer `oben`. Fehlt `trees.json`, nur `oben`.
 - **Assets** wie beim Rendern: `--assets`, `--data`, `--download-client-jar`
   mit `--client-version`; ohne `--world` nimmt der Renderer sonst das
   neueste Jar, das er kennt.

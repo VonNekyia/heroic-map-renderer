@@ -506,7 +506,15 @@ eine Stufe bekommen sie ein neues Icon, neu geladen wird nichts.
     `⌊Breite / 2⌋` Pixel rechts der linken Kante, an der Unterkante; ohne `y` auf der Oberfläche aus den Höhen, bilinear zwischen den
     Zellen, einmal je Punkt gerechnet. Koordinaten und Ebenen teilen sich
     einen Cache der Höhen ([`web/src/hoehen.ts`](../web/src/hoehen.ts));
-  - auf jeder Stufe gleich gross; ein Zoom ändert an ihnen nichts. Ein
+  - die Nadel mit `head`: das Gesicht aus `koepfe/<head>.png` der Wurzel
+    statt Schild und Nadel, nach
+    [0118](entscheidungen/0118-koepfe-in-ebenen.md). `kopfBild` holt und
+    prüft es wie bei den Mitspielern, siehe „Mitspieler“, „Köpfe“, und für
+    beide einmal je Seite. Ein Pixel des Gesichts sind 2 Pixel des Bilds,
+    die Mitte liegt auf dem Fuss, der Name gerade darunter. Fehlt der Kopf
+    oder taugt er nicht, zeichnet `nadelIcon` die Nadel;
+  - bis zur Grenze aus 0116 auf jeder Stufe gleich gross, darunter je Stufe
+    die Hälfte, siehe oben. Ein
     Pixel des Bilds ist `k = max(1, round(devicePixelRatio))` Pixel des
     Geräts breit, die Leinwand also `k`-mal so gross wie das Bild und
     `b · k / devicePixelRatio` Pixel des Bildschirms breit. So bleibt jedes
@@ -521,7 +529,8 @@ eine Stufe bekommen sie ein neues Icon, neu geladen wird nichts.
   Titelfarben unter 3:1 hellt `lesbar` in `ebenen.ts` nach der Regel dort
   auf.
   Höchstens 320 Pixel breit und 70 % des Fensters hoch, darüber
-  scrollt sie. Bei Nadel und Banner steht sie über dem Icon, bei einer
+  scrollt sie. Bei Nadel, Kopf und Banner steht sie über dem Icon, die
+  Spitze 7 px unter seiner Oberkante, gerechnet vom Fuss, bei einer
   Fläche über dem Ort, an dem der Zeiger ruht.
   - **Bilder:** Breitere verkleinert CSS mit `max-width`, im Verhältnis von
     `width` und `height` per `aspect-ratio`, nicht dem der Datei, und

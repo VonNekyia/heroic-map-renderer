@@ -551,8 +551,11 @@ interface KachelInnen {
  */
 const GRUND = { stufen: 3 };
 
-/** Die Optionen von `Kacheln`: `grob` macht sie zur Grundschicht, so viele Stufen gröber. */
-type KachelOptionen = L.TileLayerOptions & { grob?: number };
+/** Die feinen Kacheln: so viele über das Fenster hinaus, neu gefragt beim Ziehen alle `takt` ms. Siehe docs/frontend.md, „Rand“. */
+const RAND = { kacheln: 1, takt: 100 };
+
+/** Die Optionen von `Kacheln`: `grob` macht sie zur Grundschicht, so viele Stufen gröber; `rand` lädt so viele Kacheln über das Fenster hinaus. */
+type KachelOptionen = L.TileLayerOptions & { grob?: number; rand?: number };
 
 /**
  * Kacheln wie `L.TileLayer`, nur bricht eine Kachel ab, indem sie ihr `src`
@@ -567,6 +570,14 @@ const Kacheln = L.TileLayer.extend({
   _clampZoom(this: KachelInnen & { options: KachelOptionen }, zoom: number) {
     const { grob } = this.options;
     return (L.TileLayer.prototype as unknown as { _clampZoom(this: unknown, z: number): number })._clampZoom.call(this, grob ? Math.round(zoom) - grob : zoom);
+  },
+  // Mit `rand` lädt die Ebene so viele Kacheln über das Fenster hinaus, sonst wie Leaflet.
+  _getTiledPixelBounds(this: KachelInnen & { options: KachelOptionen; getTileSize(): L.Point }, mitte: L.LatLng) {
+    const b = (L.TileLayer.prototype as unknown as { _getTiledPixelBounds(this: unknown, m: L.LatLng): L.Bounds })._getTiledPixelBounds.call(this, mitte);
+    const { rand } = this.options;
+    if (!rand) return b;
+    const weit = this.getTileSize().multiplyBy(rand);
+    return L.bounds(b.min!.subtract(weit), b.max!.add(weit));
   },
   // Bricht die Kacheln ab, die noch für eine andere Stufe laden.
   _abortLoading(this: KachelInnen) {
@@ -764,7 +775,8 @@ async function start(): Promise<void> {
   };
   // Erst die Grundschicht, darunter; sie zeigt, was fehlt, bis die feinen Kacheln da sind.
   new Kacheln(`${base}/${info.tiles}`, { ...kachelOptionen, grob: GRUND.stufen, zIndex: 0, className: 'grund' }).addTo(map);
-  new Kacheln(`${base}/${info.tiles}`, { ...kachelOptionen, zIndex: 1, className: 'kacheln' }).addTo(map);
+  // Die feinen laden eine Kachel über das Fenster hinaus, so liegt beim Ziehen das Nächste meist schon da; siehe docs/frontend.md, „Rand“.
+  new Kacheln(`${base}/${info.tiles}`, { ...kachelOptionen, rand: RAND.kacheln, updateInterval: RAND.takt, zIndex: 1, className: 'kacheln' }).addTo(map);
 
   if (typeof blick !== 'string') kompass(map, norden(blick.p, blick.k));
   lizenzenAnzeigen(map);

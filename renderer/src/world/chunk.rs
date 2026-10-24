@@ -3,6 +3,7 @@ use serde::Deserialize;
 use std::collections::{BTreeMap, HashMap};
 
 use super::palette::{BlockState, PackedIndices, Paletted};
+use crate::assets::blockstate::lichtweg;
 
 /// Blöcke pro Section-Kante.
 pub const SECTION: i32 = 16;
@@ -825,21 +826,7 @@ impl Chunk {
         let mut fnv = Fnv::default();
         let mut oben = None;
         for section in &self.sections {
-            fnv.nimm(&section.y.to_le_bytes());
-            let bloecke: Vec<u64> = section
-                .blocks
-                .palette()
-                .iter()
-                .map(wert_von_block)
-                .collect();
-            fnv.laeufe(&section.blocks, BLOCKS_PER_SECTION, &bloecke);
-            let biome: Vec<u64> = section
-                .biomes
-                .palette()
-                .iter()
-                .map(|biom| Fnv::von(&[biom.as_bytes()]))
-                .collect();
-            fnv.laeufe(&section.biomes, BIOMES_PER_SECTION, &biome);
+            fnv.section(section);
             if !section.is_empty() {
                 let luft: Vec<bool> = section
                     .blocks
@@ -860,40 +847,62 @@ impl Chunk {
                 }
             }
         }
-        for ([x, y, z], daten) in &self.blockentities {
-            fnv.nimm(&[*x as u8, *z as u8]);
-            fnv.nimm(&y.to_le_bytes());
-            match daten {
-                Blockdaten::Banner(lagen) => {
-                    fnv.nimm(&[1]);
-                    for (muster, farbe) in lagen {
-                        let (art, name) = match muster {
-                            Muster::Id(id) => (1, id),
-                            Muster::Asset(asset) => (2, asset),
-                        };
-                        fnv.nimm(&[art]);
-                        fnv.text(name);
-                        fnv.text(farbe);
-                    }
-                }
-                Blockdaten::Krug(seiten) => {
-                    fnv.nimm(&[2]);
-                    for seite in seiten {
-                        fnv.text(seite);
-                    }
-                }
-            }
-            fnv.nimm(&[0xff]);
+        for (lage, daten) in &self.blockentities {
+            fnv.blockdaten(*lage, daten);
         }
-        // Nur wenn es welche gibt: Ein Chunk ohne behält seinen Abdruck.
-        if !self.laubfarben.is_empty() {
-            fnv.nimm(&[3]);
-            for (stelle, farbe) in &self.laubfarben {
-                fnv.nimm(&stelle.to_le_bytes());
-                fnv.nimm(&farbe.to_le_bytes());
-            }
-        }
+        fnv.laubfarben(&self.laubfarben);
         Abdruck { hash: fnv.0, oben }
+    }
+
+    /// E für die Grenze nach unten: das tiefste y, an dem in einer Spalte
+    /// von oben der erste dichte Block steht, einer, der das Licht ganz
+    /// aufhält. `None`, wenn eine Spalte keinen hat.
+    /// Siehe docs/entscheidungen/0127-grenze-nach-unten.md.
+    pub fn erster_dichter(&self) -> Option<i32> {
+        let mut offen = [true; 256];
+        let mut noch = offen.len();
+        for section in self.sections.iter().rev() {
+            let dicht: Vec<bool> = section
+                .blocks
+                .palette()
+                .iter()
+                .map(|state| lichtweg(state).daempfung == 15)
+                .collect();
+            if !dicht.contains(&true) {
+                continue;
+            }
+            for y in (0..SECTION as usize).rev() {
+                for (spalte, offen) in offen.iter_mut().enumerate() {
+                    let index = section.blocks.index(y * 256 + spalte);
+                    if *offen && dicht.get(index).copied().unwrap_or(false) {
+                        *offen = false;
+                        noch -= 1;
+                        if noch == 0 {
+                            return Some(i32::from(section.y) * SECTION + y as i32);
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// H für die Grenze nach unten: der Abdruck der Sections unter der
+    /// Section `k`, wie in [`Chunk::abdruck`], mit den [`Blockdaten`] darin
+    /// und allen Laubfarben.
+    /// Siehe docs/entscheidungen/0127-grenze-nach-unten.md.
+    pub fn abdruck_unter(&self, k: i8) -> u64 {
+        let mut fnv = Fnv::default();
+        for section in self.sections.iter().take_while(|s| s.y < k) {
+            fnv.section(section);
+        }
+        for (lage, daten) in &self.blockentities {
+            if lage[1] < i32::from(k) * SECTION {
+                fnv.blockdaten(*lage, daten);
+            }
+        }
+        fnv.laubfarben(&self.laubfarben);
+        fnv.0
     }
 
     fn contains_column(&self, x: i32, z: i32) -> bool {
@@ -947,6 +956,66 @@ impl Fnv {
             fnv.nimm(&[0]);
         }
         fnv.0
+    }
+
+    /// Eine Section für [`Chunk::abdruck`]: ihr y, ihre Blöcke und Biome als
+    /// Läufe.
+    fn section(&mut self, section: &Section) {
+        self.nimm(&section.y.to_le_bytes());
+        let bloecke: Vec<u64> = section
+            .blocks
+            .palette()
+            .iter()
+            .map(wert_von_block)
+            .collect();
+        self.laeufe(&section.blocks, BLOCKS_PER_SECTION, &bloecke);
+        let biome: Vec<u64> = section
+            .biomes
+            .palette()
+            .iter()
+            .map(|biom| Fnv::von(&[biom.as_bytes()]))
+            .collect();
+        self.laeufe(&section.biomes, BIOMES_PER_SECTION, &biome);
+    }
+
+    /// Die [`Blockdaten`] an einer Stelle im Chunk, für [`Chunk::abdruck`].
+    fn blockdaten(&mut self, [x, y, z]: [i32; 3], daten: &Blockdaten) {
+        self.nimm(&[x as u8, z as u8]);
+        self.nimm(&y.to_le_bytes());
+        match daten {
+            Blockdaten::Banner(lagen) => {
+                self.nimm(&[1]);
+                for (muster, farbe) in lagen {
+                    let (art, name) = match muster {
+                        Muster::Id(id) => (1, id),
+                        Muster::Asset(asset) => (2, asset),
+                    };
+                    self.nimm(&[art]);
+                    self.text(name);
+                    self.text(farbe);
+                }
+            }
+            Blockdaten::Krug(seiten) => {
+                self.nimm(&[2]);
+                for seite in seiten {
+                    self.text(seite);
+                }
+            }
+        }
+        self.nimm(&[0xff]);
+    }
+
+    /// Die Laubfarben eines Chunks, für [`Chunk::abdruck`]. Nur wenn es
+    /// welche gibt: Ein Chunk ohne behält seinen Abdruck.
+    fn laubfarben(&mut self, laubfarben: &[(u32, u32)]) {
+        if laubfarben.is_empty() {
+            return;
+        }
+        self.nimm(&[3]);
+        for (stelle, farbe) in laubfarben {
+            self.nimm(&stelle.to_le_bytes());
+            self.nimm(&farbe.to_le_bytes());
+        }
     }
 
     /// Die Werte eines Containers als Läufe: je Lauf der Wert seines
@@ -1980,6 +2049,118 @@ mod tests {
         );
         let kein_compound = mit_bukkit(Value::Int(1));
         assert_eq!(kein_compound.laubfarben_fehler(), None);
+    }
+
+    /// Der Abdruck bleibt Bit für Bit, wie er war: Ein anderer machte jeden
+    /// Chunk, den ein Update liest, zu einer Änderung, auch ohne neuen Inhalt.
+    #[test]
+    fn abdruck_bleibt_wie_er_war() {
+        use fastnbt::Value;
+        let mut indizes = vec![0; 4096];
+        indizes[5 * 256 + 2 * 16 + 3] = 1;
+        let lage = |n| Some(Value::Int(n));
+        let chunk = chunk_aus(
+            "minecraft:full",
+            &[Probe {
+                y: 0,
+                palette: vec![("minecraft:air", vec![]), ("minecraft:stone", vec![])],
+                indizes: Some(indizes),
+                biom: "minecraft:plains",
+            }],
+            true,
+            vec![banner(
+                Value::String("minecraft:banner".into()),
+                [("x", lage(3)), ("y", lage(6)), ("z", lage(2))],
+            )],
+        );
+        let laub = laub(laub_bytes(&[(0xff_0000, &[[1, 70, 2]])]));
+        assert_eq!(chunk.blockentities().count(), 1);
+        assert_eq!(
+            [chunk.abdruck().hash, laub.abdruck().hash],
+            [0x90e4_d6c1_da3b_7009, 0x8851_43fd_12fa_2baa]
+        );
+    }
+
+    /// E ist das tiefste y, an dem in einer Spalte von oben der erste Block
+    /// steht, der das Licht ganz aufhält; Glas und Wasser zählen nicht. Hat
+    /// eine Spalte keinen, gibt es kein E. H hängt nur an den Sections unter
+    /// K, an den Blockdaten darin und an den Laubfarben.
+    #[test]
+    fn erster_dichter_und_abdruck_darunter() {
+        use fastnbt::Value;
+        type Block<'a> = &'a dyn Fn(usize, usize, usize) -> usize;
+        let section = |y: i8, block: Block| Probe {
+            y,
+            palette: vec![
+                ("minecraft:air", vec![]),
+                ("minecraft:stone", vec![]),
+                ("minecraft:glass", vec![]),
+                ("minecraft:water", vec![("level", "0")]),
+            ],
+            indizes: Some(
+                (0..4096)
+                    .map(|i| block(i % 16, i / 256, i / 16 % 16))
+                    .collect(),
+            ),
+            biom: "minecraft:plains",
+        };
+        let stein: Block = &|_, _, _| 1;
+        // In Section 1 eine Decke aus Stein bei y = 20; in der Spalte (3, 2)
+        // statt ihrer Glas, darüber Wasser, und Stein bei y = 17.
+        let decke: Block = &|x, y, z| match ((x, z), y) {
+            ((3, 2), 1) => 1,
+            ((3, 2), 4) => 2,
+            ((3, 2), 5) => 3,
+            (_, 4) => 1,
+            _ => 0,
+        };
+        let ohne_stein_unten: Block = &|x, y, z| match ((x, z), y) {
+            ((3, 2), 1) => 0,
+            _ => decke(x, y, z),
+        };
+        let banner_bei = |y| {
+            let lage = |n| Some(Value::Int(n));
+            vec![banner(
+                Value::String("minecraft:banner".into()),
+                [("x", lage(1)), ("y", lage(y)), ("z", lage(1))],
+            )]
+        };
+        let chunk = |unten: Block, oben: Block, entities| {
+            chunk_aus(
+                "minecraft:full",
+                &[section(0, unten), section(1, oben)],
+                true,
+                entities,
+            )
+        };
+        let a = chunk(stein, decke, Vec::new());
+        assert_eq!(a.erster_dichter(), Some(17));
+        assert_eq!(
+            chunk(stein, ohne_stein_unten, Vec::new()).erster_dichter(),
+            Some(15),
+            "durch Glas und Wasser bis in Section 0"
+        );
+        let nur_decke = chunk_aus(
+            "minecraft:full",
+            &[section(1, ohne_stein_unten)],
+            true,
+            Vec::new(),
+        );
+        assert_eq!(nur_decke.erster_dichter(), None, "eine Spalte ohne");
+        assert_eq!(laub(Vec::new()).erster_dichter(), None, "ohne Sections");
+
+        let h = a.abdruck_unter(1);
+        assert_eq!(
+            h,
+            chunk(stein, ohne_stein_unten, Vec::new()).abdruck_unter(1)
+        );
+        assert_eq!(h, chunk(stein, decke, banner_bei(16)).abdruck_unter(1));
+        assert_ne!(h, chunk(stein, decke, banner_bei(15)).abdruck_unter(1));
+        assert_ne!(h, chunk(decke, decke, Vec::new()).abdruck_unter(1));
+        assert_ne!(h, a.abdruck_unter(2));
+        let rot = laub(laub_bytes(&[(0xff_0000, &[[1, 70, 2]])]));
+        let gruen = laub(laub_bytes(&[(0x00_ff00, &[[1, 70, 2]])]));
+        assert_ne!(rot.abdruck_unter(0), gruen.abdruck_unter(0));
     }
 
     /// Der Abdruck ändert sich mit jeder Farbe und Lage; ohne Schlüssel

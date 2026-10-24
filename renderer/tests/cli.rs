@@ -5822,6 +5822,188 @@ fn update_gleicht_einem_vollen_lauf() {
     }
 }
 
+/// Die Welt nach dem Gelände mit einem Leuchtstein mehr im Chunk (0, 0).
+fn mit_einem_block(x: i32, y: i32, z: i32) -> &'static str {
+    match (x, y, z) {
+        (3, 9, 3) => "minecraft:glowstone",
+        _ => mit_dach(x, y, z),
+    }
+}
+
+/// Ein Lauf mit dem Testhaken `HEROIC_ABBRUCH`, siehe
+/// docs/entwicklung/tests.md, „Testhaken“.
+fn update_mit_abbruch(welt: &Path, baum: &Path, extra: &[&str], wann: &str) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_heroic-map-renderer"))
+        .arg("--world")
+        .arg(welt)
+        .arg("--assets")
+        .arg(assets_ref())
+        .arg("--tiles")
+        .arg(wurzel_von(baum, extra))
+        .args(extra)
+        .env("HEROIC_ABBRUCH", wann)
+        .output()
+        .expect("heroic-map-renderer starten")
+}
+
+/// Ein Update baut die Pyramide nur über Kindern ohne Treffer im Hash: Nach
+/// einem Block mehr meldet es Kacheln mit gleichen Pixeln, über denen es
+/// keine Eltern baut, und gleicht danach einem vollen Lauf.
+/// Siehe docs/entscheidungen/0124-pyramide-nur-ueber-neuen-kindern.md.
+#[test]
+fn update_baut_eltern_nur_ueber_neuen_kindern() {
+    let welt = tempdir();
+    baue_gelaende(welt.path());
+    let baum = neuer_baum("2x1-se");
+    let extra = ["--scale", "16"];
+    gelungen(&export(welt.path(), baum.path(), &extra));
+    baue_update_welt(welt.path(), mit_einem_block, &[(0, 0)], 2);
+    let log = String::from_utf8_lossy(
+        &gelungen(&export(
+            welt.path(),
+            baum.path(),
+            &["--scale", "16", "--update"],
+        ))
+        .stdout,
+    )
+    .into_owned();
+    assert!(log.contains("Update:     1 Chunks geändert"), "{log}");
+    assert!(
+        log.contains("Kacheln mit gleichen Pixeln nicht neu gebaut"),
+        "{log}"
+    );
+    let voll = neuer_baum("2x1-se");
+    gelungen(&export(welt.path(), voll.path(), &extra));
+    gleiche_baeume(baum.path(), voll.path(), "ein Block mehr");
+}
+
+/// Bricht ein Update ab, mitten in der Basis nach neuen Kacheln oder nach
+/// der Basis vor der Pyramide, baut das nächste die Eltern über den Kindern,
+/// die der abgebrochene schrieb, auch wenn sie jetzt dieselben Pixel zeigen:
+/// Ihre Einträge im Hash gelten nicht mehr. Ebenso mit `--resume` über
+/// Kindern, die es liegen lässt: Der abgebrochene Lauf begann vor einer
+/// Stunde, seine neuen Kacheln bis auf die jüngste sind eine halbe alt, also
+/// seit seinem Stand geschrieben und älter als die zwei Minuten vor der
+/// jüngsten.
+/// Danach gleicht der Baum einem vollen Lauf. Ein Thread, damit der Abbruch
+/// immer dieselben Kacheln trifft.
+/// Siehe docs/entscheidungen/0124-pyramide-nur-ueber-neuen-kindern.md.
+#[test]
+fn update_nach_abbruch_gleicht_einem_vollen_lauf() {
+    for (wann, resume) in [
+        ("basis-1", false),
+        ("vor-pyramide", false),
+        ("basis-9", true),
+        ("vor-pyramide", true),
+    ] {
+        let welt = tempdir();
+        baue_gelaende(welt.path());
+        let baum = neuer_baum("2x1-se");
+        let extra = ["--scale", "16"];
+        gelungen(&export(welt.path(), baum.path(), &extra));
+        baue_aenderungen(welt.path());
+        let update = ["--scale", "16", "--update", "--threads", "1"];
+        let z = max_zoom(baum.path());
+        let vorher: BTreeMap<TileId, SystemTime> = kacheln(baum.path(), z)
+            .iter()
+            .map(|(tile, pfad)| (*tile, zeit_von(pfad)))
+            .collect();
+        let abbruch = update_mit_abbruch(welt.path(), baum.path(), &update, wann);
+        let fehler = String::from_utf8_lossy(&abbruch.stderr);
+        assert!(
+            !abbruch.status.success()
+                && fehler.contains("Abbruch")
+                && fehler.contains("HEROIC_ABBRUCH"),
+            "{wann}: {fehler}"
+        );
+        let mut weiter = update.to_vec();
+        if resume {
+            let neu: Vec<PathBuf> = kacheln(baum.path(), z)
+                .into_iter()
+                .filter(|(tile, pfad)| vorher.get(tile) != Some(&zeit_von(pfad)))
+                .map(|(_, pfad)| pfad)
+                .collect();
+            assert!(neu.len() >= 2, "{wann}: {neu:?}");
+            // Der abgebrochene Lauf begann vor einer Stunde und schrieb vor
+            // einer halben, bis auf die jüngste Kachel.
+            let damals = SystemTime::now() - Duration::from_secs(3600);
+            setze_zeit(&baum.path().join("stand-neu.bin"), damals);
+            for pfad in &neu[1..] {
+                setze_zeit(pfad, damals + Duration::from_secs(1800));
+            }
+            weiter.push("--resume");
+        }
+        let log =
+            String::from_utf8_lossy(&gelungen(&export(welt.path(), baum.path(), &weiter)).stdout)
+                .into_owned();
+        if resume {
+            let liegen: usize = log
+                .lines()
+                .find_map(|z| {
+                    z.trim()
+                        .strip_suffix(" vorhandene Kacheln übersprungen (--resume)")
+                })
+                .and_then(|n| n.parse().ok())
+                .expect("Zeile zu --resume");
+            assert!(liegen > 0, "{wann}: {log}");
+        }
+        let voll = neuer_baum("2x1-se");
+        gelungen(&export(welt.path(), voll.path(), &extra));
+        gleiche_baeume(
+            baum.path(),
+            voll.path(),
+            &format!("{wann}, --resume {resume}"),
+        );
+    }
+}
+
+/// Entfernt ein Update den einzigen Inhalt von Basiskacheln, die Spitzen
+/// der Türme über dem Gelände, baut es deren Eltern neu, auch wenn ihre
+/// Geschwister Treffer haben: Danach gleicht der Baum einem vollen Lauf, auch
+/// in den Eltern.
+/// Siehe docs/entscheidungen/0124-pyramide-nur-ueber-neuen-kindern.md.
+#[test]
+fn update_baut_die_eltern_entfernter_kinder() {
+    let welt = tempdir();
+    baue_aenderungen(welt.path());
+    let baum = neuer_baum("2x1-se");
+    let extra = ["--scale", "16"];
+    gelungen(&export(welt.path(), baum.path(), &extra));
+    let vorher = schnappschuss(baum.path());
+    baue_update_welt(welt.path(), mit_dach, &GEAENDERT, 3);
+    let log = String::from_utf8_lossy(
+        &gelungen(&export(
+            welt.path(),
+            baum.path(),
+            &["--scale", "16", "--update"],
+        ))
+        .stdout,
+    )
+    .into_owned();
+    let leer: usize = log
+        .lines()
+        .find_map(|z| z.strip_prefix("Kacheln:    "))
+        .and_then(|z| {
+            z.split(", ")
+                .find_map(|t| t.strip_suffix(" leer")?.parse().ok())
+        })
+        .expect("Zeile Kacheln");
+    assert!(leer > 0, "{log}");
+    let voll = neuer_baum("2x1-se");
+    gelungen(&export(welt.path(), voll.path(), &extra));
+    gleiche_baeume(baum.path(), voll.path(), "Türme entfernt");
+    let z = max_zoom(baum.path());
+    let nachher = schnappschuss(baum.path());
+    assert!(
+        nachher
+            .iter()
+            .any(|(pfad, bytes)| !pfad.starts_with(&format!("{z}/"))
+                && pfad.ends_with(".webp")
+                && vorher.get(pfad) != Some(bytes)),
+        "keine Elternkachel geändert"
+    );
+}
+
 /// Boden aus einer Lage, für die Tests des Reliefs.
 fn boden(_: i32, y: i32, _: i32) -> &'static str {
     if y == 0 {

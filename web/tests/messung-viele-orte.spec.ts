@@ -127,7 +127,8 @@ async function lauf(browser: Browser, variante: string, dpr: number, cpu: number
     liste: () => [STAEDTE, NADELN],
     datei: (name) => (name === 'staedte' ? { ...STAEDTE, objects: banner } : name === 'nadeln' ? { ...NADELN, objects: nadeln } : undefined),
     baum: { path: '2x1-se', camera: '2:1' },
-    mehr: { bounds: [-(v.grenzen ?? 65536), -(v.grenzen ?? 65536), v.grenzen ?? 65536, v.grenzen ?? 65536] },
+    // Mit weiten Grenzen auch eine tiefe Pyramide, sonst kachelt Leaflet das Fenster weit draussen mit Hunderttausenden Kacheln der Stufe 0.
+    mehr: { bounds: [-(v.grenzen ?? 65536), -(v.grenzen ?? 65536), v.grenzen ?? 65536, v.grenzen ?? 65536], ...(v.grenzen ? { minZoom: -12 } : {}) },
     bild: (n) => BILDER[n],
     weitere: (pfad) => {
       const rest = pfad.startsWith('beispiel/banner/staedte/2x1-se/') ? pfad.slice('beispiel/banner/staedte/2x1-se/'.length) : undefined;

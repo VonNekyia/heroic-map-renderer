@@ -150,4 +150,9 @@ export default [
   { name: 'kopf-fuss-unten', datei: 'src/ebenen.ts', alt: '{ fuss: [KOPF.seite, KOPF.seite] }', neu: '{ fuss: [KOPF.seite, 2 * KOPF.seite] }', spec: 'tests/ebenen.spec.ts', titel: 'nach 0118 zeigt eine Nadel mit head' },
   { name: 'head-auch-gross', datei: 'src/ebenen.ts', alt: '/^[0-9a-f]{64}$/.test(wert.head)', neu: '/^[0-9a-fA-F]{64}$/.test(wert.head)', spec: 'tests/ebenen.spec.ts', titel: 'nach 0118 zeigt eine Nadel mit head' },
   { name: 'tafel-ueber-ganzem-icon', datei: 'src/ebenen.ts', alt: 'options.iconAnchor as L.PointTuple)[1]', neu: 'options.iconSize as L.PointTuple)[1]', spec: 'tests/ebenen.spec.ts', titel: 'nach 0118 zeigt eine Nadel mit head' },
+  // Regionen im iso schneller, 0123.
+  { name: 'hoch-ohne-nachbarn', datei: 'src/gelaende.ts', alt: 'for (let di = -1; di <= 1; di++) for (let dj = -1; dj <= 1; dj++) h = Math.max(h, roh(bi + di, bj + dj));', neu: 'h = roh(bi, bj);', spec: 'tests/gelaende.spec.ts', titel: 'verdeckt überspringt Blöcke' },
+  { name: 'hoch-ohne-oberseite', datei: 'src/gelaende.ts', alt: 'gemerkt.set(s, (h += 1));', neu: 'gemerkt.set(s, (h += 0));', spec: 'tests/gelaende.spec.ts', titel: 'verdeckt überspringt Blöcke' },
+  { name: 'ganz-nie-neu', datei: 'src/ebenen.ts', alt: 'const GANZ = { fenster: 9,', neu: 'const GANZ = { fenster: 0,', spec: 'tests/formen.spec.ts', titel: 'nach 0111: ein grosser Kreis' },
+  { name: 'gemerkt-ohne-rahmen', datei: 'src/ebenen.ts', alt: 'if (e.g !== g || !(e.ansicht.ganz || imRahmen(e.ansicht.schirm))) return undefined;', neu: 'if (e.g !== g) return undefined;', spec: 'tests/formen.spec.ts', titel: 'nach 0111: eine Fläche, die aus dem Ausschnitt fällt' },
 ];

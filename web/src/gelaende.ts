@@ -28,6 +28,35 @@ export interface Gelaende {
   zelle: (i: number, j: number) => number | undefined;
   /** Die höchste Oberseite; darüber kann nichts verdecken. */
   max: number;
+  /**
+   * Höher als `H` reicht nichts im Block (bi, bj), den Zellen i mit
+   * ⌊i / BLOCK⌋ = bi, j ebenso; ohne Angabe prüft `verdeckt` jeden Schritt.
+   * Siehe `blockHoch`.
+   */
+  hoch?: (bi: number, bj: number) => number;
+}
+
+/** Kante eines Blocks für `Gelaende.hoch`, in Zellen. */
+export const BLOCK = 16;
+
+/**
+ * `hoch` für ein Gelände aus `roh`, dem Höchsten der Zellen je Block, mit
+ * `grund`, wenn eine fehlt: `H` mischt mit der Zelle daneben und ersetzt
+ * eine leere aus dem Umkreis von zwei, darum zählen die acht Nachbarn mit,
+ * und die Oberseite liegt eins darüber. Gemerkt je Block.
+ */
+export function blockHoch(roh: (bi: number, bj: number) => number): (bi: number, bj: number) => number {
+  const gemerkt = new Map<number, number>();
+  return (bi, bj) => {
+    const s = (bi + 2 ** 20) * 2 ** 21 + (bj + 2 ** 20);
+    let h = gemerkt.get(s);
+    if (h === undefined) {
+      h = -Infinity;
+      for (let di = -1; di <= 1; di++) for (let dj = -1; dj <= 1; dj++) h = Math.max(h, roh(bi + di, bj + dj));
+      gemerkt.set(s, (h += 1));
+    }
+    return h;
+  };
 }
 
 /** Projektion und Drehung des Blicks. */
@@ -80,9 +109,26 @@ export function zurKamera({ p, k }: Blick): { wx: number; wz: number; steigung: 
  */
 export function oberflaeche(g: Gelaende, x: number, z: number): number {
   const { c } = g;
-  const zelle = (i: number, j: number): number => {
-    const eigen = g.zelle(i, j);
-    if (eigen !== undefined) return eigen;
+  const [fx, fz] = [x / c - 0.5, z / c - 0.5];
+  const [i, j] = [Math.floor(fx), Math.floor(fz)];
+  const [tx, tz] = [fx - i, fz - j];
+  const oben = zelleOderErsatz(g, i, j) * (1 - tx) + zelleOderErsatz(g, i + 1, j) * tx;
+  const unten = zelleOderErsatz(g, i, j + 1) * (1 - tx) + zelleOderErsatz(g, i + 1, j + 1) * tx;
+  return oben * (1 - tz) + unten * tz + 1;
+}
+
+/** Je Gelände der Ersatz leerer Zellen, einmal gerechnet; er fällt mit dem Gelände weg. */
+const ersatzJe = new WeakMap<Gelaende, Map<number, number>>();
+
+/** Der Wert der Zelle, leer der Mittelwert der Nachbarn mit Wert im Umkreis von zwei, sonst `grund`; für `oberflaeche`. */
+function zelleOderErsatz(g: Gelaende, i: number, j: number): number {
+  const eigen = g.zelle(i, j);
+  if (eigen !== undefined) return eigen;
+  let ersatz = ersatzJe.get(g);
+  if (!ersatz) ersatzJe.set(g, (ersatz = new Map<number, number>()));
+  const s = (i + 2 ** 20) * 2 ** 21 + (j + 2 ** 20);
+  let wert = ersatz.get(s);
+  if (wert === undefined) {
     let summe = 0;
     let anzahl = 0;
     for (let di = -2; di <= 2; di++) {
@@ -94,14 +140,9 @@ export function oberflaeche(g: Gelaende, x: number, z: number): number {
         }
       }
     }
-    return anzahl ? summe / anzahl : g.grund;
-  };
-  const [fx, fz] = [x / c - 0.5, z / c - 0.5];
-  const [i, j] = [Math.floor(fx), Math.floor(fz)];
-  const [tx, tz] = [fx - i, fz - j];
-  const oben = zelle(i, j) * (1 - tx) + zelle(i + 1, j) * tx;
-  const unten = zelle(i, j + 1) * (1 - tx) + zelle(i + 1, j + 1) * tx;
-  return oben * (1 - tz) + unten * tz + 1;
+    ersatz.set(s, (wert = anzahl ? summe / anzahl : g.grund));
+  }
+  return wert;
 }
 
 /**
@@ -296,13 +337,26 @@ export function abtastenImRahmen(punkte: readonly Punkt[], geschlossen: boolean,
  * Liegt Gelände vor dem Punkt (x, y, z)? Tastet `H` entlang des Strahls zur
  * Kamera in Schritten einer halben Zelle ab, ab der ersten Mitte, die mehr
  * als eine Zelle vor dem Punkt liegt, bis über das höchste Gelände. Von oben
- * verdeckt nichts. Siehe docs/benutzung/ebenen.md, „Was verdeckt ist“.
+ * verdeckt nichts. Mit `hoch` fallen die Schritte über Blöcken weg, die
+ * nicht bis zum Strahl reichen; das Ergebnis bleibt dasselbe. Siehe
+ * docs/benutzung/ebenen.md, „Was verdeckt ist“.
  */
 export function verdeckt(g: Gelaende, x: number, y: number, z: number, blick: Blick): boolean {
   if (blick.p.y === 0) return false;
   const { wx, wz, steigung, kmin } = zurKamera(blick);
-  for (let d = kmin * g.c; y + steigung * d <= g.max; d += g.c / 2) {
-    if (oberflaeche(g, x + wx * d, z + wz * d) > y + steigung * d) return true;
+  const { c, hoch } = g;
+  const block = (v: number) => Math.floor((v / c - 0.5) / BLOCK);
+  for (let d = kmin * c; y + steigung * d <= g.max; d += c / 2) {
+    const [qx, qz] = [x + wx * d, z + wz * d];
+    // Liegt der Strahl über dem Höchsten des Blocks, verdeckt dort kein Schritt, denn er steigt weiter: bis zum letzten im Block.
+    if (hoch) {
+      const [bi, bj] = [block(qx), block(qz)];
+      if (hoch(bi, bj) <= y + steigung * d) {
+        while (y + steigung * (d + c / 2) <= g.max && block(x + wx * (d + c / 2)) === bi && block(z + wz * (d + c / 2)) === bj) d += c / 2;
+        continue;
+      }
+    }
+    if (oberflaeche(g, qx, qz) > y + steigung * d) return true;
   }
   return false;
 }

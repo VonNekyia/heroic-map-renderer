@@ -25,9 +25,10 @@ Die Goldbilder halten fest, wie kleine Ausschnitte aussehen; jede
 
    Der Test schreibt dann alle Goldbilder neu und prüft nichts.
 3. **Zeichenstand:** Danach fällt `zeichenstand_folgt_den_goldbildern` in
-   `renderer/src/render/stand.rs` und nennt je Look den neuen Wert. Zeichnet
-   der Renderer diesen Look anders, seinen Zeichenstand dort um eins heben,
-   etwa `ZEICHENSTAND_FLAT`. In jedem Fall den Eintrag des Looks in
+   `renderer/src/render/stand.rs` und nennt je Look den neuen Wert, für die
+   Goldbilder des Reliefs unter `relief`. Zeichnet der Renderer diesen Look
+   anders, seinen Zeichenstand dort um eins heben, etwa `ZEICHENSTAND_FLAT`;
+   beim Relief `ZEICHENSTAND_RELIEF`. In jedem Fall den Eintrag des Looks in
    `GOLDBILDER` auf den genannten Wert setzen. Ändert sich nur die Szene
    eines Tests oder kommt ein Goldbild dazu, bleibt der Zeichenstand; ein
    neues Goldbild bekommt seinen Look in `GOLDBILDER_JE_LOOK`, sonst fällt

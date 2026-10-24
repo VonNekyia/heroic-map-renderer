@@ -15,7 +15,7 @@ use heroic_map_renderer::render::rasterizer::{
 };
 use heroic_map_renderer::render::sonne::texel_mitte;
 use heroic_map_renderer::render::{
-    BiomeTable, ChunkCache, Kamera, Projection, Reach, Richtung, ScreenRect, SpriteSet,
+    BiomeTable, ChunkCache, Kamera, Projection, Reach, Relief, Richtung, ScreenRect, SpriteSet,
     Verkleinern, draw_list, render_area, render_area_with, render_area_without_culling, shrink,
     survey, survey_in,
 };
@@ -2163,7 +2163,8 @@ fn tempdir() -> TempDir {
 /// 2:1 aus Nordwesten um die Treppe aus Stein, ganz in der einfarbigen
 /// Ansicht von `--flat`; dazu die Mangrovenwurzeln aus #243 in `top-north`
 /// bei scale 4 und die Szene dort in den Stufen der Pyramide mit 2 und 1 px
-/// je Block (#293), und Gras und Laub in den Biomen eines Datapacks (#288).
+/// je Block (#293), dort auch mit dem Relief von oben, Gefälle und Schatten,
+/// und Gras und Laub in den Biomen eines Datapacks (#288).
 /// Neu erzeugen mit
 /// `UPDATE_GOLDEN=1 cargo test --test metatile`.
 #[test]
@@ -2226,6 +2227,16 @@ fn goldbild_bleibt_gleich() {
     let eins = shrink(&zwei, Verkleinern::Pixel, 2);
     fehler.extend(goldbild("pyramide-top-north-2px", zwei));
     fehler.extend(goldbild("pyramide-top-north-1px", eins));
+    // Dieselbe Szene mit dem Relief von oben.
+    // Siehe docs/renderer/relief.md.
+    let mut sprites = sprites;
+    for relief in [Relief::Gefaelle, Relief::Schatten] {
+        sprites.set_relief(Some(relief));
+        fehler.extend(goldbild(
+            &format!("metatile-relief-{}", relief.name()),
+            render_area(&world, &sprites, rect, common::SZENE_Y).unwrap(),
+        ));
+    }
     // Die einfarbige Ansicht über die ganze Szene, ein Pixel je Block.
     // Eigene Namen: `survey` und `assets` ruft der Teil danach noch als
     // Funktionen.

@@ -11,6 +11,9 @@ code:
 
 # 0101: Ein Zeichenstand je Look
 
+Ergänzt durch [0122](0122-relief-von-oben.md): Das Relief von oben hat einen
+eigenen Zeichenstand, der nur in den Abdruck von Bäumen mit Relief eingeht.
+
 Löst in [0098](0098-der-zeichenstand-statt-des-builds.md) den einen
 Zeichenstand für alle Bäume ab und `GOLDBILDER` über alle Goldbilder. Der
 Rest von 0098 gilt.

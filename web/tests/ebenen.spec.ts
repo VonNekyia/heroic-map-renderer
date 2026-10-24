@@ -313,7 +313,7 @@ test('nach 0118 zeigt eine Nadel mit head das Gesicht, die Mitte auf dem Fuss, d
   expect(meldungen.filter((m) => m.includes('ohne Gesicht')).length).toBe(2);
 });
 
-test('nach 0116 bleiben Nadeln und Banner bis 16 Blöcke je Pixel gleich gross, darunter je Stufe halb so gross, bis der Name unter 6 px fiele; dann ohne Namen in der kleinsten Stufe', async ({ page }) => {
+test('nach 0119 bleiben Nadeln, Köpfe und Banner auf jeder Stufe gleich gross; unter 16 Blöcken je Pixel wird nur der Name stufenlos kleiner und blendet weich aus', async ({ page }) => {
   const dorf = { ...HAFEN, id: 'dorf', name: 'Dorf', size: 'small', at: [30.5, -20.5], panel: undefined };
   const fahne = { id: 'fahne', type: 'banner', at: [40.5, -10.5], image: 'images/fahne.png', name: 'Fahne' };
   const kopf = { ...HAFEN, id: 'kopf', name: 'Kopf', head: GESICHT.name, at: [25.5, -25.5], panel: undefined };
@@ -321,39 +321,62 @@ test('nach 0116 bleiben Nadeln und Banner bis 16 Blöcke je Pixel gleich gross, 
   const vonOben = { camera: 'top-north', scale: 4, projection: { azimuth: 'north', u: 4, v: 4, y: 0 }, minZoom: -10 };
   await welt(page, staedte([HAFEN, dorf, fahne, kopf], { mehr: vonOben, bild: (n) => (n === 'fahne.png' ? png(22, 40) : BILDER[n]) }));
   await koepfe(page, { [GESICHT.name]: GESICHT.png });
-  const voll = ['Dorf 9 × 15', 'Fahne 22 × 40', 'Hafenstadt 23 × 33', 'Kopf 16 × 16'];
-  for (const [zoom, groessen, mitNamen] of [
-    [0, voll, true],
-    [-6, voll, true],
-    // Je Stufe die Hälfte, auf ganze Pixel des Geräts gerundet; der Name 8 px.
-    [-7, ['Dorf 5 × 8', 'Fahne 11 × 20', 'Hafenstadt 12 × 17', 'Kopf 8 × 8'], true],
-    // Der Name fiele auf 4 px: ohne Namen, und kleiner als hier wird es nicht.
-    [-8, ['Dorf 2 × 4', 'Fahne 6 × 10', 'Hafenstadt 6 × 8', 'Kopf 4 × 4'], false],
-    [-10, ['Dorf 2 × 4', 'Fahne 6 × 10', 'Hafenstadt 6 × 8', 'Kopf 4 × 4'], false],
+  const groessen = ['Dorf 9 × 15', 'Fahne 22 × 40', 'Hafenstadt 23 × 33', 'Kopf 16 × 16'];
+  const namen = page.locator('.nadel-name, .nadel-bogen');
+  // Je Zoom: der Faktor des Namens, seine Deckkraft und ob er sichtbar ist.
+  for (const [zoom, teil, deck] of [
+    [0, 1, 1],
+    [-6, 1, 1],
+    // Ein Block 1/32 Pixel: der Name halb so gross, 8 px, noch ganz deckend.
+    [-7, 0.5, 1],
+    // 4 px liegt unter 5: weg, aber das Icon bleibt.
+    [-8, 0.25, 0],
+    [-10, 0.0625, 0],
   ] as const) {
     await page.goto(`${DEMO}&at=35,0,-15&zoom=${zoom}`);
     await expect(page.locator('.nadel-icon')).toHaveCount(4);
-    // Nadeln und Kopf mit geradem Namen, das Banner mit dem Namen im Bogen.
-    await expect(page.locator('.nadel-name'), `Zoom ${zoom}`).toHaveCount(mitNamen ? 3 : 0);
-    await expect(page.locator('.nadel-bogen'), `Zoom ${zoom}`).toHaveCount(mitNamen ? 1 : 0);
+    await expect(page.locator('.nadel-name'), `Zoom ${zoom}`).toHaveCount(3);
+    await expect(page.locator('.nadel-bogen'), `Zoom ${zoom}`).toHaveCount(1);
     const gemessen = await page.locator('.nadel-icon').evaluateAll((l) =>
       l.map((e) => `${e.getAttribute('title')} ${e.getBoundingClientRect().width} × ${e.getBoundingClientRect().height}`).sort(),
     );
     expect(gemessen, `Zoom ${zoom}`).toEqual(groessen);
+    // Erst nach dem Übergang von CSS messen.
+    await page.waitForTimeout(300);
+    const stil = await namen.evaluateAll((l) => l.map((e) => [getComputedStyle(e).transform, Number(getComputedStyle(e).opacity), getComputedStyle(e).visibility]));
+    for (const [transform, opacity, sichtbar] of stil) {
+      expect(transform, `Zoom ${zoom}`).toMatch(new RegExp(`^matrix\\(${teil}, 0, 0, ${teil}, `));
+      expect(opacity, `Zoom ${zoom}`).toBe(deck);
+      expect(sichtbar, `Zoom ${zoom}`).toBe(deck > 0 ? 'visible' : 'hidden');
+    }
     if (zoom === -7) {
-      // Der Name mit kleiner: die gerade Schrift 8 px hoch, der Bogen auf die Hälfte um den Fuss.
+      // Die gerade Schrift 8 px hoch, um ihre Oberkante; der Bogen um den Fuss.
       expect(await page.locator('.nadel-name').first().evaluate((e) => e.getBoundingClientRect().height)).toBeCloseTo(8, 0);
-      expect(await page.locator('.nadel-bogen').evaluate((e) => [getComputedStyle(e).transform, getComputedStyle(e).transformOrigin])).toEqual(['matrix(0.5, 0, 0, 0.5, 0, 0)', '0px 0px']);
+      expect(await page.locator('.nadel-bogen').evaluate((e) => getComputedStyle(e).transformOrigin)).toBe('0px 0px');
     }
   }
-  // Beim Zoomen über die Grenze bekommt die Nadel ein neues Icon, ohne neues Laden.
-  await page.goto(`${DEMO}&at=35,0,-15&zoom=-6`);
-  await expect(page.locator('.nadel-icon[title="Fahne"]')).toHaveCount(1);
-  await page.locator('.leaflet-control-zoom-out').click();
-  await expect.poll(() => page.locator('.nadel-icon[title="Fahne"]').evaluate((e) => e.getBoundingClientRect().width)).toBe(11);
-  // Die Tafel steht über dem kleinen Icon wie sonst über dem grossen: ihre Spitze 7 px unter seiner Oberkante.
+  // Ein Zoom von −7 auf −8 baut kein Icon neu, und der Name blendet über mehrere Bilder aus, sichtbar bis zuletzt.
+  await page.goto(`${DEMO}&at=35,0,-15&zoom=-7`);
+  const fahneIcon = page.locator('.nadel-icon[title="Fahne"]');
+  await expect(fahneIcon).toHaveCount(1);
+  await fahneIcon.evaluate((e) => ((e as HTMLElement & { probe?: number }).probe = 1));
+  await page.waitForTimeout(300);
+  const verlauf = await page.evaluate(async () => {
+    const name = document.querySelector('.nadel-icon[title="Dorf"] .nadel-name')!;
+    (document.querySelector('.leaflet-control-zoom-out') as HTMLElement).click();
+    const werte: [number, string][] = [];
+    const ende = performance.now() + 450;
+    while (performance.now() < ende) {
+      await new Promise(requestAnimationFrame);
+      werte.push([Number(getComputedStyle(name).opacity), getComputedStyle(name).visibility]);
+    }
+    return werte;
+  });
+  expect(verlauf.some(([o, v]) => o > 0.05 && o < 0.95 && v === 'visible'), JSON.stringify(verlauf)).toBe(true);
+  expect(verlauf.at(-1)).toEqual([0, 'hidden']);
+  expect(await fahneIcon.evaluate((e) => (e as HTMLElement & { probe?: number }).probe)).toBe(1);
+  // Die Tafel steht über dem Icon wie auf jeder Stufe: ihre Spitze 7 px unter seiner Oberkante.
   const hafen = page.locator('.nadel-icon[title="Hafenstadt"]');
-  await expect.poll(() => hafen.evaluate((e) => e.getBoundingClientRect().height)).toBe(17);
   await hafen.hover();
   const spitze = page.locator('.leaflet-popup-tip-container');
   await expect(spitze).toBeVisible();

@@ -418,11 +418,15 @@ ist, ohne Leaflet, und [`pruefen.ts`](../web/src/pruefen.ts) für die
 Eingaben.
 
 Banner, feste Grösse und die Tafel beim Zeigen folgen
-[0097](entscheidungen/0097-banner-feste-groesse-tafel-beim-zeigen.md). Unter 16 Blöcken je Pixel werden
-Nadeln und Banner je Stufe kleiner, siehe
-[0116](entscheidungen/0116-nadeln-und-banner-unter-16-bloecken-je-pixel.md)
-und [Ebenen](benutzung/ebenen.md), „Nadeln und Banner“; beim Zoomen über
-eine Stufe bekommen sie ein neues Icon, neu geladen wird nichts.
+[0097](entscheidungen/0097-banner-feste-groesse-tafel-beim-zeigen.md). Unter 16 Blöcken je Pixel wird
+nur der Name stufenlos kleiner und blendet aus, siehe
+[0119](entscheidungen/0119-namen-stufenlos-icons-fest.md)
+und [Ebenen](benutzung/ebenen.md), „Nadeln und Banner“. `namenNachZoom`
+setzt dafür `--name-teil` und `--name-deck` am Container, ab dem Start
+jedes Zooms (`zoomanim`) und bei jedem `zoom`; CSS geht in 250 ms dorthin,
+mit der Kurve von Leaflet. Ohne Deckung bekommt der Container `namen-weg`,
+die Namen werden `hidden`, erst nach dem Ausblenden. Kein Icon wird dabei
+neu gebaut.
 
 ![Eine Ebene auf dem Ufer der Testwelt, links schräg in 2:1, rechts von oben](bilder/ebenen-testwelt.webp)
 
@@ -513,8 +517,7 @@ eine Stufe bekommen sie ein neues Icon, neu geladen wird nichts.
     beide einmal je Seite. Ein Pixel des Gesichts sind 2 Pixel des Bilds,
     die Mitte liegt auf dem Fuss, der Name gerade darunter. Fehlt der Kopf
     oder taugt er nicht, zeichnet `nadelIcon` die Nadel;
-  - bis zur Grenze aus 0116 auf jeder Stufe gleich gross, darunter je Stufe
-    die Hälfte, siehe oben. Ein
+  - auf jeder Stufe gleich gross, nur der Name nicht, siehe oben. Ein
     Pixel des Bilds ist `k = max(1, round(devicePixelRatio))` Pixel des
     Geräts breit, die Leinwand also `k`-mal so gross wie das Bild und
     `b · k / devicePixelRatio` Pixel des Bildschirms breit. So bleibt jedes

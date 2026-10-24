@@ -14,6 +14,9 @@ code:
 
 # 0084: Der Server sitzt im Renderer
 
+Im Punkt „Cache“ für die Kacheln abgelöst durch
+[0125](0125-kacheln-eine-minute-im-cache.md): Sie tragen `max-age=60`.
+
 Löst [0047](0047-lighthouse-gegen-den-build.md) in einem Punkt ab: Die
 Header der Karte setzt nicht mehr nur der Server des Betreibers, sondern
 auch der Renderer mit `--serve`.

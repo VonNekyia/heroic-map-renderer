@@ -493,6 +493,37 @@ test('mit design zeigt die Karte das Sprite ihres Satzes, mit capital das aus kr
   ]);
 });
 
+for (const designs of [true, false]) {
+  test(`mit designs: ${designs} in layers.json geht satz.json ${designs ? 'schon mit der Datei der Ebene los' : 'erst nach ihr los'}`, async ({ page }) => {
+    const stadt = { id: 'stadt', type: 'banner', at: [30.5, -20.5], design: 'nordreich', name: 'Hafenstadt' };
+    const anfragen = await welt(page, {
+      ...spriteWelt([stadt], { path: '2x1-se', camera: '2:1' }, '2x1-se', { 'nordreich.png': png(23, 51) }),
+      liste: () => [{ ...STAEDTE, ...(designs ? { designs: true } : {}) }],
+    });
+    // Die Datei der Ebene hängt, bis der Test sie freigibt; später angemeldet, geht vor.
+    let frei = () => {};
+    const gehalten = new Promise<void>((r) => (frei = r));
+    let angefragt = false;
+    await page.route('**/tiles-demo/layers/beispiel/staedte.json', async (route) => {
+      angefragt = true;
+      await gehalten;
+      await route.fallback();
+    });
+    const satz = () => anfragen.some((a) => a.startsWith('beispiel/banner/staedte/2x1-se/satz.json'));
+    await page.goto(`${DEMO}&tree=2x1-se&at=35,0,-15`);
+    await expect.poll(() => angefragt).toBe(true);
+    if (designs) await expect.poll(satz).toBe(true);
+    else {
+      await page.waitForTimeout(500);
+      expect(satz()).toBe(false);
+    }
+    frei();
+    // Danach wie immer: das Sprite des Satzes, satz.json genau einmal.
+    await expect(page.locator('.nadel-icon[title="Hafenstadt"] img')).toHaveJSProperty('naturalWidth', 23);
+    expect(anfragen.filter((a) => a.startsWith('beispiel/banner/staedte/2x1-se/satz.json'))).toHaveLength(1);
+  });
+}
+
 test('ein Baum von oben nimmt den Satz oben; fehlt das Sprite, zeigt die Karte image, ohne image übergeht sie das Banner mit Meldung', async ({ page }) => {
   const meldungen: string[] = [];
   page.on('console', (m) => meldungen.push(m.text()));
@@ -1338,4 +1369,56 @@ test('nach 0128 bleibt ein Marker mit offener Tafel oder mit dem Fokus, auch aus
   await expect.poll(() => imFenster(page)).toBe(false);
   await expect(fern(page)).toHaveCount(1);
   expect(await fern(page).evaluate((e) => e === document.activeElement)).toBe(true);
+});
+
+/** Die Städte mit einer Zoomgrenze in layers.json. */
+const mitGrenze = (objekte: object[], grenze: number, mehr: object) => ({
+  ...staedte(objekte, { mehr }),
+  liste: () => [{ ...STAEDTE, maxBlocksPerPixel: grenze }],
+});
+const datei = (anfragen: string[]) => anfragen.filter((a) => a === 'beispiel/staedte.json').length;
+
+test('nach 0131 holt die Karte eine Ebene jenseits ihrer Zoomgrenze nicht, genau auf der Grenze zeigt sie sie; hinaus hängt sie aus, ohne neue Anfrage', async ({ page }) => {
+  // Von oben 4 Pixel je Block: Zoom −2 ist genau 1 Block je Pixel, −3 sind 2.
+  const anfragen = await welt(page, mitGrenze([NAH], 1, WEIT));
+  await page.goto(`${DEMO}&at=0,0,0&zoom=-3`);
+  await expect(page.locator('.ebenen-zeile.ausser-bereich')).toHaveCount(1);
+  await expect(page.locator('.ebenen-zeile .ebenen-bereich')).toHaveText('(beim Hineinzoomen)');
+  await page.waitForTimeout(500);
+  expect(datei(anfragen)).toBe(0);
+  await expect(page.locator('.nadel-icon')).toHaveCount(0);
+  // Genau auf der Grenze: sichtbar.
+  await stufe(page, 'in');
+  await expect(page.locator('.nadel-icon[title="Nah"]')).toHaveCount(1);
+  await expect(page.locator('.ebenen-zeile.ausser-bereich')).toHaveCount(0);
+  expect(datei(anfragen)).toBe(1);
+  // Hinaus hängt sie aus, hinein wieder ein, ohne die Datei noch einmal zu holen.
+  await stufe(page, 'out');
+  await expect(page.locator('.nadel-icon')).toHaveCount(0);
+  await stufe(page, 'in');
+  await expect(page.locator('.nadel-icon[title="Nah"]')).toHaveCount(1);
+  expect(datei(anfragen)).toBe(1);
+});
+
+test('nach 0131 gilt die Zoomgrenze in Blöcken, nicht in Stufen: im iso mit scale 16 dieselbe Grenze an anderer Stufe', async ({ page }) => {
+  // 2:1 mit scale 16: Ein Block ist auf der feinsten Stufe √(8² + 4²) ≈ 8,9 Pixel breit; Zoom −3 sind 0,89 Blöcke je Pixel, −4 sind 1,79.
+  const anfragen = await welt(page, mitGrenze([{ ...NAH, at: [35.5, -14.5] }], 1, { bounds: [-65536, -65536, 65536, 65536] }));
+  await page.goto(`${DEMO}&at=35,0,-15&zoom=-3`);
+  await expect(page.locator('.nadel-icon[title="Nah"]')).toHaveCount(1);
+  await stufe(page, 'out');
+  await expect(page.locator('.nadel-icon')).toHaveCount(0);
+  await page.goto(`${DEMO}&at=35,0,-15&zoom=-4`);
+  await expect(page.locator('.ebenen-zeile.ausser-bereich')).toHaveCount(1);
+  await page.waitForTimeout(500);
+  expect(datei(anfragen)).toBe(1);
+});
+
+test('nach 0131 schliesst eine offene Tafel, wenn ihre Ebene beim Hinauszoomen über die Grenze fällt', async ({ page }) => {
+  await welt(page, mitGrenze([{ ...HAFEN, at: [0.5, 0.5] }], 1, WEIT));
+  await page.goto(`${DEMO}&at=0,0,0&zoom=-2`);
+  await page.locator('.nadel-icon[title="Hafenstadt"]').click();
+  await expect(page.locator('.leaflet-popup')).toBeVisible();
+  await stufe(page, 'out');
+  await expect(page.locator('.leaflet-popup')).toHaveCount(0);
+  await expect(page.locator('.nadel-icon')).toHaveCount(0);
 });

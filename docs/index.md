@@ -196,6 +196,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0116](entscheidungen/0116-nadeln-und-banner-unter-16-bloecken-je-pixel.md): Auf der Webkarte bis 16 Blöcke je Pixel volle Grösse, darunter Nadeln und Banner je Stufe halb so gross, ohne Namen unter 6 px (User, 22.10.); abgelöst durch 0119.
 - [0118](entscheidungen/0118-koepfe-in-ebenen.md): Eine Nadel einer Ebene zeigt mit `head` ein Gesicht statt des Schilds, der Name eines Kopfs unter `koepfe/`, nie eine Textur; das Plugin holt Köpfe aus Texturen von `textures.minecraft.net` mit Rate, 256 je Ebene, auch für Ebenen mit `permission`; ergänzt 0114.
 - [0119](entscheidungen/0119-namen-stufenlos-icons-fest.md): Nadeln, Köpfe und Banner auf der Webkarte fest auf jeder Stufe; unter 16 Blöcken je Pixel nur der Name stufenlos kleiner, mit dem Zoom animiert, zwischen 8 und 5 px Schrift weich ausgeblendet (User, 24.10.); löst 0116 ab.
+- [0121](entscheidungen/0121-zwei-d-drei-d-statt-liste.md): Mit einem Baum von oben und einem iso zeigt die Webkarte einen Knopf 2D/3D statt der Liste, an derselben Stelle der Welt; weitere Bäume nur über `?tree=`; keine Ansichten mit 1 und 2 px je Block mehr, der Mod lädt sie weiter (User, 24.10.); löst 0109 für das Frontend ab.
 - [0114](entscheidungen/0114-koepfe-der-mitspieler.md): Mitspieler als ihr Gesicht, 8 × 8 mit Hutschicht, öffentlich unter `koepfe/<sha256>.png` nach dem Hash des Bildes, `immutable`, `kopf` in `sicht.json`; kein Steve und kein Alex, Aufräumen über die Zeit der Datei; die Karte prüft 64 hex, 16 KiB, 8 × 8.
 
 ## Versuche

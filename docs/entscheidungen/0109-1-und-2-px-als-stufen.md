@@ -11,6 +11,9 @@ code:
 
 # 0109: 1 und 2 px je Block als Stufen des Baums mit 4 px
 
+Zum Teil abgelöst durch [0121](0121-zwei-d-drei-d-statt-liste.md): Die Webkarte hat keine
+gekappten Ansichten mehr; der Mod lädt die Stufen wie hier.
+
 ## Anlass
 
 Der User will Karten mit 1 und 2 px je Block, mit Texturen, von oben,

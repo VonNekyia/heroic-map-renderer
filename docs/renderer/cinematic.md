@@ -488,13 +488,18 @@ Block, statt ihn zu decken, wie in 0058:
   [`renderer/src/assets/mod.rs`](../../renderer/src/assets/mod.rs)): dem
   Kreuz (`block/cross`, `block/tinted_cross`, `block/cross_emissive`), den
   Ebenen der Feldfrüchte (`block/crop`), den Blütenteppichen
-  (`block/flowerbed_*`), dem Laub am Boden (`block/template_leaf_litter_*`)
-  und der Vorlage des Seegrases (`block/template_seagrass`). In 26.2 sind
-  das 85 Blöcke, gezählt an den Modellen des Client: 84 ganz, dazu die
-  untere Hälfte der Sonnenblume; ihre Blüte oben hat ein eigenes Modell.
+  (`block/flowerbed_*`), dem Laub am Boden (`block/template_leaf_litter_*`),
+  der Vorlage des Seegrases (`block/template_seagrass`) und seit 0133 den
+  Stielen von Kürbis und Melone (`block/stem_growth*`, `block/stem_fruit`).
+  In 26.2 sind das 89 Blöcke: vor 0133 85, gezählt an den Modellen des
+  Client, 84 ganz und die untere Hälfte der Sonnenblume, deren Blüte oben
+  ein eigenes Modell hat; dazu die vier Stiele.
+- **Aus der untersten Wurzel:** Ob ein Block eine ist, sagen seit 0133 die
+  Assets des Spiels, nicht ein Paket darüber, siehe
+  [Die Kamera](kamera.md), „Pflanzen von oben“.
   In 26.3 kommen der Setzling der Pappel und der rote Strauch über
   `block/cross` dazu (#98).
-- **Von oben** liegen sie in der Karte flach, in Cinematic nicht, siehe
+- **Von oben** kippen sie in der Karte, in Cinematic nicht, siehe
   [Die Kamera](kamera.md), „Pflanzen von oben“.
 - **Gegen die Liste des Prototyps** zu #89: Mangrovenkeimling,
   Kannenpflanze und ihre Feldfrucht haben eigene Modelle ohne Vorlage und

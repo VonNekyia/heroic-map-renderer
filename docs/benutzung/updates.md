@@ -512,6 +512,7 @@ nicht passt (`update_braucht_den_stand_und_dieselben_assets`):
     | #250, wie v0.7.0 | 3 | 3 | 3 | das Licht von `--flat`, siehe [Die einfarbige Ansicht](../renderer/einfarbig.md), „Licht je Spalte“; bis 0101 ein Zeichenstand für alle |
     | #257 | 3 | 3 | 4 | ein Schritt Licht von der Seite in `--flat`, ebenda |
     | #295 | 4 | 3 | 5 | Bodenpflanzen liegen von oben flach, siehe [Die Kamera](../renderer/kamera.md), „Pflanzen von oben“ |
+    | 0133 | 5 | 4 | 6 | Bodenpflanzen kippen von oben, ebenda; Redstone und Stiele färben, und die Stiele sind Bodenpflanzen, siehe [Biomfarben](../renderer/biomfarben.md), „Nach dem Zustand“ |
 
 - **Assets und Daten:** je Wurzel von `--assets` und `--data` und je
   Datapack der Welt, das etwas trägt, ihre Nummer, dann je Datei darunter

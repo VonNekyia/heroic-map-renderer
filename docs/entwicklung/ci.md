@@ -45,6 +45,13 @@ greifen. Ein Test läuft nur dort, siehe [Tests](tests.md), „Laufen
 lassen“. Fällt ein Goldbild, liegt das Ist-Bild als Artefakt am Lauf, siehe
 [Tests](tests.md), „Goldbild“.
 
+Fällt im Frontend der Smoke-Test, liegt der HTML-Bericht von Playwright als
+Artefakt `playwright-report` am Lauf: die ganze Meldung jedes Versuchs, und
+für die Wiederholung eine Spur (`trace: 'on-first-retry'`). Ohne Fehler gibt
+es kein Artefakt; ein Test, der erst in der Wiederholung besteht, steht nur
+als `flaky` im Log. Die CI schreibt dafür neben `list` den Bericht `html`
+([`web/playwright.config.ts`](../../web/playwright.config.ts)).
+
 ## Basis einer PR
 
 Eine PR geht nur gegen `master` und nur, wenn sie dessen neuesten Stand

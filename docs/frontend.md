@@ -75,6 +75,12 @@ Beim Öffnen holt die Seite, was nicht aufeinander wartet, zugleich
   nimmt die Karte diese Antwort, sonst holt sie den ersten Baum wie bisher.
 - **Danach** in dieser Reihe: `map.json`, die Karte, dann je Ebene ihre Datei,
   bei Bannern mit Entwurf `satz.json` und die Sprites, und die Kartenschrift.
+- **`satz.json` mit der Datei:** Trägt der Eintrag in `layers.json`
+  `designs: true`, geht `satz.json` zugleich mit der Datei der Ebene los,
+  bei einer Aktionsebene nach ihrer Antwort aus `api/` (`satzVorab` in
+  `ladeEbene`). Nennt die Datei dann doch keinen Entwurf, bleibt die Antwort
+  ungenutzt. Ohne das Feld wie bisher erst nach der Datei. Siehe
+  [Ebenen](benutzung/ebenen.md), „Liste der Ebenen“.
 - **Gemessen** in [Start der Webkarte](messungen/2026-10-24-start-der-webkarte.md):
   bei 150 ms Umlaufzeit kommt das erste Objekt einer Ebene 330 ms früher, mit
   `?tree=` 530 ms früher, die erste Kachel mit `?tree=` 180 ms früher.

@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { createHash } from 'node:crypto';
 import { deflateSync } from 'node:zlib';
 import { projiziere, zweiZuEins } from '../src/pick';
-import { aufDemSchirm, BILDER, DEMO, fuss, HAFEN, KREISE, LEER, png, STAEDTE, staedte, welt } from './ebenen-welt';
+import { aufDemSchirm, BILDER, DEMO, fuss, HAFEN, KREISE, LEER, pixelAufPixel, png, STAEDTE, staedte, welt } from './ebenen-welt';
 
 test('ohne layers.json gibt es keine Liste der Ebenen, und die Karte fragt bis zum Neuladen nicht nach', async ({ page }) => {
   const meldungen: string[] = [];
@@ -477,7 +477,7 @@ test('mit design zeigt die Karte das Sprite ihres Satzes, mit capital das aus kr
   const anfragen = await welt(page, spriteWelt([stadt, haupt], { path: '2x1-se', camera: '2:1' }, '2x1-se', { 'nordreich.png': png(23, 51), 'krone/nordreich.png': png(23, 51) }));
   await page.goto(`${DEMO}&tree=2x1-se&at=35,0,-15`);
   const icon = (name: string) => page.locator(`.nadel-icon[title="${name}"]`);
-  await expect(icon('Hauptstadt').locator('canvas')).toHaveJSProperty('width', 23);
+  await expect(icon('Hauptstadt').locator('img')).toHaveJSProperty('naturalWidth', 23);
   for (const name of ['Hafenstadt', 'Hauptstadt']) {
     // Die linke obere Ecke auf Ort − foot, das SVG des Namens am Fuss, um den Winkel gedreht.
     expect(await icon(name).evaluate((e) => [(e as HTMLElement).style.marginLeft, (e as HTMLElement).style.marginTop]), name).toEqual(['-12px', '-49px']);
@@ -504,8 +504,8 @@ test('ein Baum von oben nimmt den Satz oben; fehlt das Sprite, zeigt die Karte i
   await page.goto(`${DEMO}&tree=top-north-s`);
   await expect(page.locator('.nadel-icon')).toHaveCount(2);
   // Das Bild mit seinem Fuss unten mittig, das Sprite mit dem aus satz.json.
-  await expect(page.locator('.nadel-icon[title="Mit Bild"] canvas')).toHaveJSProperty('width', 22);
-  await expect(page.locator('.nadel-icon[title="Da"] canvas')).toHaveJSProperty('width', 20);
+  await expect(page.locator('.nadel-icon[title="Mit Bild"] img')).toHaveJSProperty('naturalWidth', 22);
+  await expect(page.locator('.nadel-icon[title="Da"] img')).toHaveJSProperty('naturalWidth', 20);
   expect(anfragen.some((a) => a.startsWith('beispiel/banner/staedte/oben/satz.json'))).toBe(true);
   await expect.poll(() => meldungen.some((m) => m.includes('Banner ohne') && m.includes('übergangen'))).toBe(true);
   expect(meldungen.some((m) => m.includes('Banner mit') && m.includes('nimmt image'))).toBe(true);
@@ -515,7 +515,7 @@ test('ohne trees.json gibt es keinen Satz: Die Karte zeigt image und fragt unter
   const stadt = { id: 'stadt', type: 'banner', at: [30.5, -20.5], design: 'nordreich', image: 'images/fahne.png', name: 'Hafenstadt' };
   const anfragen = await welt(page, staedte([stadt], { bild: (n) => (n === 'fahne.png' ? png(22, 40) : BILDER[n]) }));
   await page.goto(`${DEMO}&at=35,0,-15`);
-  await expect(page.locator('.nadel-icon[title="Hafenstadt"] canvas')).toHaveJSProperty('width', 22);
+  await expect(page.locator('.nadel-icon[title="Hafenstadt"] img')).toHaveJSProperty('naturalWidth', 22);
   expect(anfragen.filter((a) => a.includes('/banner/'))).toEqual([]);
   await expect(page.locator('.nadel-icon[title="Hafenstadt"] .nadel-bogen g')).toHaveAttribute('transform', 'rotate(0)');
 });
@@ -538,18 +538,19 @@ test('ein Banner bis 32 × 64 steht Pixel auf Pixel, der Fuss bei ⌊Breite / 2�
       return g && png(...g);
     },
   }));
-  await page.goto(DEMO);
+  // Beide ganz im Fenster, für den Screenshot.
+  await page.goto(`${DEMO}&at=25,5,-25`);
   await expect(page.locator('.nadel-icon')).toHaveCount(2);
   for (const [name, [b, h], [x, z]] of [
     ['Gross', [32, 64], [20.5, -30.5]],
     ['Schmal', [21, 40], [30.5, -20.5]],
   ] as const) {
-    const leinwand = page.locator(`.nadel-icon[title="${name}"] canvas`);
-    expect(await leinwand.evaluate((c: HTMLCanvasElement) => [c.width, c.height, c.getBoundingClientRect().width, c.getBoundingClientRect().height]), name).toEqual([b, h, b, h]);
-    const ist = await leinwand.evaluate((c: HTMLCanvasElement) => [...c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data]);
-    const soll: number[] = [];
-    for (let py = 0; py < h; py++) for (let px = 0; px < b; px++) soll.push((px * 7) % 256, (py * 3) % 256, 128, 255);
-    expect(ist, name).toEqual(soll);
+    const bild = page.locator(`.nadel-icon[title="${name}"] img`);
+    expect(await bild.evaluate((i: HTMLImageElement) => [i.naturalWidth, i.naturalHeight, i.getBoundingClientRect().width, i.getBoundingClientRect().height]), name).toEqual([b, h, b, h]);
+    // Auf dem Schirm, ohne den Namen im Bogen am Fuss: die oberen h − 8 Zeilen.
+    const { fehler, geprueft } = await pixelAufPixel(page, bild, 1, 8);
+    expect(fehler, name).toEqual([]);
+    expect(geprueft, name).toBeGreaterThanOrEqual((b - 2) * (h - 10));
     // Der Anker genau, ohne die Toleranz von 1 px unten: ⌊Breite / 2⌋, die Unterkante.
     expect(await page.locator(`.nadel-icon[title="${name}"]`).evaluate((e) => [(e as HTMLElement).style.marginLeft, (e as HTMLElement).style.marginTop]), name).toEqual([`-${Math.floor(b / 2)}px`, `-${h}px`]);
     // fuss misst bei ⌊Breite / 2⌋ von links; y + 1 ist die Oberseite des Blocks.
@@ -563,18 +564,28 @@ test('ein Banner bis 32 × 64 steht Pixel auf Pixel, der Fuss bei ⌊Breite / 2�
   expect(anfragen.filter((a) => a !== 'beispiel/staedte.json').sort()).toEqual(['beispiel/images/breit.png', 'beispiel/images/gross.png', 'beispiel/images/hoch.png', 'beispiel/images/schmal.png']);
 });
 
-test('eine Nadel mit Namen lädt die Kartenschrift, auch ohne Banner und Kartenschrift in der Ebene', async ({ page }) => {
+test('eine Nadel mit Namen lädt die Kartenschrift, auch ohne Banner und Kartenschrift in der Ebene; nach 0130 als WOFF2', async ({ page }) => {
+  const schriften: { url: string; typ: string | undefined }[] = [];
+  page.on('response', (r) => {
+    if (/\.(woff2|ttf|otf|woff)$/.test(new URL(r.url()).pathname)) schriften.push({ url: new URL(r.url()).pathname, typ: r.headers()['content-type'] });
+  });
   await welt(page, staedte([HAFEN]));
   await page.goto(DEMO);
   await expect(page.locator('.nadel-name')).toHaveText('Hafenstadt');
   await expect.poll(() => page.evaluate(() => [...document.fonts].some((f) => f.family === 'Kartenschrift' && f.status === 'loaded'))).toBe(true);
+  // Genau eine Schrift, die WOFF2 aus dem Build, mit ihrem Typ.
+  expect(schriften).toHaveLength(1);
+  expect(schriften[0]!.url).toMatch(/\/IMFeENsc28P-[^/]+\.woff2$/);
+  expect(schriften[0]!.typ).toBe('font/woff2');
 });
 
 test('Banner teilen sich ein Bild: die Karte holt es einmal', async ({ page }) => {
   const fahne = (id: string, at: [number, number]) => ({ id, type: 'banner', at, image: 'images/nation.png', name: id });
   const anfragen = await welt(page, staedte([fahne('A', [20.5, -30.5]), fahne('B', [30.5, -20.5]), fahne('C', [40.5, -10.5])], { bild: (n) => (n === 'nation.png' ? png(22, 40) : undefined) }));
   await page.goto(DEMO);
-  await expect(page.locator('.nadel-icon canvas')).toHaveCount(3);
+  // Drei Bilder mit derselben Adresse, keine Leinwand: Der Browser hält es einmal.
+  await expect(page.locator('.nadel-icon img')).toHaveCount(3);
+  await expect(page.locator('.nadel-icon canvas')).toHaveCount(0);
   expect(anfragen.filter((a) => a.includes('images/'))).toEqual(['beispiel/images/nation.png']);
 });
 
@@ -920,29 +931,34 @@ test('ein Banner mit Tafel: Die Tafel steht um seine Höhe versetzt über ihm; E
 });
 
 for (const [dpr, k] of [
+  [1, 1],
   [1.25, 1],
   [1.5, 2],
   [2, 2],
+  [3, 3],
 ] as const) {
   test.describe(`bei devicePixelRatio ${dpr}`, () => {
     test.use({ deviceScaleFactor: dpr });
 
-    test(`ein Pixel des Banners ist ${k} Pixel des Geräts breit, jedes gleich`, async ({ page }) => {
-      const fahne = { id: 'fahne', type: 'banner', at: [35.5, -14.5], image: 'images/fahne.png', name: 'Fahne' };
+    test(`nach 0129 ist ein Pixel des Banners ${k} Pixel des Geräts breit, jedes gleich, auf dem Schirm nicht verschmiert`, async ({ page }) => {
+      // Ohne Namen: Der Bogen am Fuss läge über den unteren Zeilen.
+      const fahne = { id: 'fahne', type: 'banner', at: [35.5, -14.5], image: 'images/fahne.png' };
       await welt(page, staedte([fahne], { bild: (n) => (n === 'fahne.png' ? png(21, 40) : undefined) }));
       await page.goto(`${DEMO}&at=35,0,-15`);
-      const leinwand = page.locator('.nadel-icon[title="Fahne"] canvas');
-      await expect(leinwand).toHaveCount(1);
-      const [w, h, cssW, cssH] = await leinwand.evaluate((c: HTMLCanvasElement) => [c.width, c.height, c.getBoundingClientRect().width, c.getBoundingClientRect().height]);
-      expect([w, h]).toEqual([21 * k, 40 * k]);
-      // So gross auf dem Schirm wie die Leinwand in Pixeln des Geräts; das Layout rechnet in 1/64 Pixel.
+      const bild = page.locator('.nadel-icon img');
+      await expect(bild).toHaveCount(1);
+      await expect(bild).toHaveJSProperty('complete', true);
+      const [w, h, cssW, cssH] = await bild.evaluate((i: HTMLImageElement) => [i.naturalWidth, i.naturalHeight, i.getBoundingClientRect().width, i.getBoundingClientRect().height]);
+      expect([w, h]).toEqual([21, 40]);
+      // k Pixel des Geräts je Pixel des Bilds; das Layout rechnet in 1/64 Pixel.
       expect(Math.abs(cssW * dpr - 21 * k)).toBeLessThan(1 / 32);
       expect(Math.abs(cssH * dpr - 40 * k)).toBeLessThan(1 / 32);
-      expect(await page.locator('.nadel-icon[title="Fahne"]').evaluate((e) => Number.parseFloat((e as HTMLElement).style.marginLeft))).toBeCloseTo((-10 * k) / dpr, 3);
-      const ist = await leinwand.evaluate((c: HTMLCanvasElement) => [...c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data]);
-      const soll: number[] = [];
-      for (let py = 0; py < 40 * k; py++) for (let px = 0; px < 21 * k; px++) soll.push((Math.floor(px / k) * 7) % 256, (Math.floor(py / k) * 3) % 256, 128, 255);
-      expect(ist).toEqual(soll);
+      expect(await page.locator('.nadel-icon').evaluate((e) => Number.parseFloat((e as HTMLElement).style.marginLeft))).toBeCloseTo((-10 * k) / dpr, 3);
+      // Jedes Pixel des Geräts ganz im Bild trägt genau eine Farbe der Quelle, die nächste: kein Glätten, auch bei 1,25 und 1,5.
+      const { fehler, geprueft } = await pixelAufPixel(page, bild, k);
+      expect(fehler).toEqual([]);
+      // Am Rand kann der Browser je eine Spalte und Zeile anschneiden; das Innere zählt.
+      expect(geprueft).toBeGreaterThanOrEqual((21 - 3) * (40 - 3));
     });
   });
 }
@@ -963,14 +979,15 @@ test('ändert sich devicePixelRatio ohne resize, zeichnet die Karte die Icons ne
   const fahne = { id: 'fahne', type: 'banner', at: [35.5, -14.5], image: 'images/fahne.png', name: 'Fahne' };
   await welt(page, staedte([fahne], { bild: (n) => (n === 'fahne.png' ? png(22, 40) : undefined) }));
   await page.goto(`${DEMO}&at=35,0,-15`);
-  const leinwand = page.locator('.nadel-icon[title="Fahne"] canvas');
-  await expect(leinwand).toHaveJSProperty('width', 22);
+  const bild = page.locator('.nadel-icon[title="Fahne"] img');
+  const breite = () => bild.evaluate((i) => i.getBoundingClientRect().width);
+  await expect.poll(breite).toBe(22);
+  // Bei 1,5 ist k = 2: 44 Pixel des Geräts, also 44 / 1,5 Pixel des Schirms.
   const cdp = await page.context().newCDPSession(page);
   const { width, height } = page.viewportSize()!;
-  await cdp.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 2, mobile: false });
+  await cdp.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1.5, mobile: false });
   await page.evaluate(() => (window as unknown as { anfragen: MediaQueryList[] }).anfragen.at(-1)!.dispatchEvent(new Event('change')));
-  await expect(leinwand).toHaveJSProperty('width', 44);
-  expect(await leinwand.evaluate((c) => c.getBoundingClientRect().width)).toBe(22);
+  await expect.poll(async () => Math.abs((await breite()) - 44 / 1.5)).toBeLessThan(1 / 32);
 });
 
 test('Escape und ein Klick daneben schliessen zuerst nur die Tafel: Der festgehaltene Block bleibt, ein neuer wird nicht festgehalten', async ({ page }) => {

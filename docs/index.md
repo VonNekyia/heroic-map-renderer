@@ -74,6 +74,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [libwebp mit Patch](entwicklung/libwebp-mit-patch.md): warum `libwebp-sys` als Kopie mit einem Patch an libwebp für `--compact` im Repository liegt, was der Patch ändert und was bei einem neuen `libwebp-sys` zu tun ist.
 - [Eingabedaten](entwicklung/eingabedaten.md): was nicht im Repository liegt und was für Tests mitkommt.
 - [Erzeugte Tabellen](entwicklung/tabellen.md): die Tabellen aus dem Spiel unter `renderer/src/assets/`, was darin steht und wie man sie neu erzeugt.
+- [Kartenschrift als WOFF2](entwicklung/kartenschrift.md): Herkunft der TTF aus Google Fonts, Befehl und Versionen für die WOFF2, die Prüfung, dass nur komprimiert ist, und wie man die TTF wieder bekommt.
 
 ## Entscheidungen
 
@@ -204,6 +205,8 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0126](entscheidungen/0126-stand-je-region.md): Der Stand ab Fassung 2 je Region in `stand/`, `stand.bin` als Kopf; ein Lauf schreibt nur geänderte Regionen, den Kopf zuletzt, der angefangene nur, was anders ist; je Chunk 28 Bytes, 9 davon leer für die Grenze nach unten; Fassung 1 gilt weiter.
 - [0127](entscheidungen/0127-grenze-nach-unten.md): Ein Update auf der Karte ohne Cinematic und Relief zeichnet einen geänderten Chunk erst ab `min(16·K_alt, E_neu) − 16`, wenn seine Sections unter K denselben Abdruck H haben; E der tiefste erste Block, der das Licht ganz aufhält; ergänzt 0062.
 - [0128](entscheidungen/0128-marker-nur-im-ausschnitt.md): Nadeln und Banner nur im Fenster mit einem Rand von einem Viertel je Seite im DOM, Icons erst beim ersten Sichtbarwerden in Stücken gebaut; offene Tafel und Fokus halten einen Marker; Tab erreicht nur Orte im Rahmen.
+- [0129](entscheidungen/0129-banner-als-bild.md): Ein Banner als `<img>` mit der Adresse seines Sprites, `pixelated`, alle mit demselben Bild teilen es; Nadeln und Köpfe bleiben Leinwand, ohne Änderung an der CSP; Pixel auf Pixel auf dem Schirm geprüft.
+- [0130](entscheidungen/0130-kartenschrift-als-woff2.md): Die Kartenschrift als WOFF2 statt TTF, −53 %; der reservierte Name bleibt, weil nach der FAQ zur OFL nur komprimiert ist und Metadaten fehlen; ergänzt 0096.
 - [0114](entscheidungen/0114-koepfe-der-mitspieler.md): Mitspieler als ihr Gesicht, 8 × 8 mit Hutschicht, öffentlich unter `koepfe/<sha256>.png` nach dem Hash des Bildes, `immutable`, `kopf` in `sicht.json`; kein Steve und kein Alex, Aufräumen über die Zeit der Datei; die Karte prüft 64 hex, 16 KiB, 8 × 8.
 
 ## Versuche
@@ -292,6 +295,7 @@ Gemessen und tragfähig, aber nicht übernommen. Der Code liegt je in einem Tag 
 - [2026-10-24, Start der Webkarte](messungen/2026-10-24-start-der-webkarte.md): erste Kachel und erstes Objekt einer Ebene auf der grossen Welt vor und nach dem vorgezogenen Laden, ohne und mit 150 ms Umlaufzeit; bei 150 ms −330 ms, mit `?tree=` −530 ms bis zur ersten Ebene.
 - [2026-10-24, Viele Nadeln und Banner](messungen/2026-10-24-viele-nadeln-und-banner.md): Stresstest mit 1000 Bannern und 1000 Nadeln, dpr 1 und 3, CPU 1× und 4×, fast alle im Fenster; bei dpr 3, CPU 4× p95 150 ms beim Ziehen und 66 MiB Leinwand, zwei Drittel der Zeit in `Commit` und `Layerize`; Leinwand ohne Beschleunigung bringt nichts, `<img>` für Banner −30 %, beides über 33 ms.
 - [2026-10-24, Marker nur im Ausschnitt](messungen/2026-10-24-marker-nur-im-ausschnitt.md): master gegen 0128 und 0128 mit Bannern als `<img>`, weit, voll und dicht bei dpr 3 und CPU 4×; in weiter Ansicht p95 beim Ziehen 117 → 33 ms, lange Aufgaben −94 %, Laden −67 %.
+- [2026-10-24, Kartenschrift als WOFF2](messungen/2026-10-24-kartenschrift-als-woff2.md): TTF 183 932 B, gzip 110 094, Brotli 88 888, WOFF2 85 776 (−53 %); Namen und Kartenschrift mit TTF und WOFF2 bei dpr 1 und 2 bitgleich.
 - [2026-10-24, Grundschicht](messungen/2026-10-24-grundschicht.md): Kachelstrom auf der grossen Welt vor und mit einer Grundschicht, fünf Stände, 50 und 10 Mbit/s; mit 3 Stufen ohne Ring schwarz beim Ziehen 8,2 → 1,8 %, beim Hineinzoomen 19,4 → 0 %, für +3–15 % Bytes.
 - [2026-10-24, Regionen im iso schneller](messungen/2026-10-24-regionen-im-iso-schneller.md): Rechnen der Ansichten, lange Tasks, Bildzeit, Heap und Anfragen der Höhen auf der grossen Welt vor und nach 0123, je drei Läufe; Blockieren 3 952 → 21 ms, Rechnen 3 828 → 454 ms.
 - [2026-10-09, Flächen im Browser](messungen/2026-10-09-flaechen-im-browser.md): was ein Kreis mit 2000 Blöcken Radius auf der Webkarte an Zeit, JS-Heap und Punkten kostet, nur mit Rand, gefüllt und mit Tafel und Schrift, von oben und im iso.

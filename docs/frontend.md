@@ -570,9 +570,14 @@ für alle Banner.
     oder taugt er nicht, zeichnet `nadelIcon` die Nadel;
   - auf jeder Stufe gleich gross, nur der Name nicht, siehe oben. Ein
     Pixel des Bilds ist `k = max(1, round(devicePixelRatio))` Pixel des
-    Geräts breit, die Leinwand also `k`-mal so gross wie das Bild und
-    `b · k / devicePixelRatio` Pixel des Bildschirms breit. So bleibt jedes
-    Pixel gleich breit, auch bei 1,25 oder 1,5;
+    Geräts breit, das Icon also `b · k / devicePixelRatio` Pixel des
+    Bildschirms breit. So bleibt jedes Pixel gleich breit, auch bei 1,25
+    oder 1,5;
+  - ein Banner als `<img>` mit der Adresse seines Sprites oder `image`, mit
+    `pixelated`, nach [0129](entscheidungen/0129-banner-als-bild.md): Alle
+    Banner mit demselben Bild teilen es. Nadel und Kopf zeichnet die Karte
+    in eine Leinwand, `k`-mal so gross wie das Bild; sie haben keine
+    Adresse, und die CSP erlaubt Bilder nur von `'self'`;
   - übereinander: je Ebene ein Pane, `z-index` 510 + Rang in der Reihe der Liste,
     über `shadowPane` (500) und unter `markerPane` (600), `tooltipPane`
     und der Tafel; in einer Ebene liegt das spätere oben;
@@ -746,9 +751,11 @@ für alle Banner.
 - **Kartenschrift:** je Schriftzug ein SVG im Pane der Formen, mit
   `textPath` entlang des Pfads, neu gesetzt bei jedem Zoom und während des
   Zooms ausgeblendet:
-  - die Schrift IM FELL English SC, die TTF unverändert aus
-    `web/src/ebenen/schrift/`, mit `FontFace` geladen, sobald eine Ebene
-    Schrift oder den Namen einer Nadel oder eines Banners zeigt;
+  - die Schrift IM FELL English SC als WOFF2 aus
+    `web/src/ebenen/schrift/`, nach
+    [0130](entscheidungen/0130-kartenschrift-als-woff2.md), mit `FontFace`
+    geladen, sobald eine Ebene Schrift oder den Namen einer Nadel oder eines
+    Banners zeigt;
   - Höhe der Grossbuchstaben `size · scale · 2^(Zoom − maxZoom)` Pixel;
     die Schriftgrösse ist sie durch 1384/2048, die Oberkante des „H“ der
     Schrift. Unter 8 Pixeln aus, über 96 gedeckelt;

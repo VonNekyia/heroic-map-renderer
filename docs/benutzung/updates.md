@@ -334,6 +334,33 @@ reicht.
   Spalte ohne dichten Block; nach jedem Schritt gleicht das Update einem
   vollen Lauf.
 
+## Die Liste der Basis
+
+Ein Update liest die Basiskacheln nur in den Spalten seines Gebiets, nicht
+die ganze Basis. Die Grenzen in `map.json` führt es aus der alten fort,
+erweitert um die Kacheln, die es zeichnet.
+
+- **Schrumpfen:** Entfernt es eine Kachel auf dem alten Rand, können die
+  Grenzen kleiner werden. Dann liest es nach dem Lauf doch die ganze Basis.
+  So gleicht `map.json` Byte für Byte einem vollen Lauf
+  (`update_liest_die_basis_nur_im_gebiet` in `renderer/tests/cli.rs`).
+- **Ganz liest** ein Update die Basis ausserdem mit `--resume`, beim
+  Umstellen, ohne Grenzen in der alten `map.json` und nach einem
+  abgebrochenen Lauf, dessen Gebiet offen liegt; ein voller Lauf und ein
+  Ausschnitt immer.
+- **Die Zahl:** Kennt das Update nur sein Gebiet, nennt die Zeile `Karte:`
+  die Basiskacheln darin, `… Basiskacheln im Gebiet, …`, ebenso `tiles` in
+  der Zeile `done` von `--progress json`.
+  Das Plugin liest beides nicht, siehe [Plugin](../plugin.md), „Fortschritt
+  als JSON“.
+- **Ausserhalb des Gebiets** weiss das Update nicht, welche Basiskacheln
+  dastehen. Eine Elternkachel, deren Kind dort liegt, baut es darum von der
+  Platte statt im Speicher (`lag_da` in
+  [`renderer/src/cli.rs`](../../renderer/src/cli.rs)).
+- **Kosten:** Die ganze Liste kostete an der Testwelt 0,21–0,24 s je
+  Update, siehe
+  [2026-10-24, Updates je Phase](../messungen/2026-10-24-updates-je-phase.md).
+
 ## Gleiche Pixel
 
 Die meisten Kacheln im Gebiet eines Updates zeigen danach dieselben Pixel

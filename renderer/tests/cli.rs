@@ -5865,6 +5865,109 @@ fn update_ohne_aenderung_schreibt_den_stand_nicht() {
     assert_ne!(zeit_von(&stand), damals);
 }
 
+/// Eine Reihe aus acht Chunks und der ferne Chunk (28, 0).
+const REIHE: [(i32, i32); 9] = [
+    (0, 0),
+    (1, 0),
+    (2, 0),
+    (3, 0),
+    (4, 0),
+    (5, 0),
+    (6, 0),
+    (7, 0),
+    (28, 0),
+];
+
+/// Das Gelände mit einem Leuchtstein mitten in der Reihe, im Chunk (4, 0).
+fn reihe_mit_block(x: i32, y: i32, z: i32) -> &'static str {
+    match (x, y, z) {
+        (67, 9, 3) => "minecraft:glowstone",
+        _ => gelaende(x, y, z),
+    }
+}
+
+/// Dasselbe ohne den fernen Chunk: Er ist fertig, aber leer.
+fn reihe_ohne_fernen(x: i32, y: i32, z: i32) -> &'static str {
+    if x >= 28 * 16 {
+        "minecraft:air"
+    } else {
+        reihe_mit_block(x, y, z)
+    }
+}
+
+/// Ein Update liest die Basis nur in seinem Gebiet und führt die Grenzen
+/// in `map.json` fort, die Zeile `Karte:` sagt es; es kennt dann weniger
+/// Basiskacheln als der volle Lauf. Eine Elternkachel am Rand des Gebiets
+/// hat Kinder ausserhalb, die dastehen. Wird der ferne Chunk (28, 0) leer,
+/// verschwinden Kacheln am Rand: Dann liest es die Basis ganz, und die
+/// Grenzen schrumpfen. Kommt er wieder, wachsen sie mit den neuen Kacheln.
+/// Nach jedem Schritt gleicht der Baum samt `map.json` einem vollen Lauf,
+/// mit nativen Stufen bei scale 16 und ohne bei 12.
+/// Siehe docs/benutzung/updates.md, „Die Liste der Basis“.
+#[test]
+fn update_liest_die_basis_nur_im_gebiet() {
+    let grenzen = |baum: &Path| {
+        let text = std::fs::read_to_string(baum.join("map.json")).unwrap();
+        serde_json::from_str::<serde_json::Value>(&text).unwrap()["bounds"].clone()
+    };
+    let basiskacheln = |log: &str| -> usize {
+        log.lines()
+            .find_map(|z| z.strip_prefix("Karte:      Zoom "))
+            .and_then(|z| z.split(", ").nth(1)?.split(' ').next()?.parse().ok())
+            .unwrap_or_else(|| panic!("Zeile Karte: {log}"))
+    };
+    let baue = |welt: &Path, block: fn(i32, i32, i32) -> &'static str, zeit: u32| {
+        common::write_world_sections(welt, &REIHE, 0..=7, block, |_, _| None);
+        for (cx, cz) in [(4, 0), (28, 0)] {
+            common::setze_stempel(welt, cx, cz, zeit);
+        }
+    };
+    type Schritt = (&'static str, fn(i32, i32, i32) -> &'static str, bool);
+    let schritte: [Schritt; 3] = [
+        ("ein Block", reihe_mit_block, true),
+        ("ferner Chunk leer", reihe_ohne_fernen, false),
+        ("ferner Chunk wieder da", reihe_mit_block, true),
+    ];
+    for scale in ["16", "12"] {
+        let welt = tempdir();
+        baue(welt.path(), gelaende, 1);
+        let baum = neuer_baum("2x1-se");
+        let extra = ["--scale", scale];
+        gelungen(&export(welt.path(), baum.path(), &extra));
+        let vorher = grenzen(baum.path());
+        for (i, (was, block, im_gebiet)) in schritte.into_iter().enumerate() {
+            let was = format!("scale {scale}, {was}");
+            baue(welt.path(), block, i as u32 + 2);
+            let log = String::from_utf8_lossy(
+                &gelungen(&export(
+                    welt.path(),
+                    baum.path(),
+                    &["--scale", scale, "--update"],
+                ))
+                .stdout,
+            )
+            .into_owned();
+            assert_eq!(
+                log.contains(" Basiskacheln im Gebiet,"),
+                im_gebiet,
+                "{was}: {log}"
+            );
+            let voll = neuer_baum("2x1-se");
+            let voller_lauf = String::from_utf8_lossy(
+                &gelungen(&export(welt.path(), voll.path(), &extra)).stdout,
+            )
+            .into_owned();
+            gleiche_baeume(baum.path(), voll.path(), &was);
+            assert_eq!(
+                basiskacheln(&log) < basiskacheln(&voller_lauf),
+                im_gebiet,
+                "{was}: {log}"
+            );
+            assert_eq!(grenzen(baum.path()) == vorher, im_gebiet, "{was}: Grenzen");
+        }
+    }
+}
+
 /// Die Welt nach dem Gelände mit einem Leuchtstein mehr im Chunk (0, 0).
 fn mit_einem_block(x: i32, y: i32, z: i32) -> &'static str {
     match (x, y, z) {

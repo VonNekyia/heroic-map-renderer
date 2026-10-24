@@ -2148,7 +2148,7 @@ fn write_tiles(
     // Vorlauf sieht sie nicht, weg kommen sie nur mit --prune. Gesucht wird,
     // bevor ein leerer Vorlauf abbricht: über einer ganz zurückgesetzten
     // Fläche gibt es trotzdem aufzuräumen. Die Basis liest der Lauf dafür
-    // einmal ganz, sie gibt auch die Grenzen in map.json; mit --resume samt
+    // einmal, sie gibt auch die Grenzen in map.json; mit --resume samt
     // Zeiten, aus ihnen folgt, was er neu rendert.
     // Siehe docs/benutzung/kacheln.md, „Kacheln ohne Chunk: `--prune`“.
     let mut kandidaten: BTreeSet<TileId> = survey.tiles.iter().copied().collect();
@@ -2161,10 +2161,24 @@ fn write_tiles(
     } else {
         None
     };
+    // Ein Update liest die Basis nur in seinem Gebiet und führt die Grenzen
+    // aus der alten map.json fort; mit --resume, beim Umstellen und nach
+    // einem abgebrochenen Lauf ganz.
+    // Siehe docs/benutzung/updates.md, „Die Liste der Basis“.
+    let alte_grenzen = bestand
+        .as_ref()
+        .map(|b| b.bounds)
+        .filter(|&[links, oben, rechts, unten]| links < rechts && oben < unten);
+    let nur_im_gebiet = matches!(bereich, Bereich::Update)
+        && !resume
+        && !umstellen
+        && alte_grenzen.is_some()
+        && offen.as_ref().is_none_or(|o| o.kacheln().is_empty());
+    let gelistet_in = flaeche_auf(max_zoom).filter(|_| nur_im_gebiet);
     let gelistet = SystemTime::now();
     let basis = match &zeiten {
         Some(zeiten) => zeiten.keys().copied().collect(),
-        None => vorhandene(dir, max_zoom, None)?,
+        None => vorhandene(dir, max_zoom, gelistet_in)?,
     };
     let bestehend: BTreeSet<TileId> = basis
         .iter()
@@ -2220,8 +2234,16 @@ fn write_tiles(
     let z0 = max_zoom - stufen;
     let ab = z0.saturating_sub(streifenbreite(projection.scale() >> stufen).ilog2());
     let (waisen, listen) = waisen(dir, max_zoom, &bestehend, flaeche_auf, ab)?;
-    let vielleicht_da =
-        |z: u32, tile: &TileId| lag_da(z, tile, max_zoom, &basis, &listen, flaeche_auf(z));
+    let vielleicht_da = |z: u32, tile: &TileId| {
+        lag_da(
+            z,
+            tile,
+            max_zoom,
+            (&basis, gelistet_in),
+            &listen,
+            flaeche_auf(z),
+        )
+    };
     let anteil = format!("{} von {} Basiskacheln", veraltet.len(), bestehend.len());
     // Mit --prune ist auch ein leerer Lauf keiner über dem falschen
     // Ausschnitt: dort ist vielleicht schon aufgeräumt. Und fehlt Kacheln
@@ -2281,7 +2303,7 @@ fn write_tiles(
     // Festhalten, wozu der Baum gehört, direkt vor der ersten Kachel:
     // bricht der Lauf danach ab, hat der nächste etwas zu prüfen. Scheitert
     // er vorher, legt er für das Verzeichnis nichts fest.
-    let (_, _, pfad) = schreibe_map_json(
+    let (_, pfad) = schreibe_map_json(
         dir,
         projection,
         max_zoom,
@@ -2299,7 +2321,10 @@ fn write_tiles(
         look.as_ref(),
         relief,
         &weltdaten,
-        &basis,
+        match alte_grenzen {
+            Some(alt) if gelistet_in.is_some() => alt,
+            _ => pyramid::grenzen(&basis),
+        },
     )?;
     // Ab jetzt lässt sich der Baum wählen, auch während seines ersten Laufs.
     schreibe_baeume(wurzel)?;
@@ -2625,10 +2650,25 @@ fn write_tiles(
 
     // Die Basis nach dem Lauf: die von vorher, dazu die gerenderten, ohne
     // die entfernten.
+    // Verschwand eine Kachel, die am alten Rand stand, schrumpfen die
+    // Grenzen vielleicht: Dann liest der Lauf die Basis doch ganz. Eine leere
+    // Kachel ohne Datei vorher zählt nicht.
+    let randkachel = |&(z, tile): &(u32, TileId)| {
+        z == max_zoom && basis.contains(&tile) && alte_grenzen.is_some_and(|alt| am_rand(alt, tile))
+    };
+    let im_gebiet = gelistet_in.is_some() && !weg.iter().any(randkachel);
     let mut basis = basis;
     basis.extend(&survey.tiles);
     basis.retain(|tile| !weg.contains(&(max_zoom, *tile)));
-    let (info, anzahl, path) = schreibe_map_json(
+    if gelistet_in.is_some() && !im_gebiet {
+        basis = vorhandene(dir, max_zoom, None)?;
+    }
+    let grenzen = match alte_grenzen {
+        Some(alt) if im_gebiet => vereint(alt, &basis),
+        _ => pyramid::grenzen(&basis),
+    };
+    let anzahl = basis.len();
+    let (info, path) = schreibe_map_json(
         dir,
         projection,
         max_zoom,
@@ -2639,10 +2679,10 @@ fn write_tiles(
         look.as_ref(),
         relief,
         &weltdaten,
-        &basis,
+        grenzen,
     )?;
     schreibe_baeume(wurzel)?;
-    melde_karte(&info, anzahl, &path);
+    melde_karte(&info, anzahl, im_gebiet, &path);
     manifest.schliesse(angefasst.as_ref())?;
     // Zuletzt: Bricht der Lauf vorher ab, gilt der alte Stand, und das
     // nächste Update zeichnet dieselben Stellen noch einmal.
@@ -3405,7 +3445,7 @@ fn rebuild_pyramid(
         ..MapInfo::new(alt.scale, max_zoom, &basis)
     };
     let path = schreibe_info(dir, &info, Some(stempel))?;
-    melde_karte(&info, basis.len(), &path);
+    melde_karte(&info, basis.len(), false, &path);
     Ok(gebaut)
 }
 
@@ -3478,11 +3518,14 @@ fn aenderungszeit(path: &Path) -> Option<SystemTime> {
     std::fs::metadata(path).and_then(|m| m.modified()).ok()
 }
 
-fn melde_karte(info: &MapInfo, anzahl: usize, path: &Path) {
+/// Die Zeile `Karte:`; `im_gebiet`, wenn der Lauf die Basis nur in seinem
+/// Gebiet kennt.
+fn melde_karte(info: &MapInfo, anzahl: usize, im_gebiet: bool, path: &Path) {
     println!(
-        "Karte:      Zoom {}..{}, {anzahl} Basiskacheln, {} bis {} px -> {}",
+        "Karte:      Zoom {}..{}, {anzahl} Basiskacheln{}, {} bis {} px -> {}",
         info.min_zoom,
         info.max_zoom,
+        if im_gebiet { " im Gebiet" } else { "" },
         format_args!("{}/{}", info.bounds[0], info.bounds[1]),
         format_args!("{}/{}", info.bounds[2], info.bounds[3]),
         path.display()
@@ -3630,7 +3673,7 @@ fn powershell_text(text: &str) -> String {
     out
 }
 
-/// Schreibt `map.json` für den Baum mit dieser Basis.
+/// Schreibt `map.json` für den Baum mit diesen Grenzen der Basis in Pixeln.
 ///
 /// Die Grenzen beschreiben den ganzen Kachelbaum, nicht diesen Lauf. Nach
 /// einem nachgerenderten Ausschnitt lägen sonst die unberührten Kacheln
@@ -3649,8 +3692,8 @@ fn schreibe_map_json(
     look: Option<&Look>,
     relief: Option<Relief>,
     welt: &Weltdaten,
-    basis: &BTreeSet<TileId>,
-) -> Result<(MapInfo, usize, PathBuf)> {
+    bounds: [i32; 4],
+) -> Result<(MapInfo, PathBuf)> {
     let info = MapInfo {
         native_levels: Some(stufen),
         biome_blend: Some(blend),
@@ -3666,7 +3709,7 @@ fn schreibe_map_json(
         relief: relief.map(|relief| relief.name().to_string()),
         ..mit_kamera(
             mit_hoehen(
-                MapInfo::new(projection.scale(), max_zoom, basis),
+                MapInfo::mit_grenzen(projection.scale(), max_zoom, bounds),
                 heights::PATTERN_WURZEL,
                 welt.boden,
             ),
@@ -3674,7 +3717,30 @@ fn schreibe_map_json(
         )
     };
     let path = schreibe_info(dir, &info, None)?;
-    Ok((info, basis.len(), path))
+    Ok((info, path))
+}
+
+/// Die Grenzen `alt` in Pixeln, erweitert um diese Kacheln.
+fn vereint(alt: [i32; 4], tiles: &BTreeSet<TileId>) -> [i32; 4] {
+    let t = TILE as i32;
+    tiles.iter().fold(alt, |[links, oben, rechts, unten], k| {
+        [
+            links.min(k.x * t),
+            oben.min(k.y * t),
+            rechts.max((k.x + 1) * t),
+            unten.max((k.y + 1) * t),
+        ]
+    })
+}
+
+/// Ob eine Kachel auf dem Rand der Grenzen `g` in Pixeln liegt oder
+/// ausserhalb.
+fn am_rand([links, oben, rechts, unten]: [i32; 4], tile: TileId) -> bool {
+    let t = TILE as i32;
+    tile.x * t <= links
+        || (tile.x + 1) * t >= rechts
+        || tile.y * t <= oben
+        || (tile.y + 1) * t >= unten
 }
 
 /// `info` mit Kamera, Richtung und Projektion in Pixeln der feinsten
@@ -5144,19 +5210,19 @@ fn waisen<'f>(
 }
 
 /// Ob eine Kachel der Stufe z auf der Platte lag, als der Lauf ihre Stufe
-/// listete: auf der Basis nach `basis`, darüber nach `listen` in der
-/// `flaeche` dieser Stufe. Ausserhalb von ihr und auf einer Stufe ohne
-/// Liste womöglich.
+/// listete: auf der Basis nach `basis`, gelistet in einer Fläche oder ganz,
+/// darüber nach `listen` in der `flaeche` dieser Stufe. Ausserhalb der
+/// gelisteten Flächen und auf einer Stufe ohne Liste womöglich.
 fn lag_da(
     z: u32,
     tile: &TileId,
     max_zoom: u32,
-    basis: &BTreeSet<TileId>,
+    (basis, gelistet_in): (&BTreeSet<TileId>, Option<&Flaeche>),
     listen: &JeStufe,
     flaeche: Option<&Flaeche>,
 ) -> bool {
     if z == max_zoom {
-        return basis.contains(tile);
+        return basis.contains(tile) || !in_flaeche(gelistet_in, tile);
     }
     listen.get(&z).is_none_or(|liste| liste.contains(tile)) || !in_flaeche(flaeche, tile)
 }
@@ -6206,7 +6272,8 @@ mod tests {
 
     /// Auf der Basis zählt die Liste der ganzen Stufe, darüber die in der
     /// Fläche eines Ausschnitts; daneben und auf einer Stufe ohne Liste
-    /// könnte eine Kachel liegen.
+    /// könnte eine Kachel liegen. Listet ein Update die Basis nur in seiner
+    /// Fläche, könnte eine Basiskachel ausserhalb liegen.
     #[test]
     fn was_auf_der_platte_lag() {
         let t = |x, y| TileId { x, y };
@@ -6222,14 +6289,21 @@ mod tests {
             0,
         )
         .flaeche(0);
-        let da = |z, tile| lag_da(z, &tile, 2, &basis, &listen, Some(&flaeche));
+        let da = |z, tile| lag_da(z, &tile, 2, (&basis, None), &listen, Some(&flaeche));
         assert!(da(2, t(0, 0)));
         assert!(!da(2, t(5, 5)), "Basis ohne Kachel, auch ausserhalb");
         assert!(da(1, t(1, 1)));
         assert!(!da(1, t(0, 0)), "in der Fläche, ohne Kachel");
         assert!(da(1, t(5, 5)), "ausserhalb der Fläche");
         assert!(da(0, t(0, 0)), "Stufe ohne Liste");
-        assert!(!lag_da(1, &t(5, 5), 2, &basis, &listen, None), "ganze Welt");
+        assert!(
+            !lag_da(1, &t(5, 5), 2, (&basis, None), &listen, None),
+            "ganze Welt"
+        );
+        let im_gebiet = |tile| lag_da(2, &tile, 2, (&basis, Some(&flaeche)), &listen, None);
+        assert!(im_gebiet(t(0, 0)));
+        assert!(!im_gebiet(t(1, 1)), "in der Fläche, ohne Kachel");
+        assert!(im_gebiet(t(5, 5)), "ausserhalb der gelisteten Fläche");
     }
 
     /// Welche Eltern im Speicher entstehen: die, deren Kinder alle aus

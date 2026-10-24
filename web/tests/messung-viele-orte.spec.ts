@@ -22,14 +22,16 @@ const SPRITE = png(23, 51);
 
 /**
  * Je Variante: Abstand im Raster in Blöcken, ob Banner einen Namen tragen,
- * Zoom des Starts. `dicht` hat alle Orte im Fenster, `weit` rund 6 %, `voll`
- * rund 88 %; `voll` ist das „weit“ der ersten Reihe vom 24.10.
+ * Zoom des Starts. `dicht` hat alle Orte im Fenster, `weit` rund 9 %, `voll`
+ * rund 92 %; `voll` ist das „weit“ der ersten Reihe vom 24.10. In `fern`
+ * sind die Namen nach 0119 ausgeblendet.
  */
 const VARIANTEN = {
   dicht: { abstand: 4, namen: true, zoom: -4 },
   voll: { abstand: 40, namen: true, zoom: -4 },
   weit: { abstand: 40, namen: true, zoom: -2 },
   'weit-ohne-namen': { abstand: 40, namen: false, zoom: -2 },
+  fern: { abstand: 40, namen: true, zoom: -11 },
 };
 
 /** 2000 Orte auf einem Raster 45 × 45 um (0, 0), abwechselnd Banner und Nadel. */
@@ -148,6 +150,8 @@ async function lauf(browser: Browser, variante: keyof typeof VARIANTEN, dpr: num
   }
   const laden_ms = seit - start;
   const imFensterStart = await imFenster(page);
+  const zoomStart = Number(new URL(page.url()).searchParams.get('zoom'));
+  const namenWeg = await page.locator('.namen-weg').count();
   const laden = await abschnitt(page, 0, await jetzt(page));
   await page.waitForTimeout(1000);
   const b = { x: 640, y: 400 };
@@ -185,7 +189,7 @@ async function lauf(browser: Browser, variante: keyof typeof VARIANTEN, dpr: num
   const { usedSize } = (await cdp.send('Runtime.getHeapUsage')) as { usedSize: number };
   const { nodes } = (await cdp.send('Memory.getDOMCounters')) as { nodes: number };
   await context.close();
-  return { stand: process.env.STAND ?? '', imDomGeladen: zahl, imFensterStart, imFensterEnde, variante, dpr, cpu, laden_ms, laden, ziehen, radRein, radRaus, pinchRein, pinchRaus, ...zustand, heap_mb: Math.round(usedSize / 1e5) / 10, dom_knoten: nodes };
+  return { stand: process.env.STAND ?? '', imDomGeladen: zahl, imFensterStart, imFensterEnde, zoomStart, namenWeg, variante, dpr, cpu, laden_ms, laden, ziehen, radRein, radRaus, pinchRein, pinchRaus, ...zustand, heap_mb: Math.round(usedSize / 1e5) / 10, dom_knoten: nodes };
 }
 
 for (const variante of Object.keys(VARIANTEN) as (keyof typeof VARIANTEN)[]) {

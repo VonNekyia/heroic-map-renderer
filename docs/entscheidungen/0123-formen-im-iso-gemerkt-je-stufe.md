@@ -17,7 +17,7 @@ code:
 
 Der User am 24.10. über die Webkarte auf der Produktion: Die Regionen im iso
 laggen sehr und sollen mindestens 10-mal schneller werden. Gemessen auf dem
-Spiegel, siehe
+der grossen Welt, siehe
 [Regionen im iso schneller](../messungen/2026-10-24-regionen-im-iso-schneller.md):
 Je Ansicht rechnete die Karte jeden Rand im Ausschnitt neu, und `verdeckt`
 schickte je Punkt einen Strahl in halben Zellen bis über das höchste
@@ -67,12 +67,12 @@ Gelände. Plan des Frontends, freigegeben vom Reviewer am 24.10.
 
 ## Folgen
 
-- Gemessen auf dem Spiegel, 20 Ansichten: Das Blockieren durch lange Tasks
-  sinkt von 3,6 s auf 70 ms, das Rechnen von 3,10 s auf 0,66 s; siehe die
-  Messung.
+- Gemessen auf der grossen Welt, je drei Läufe: Das Blockieren durch lange
+  Tasks sinkt im Mittel von 3 952 ms auf 21 ms, das Rechnen der Ansichten
+  von 3 828 ms auf 454 ms; siehe die Messung.
 - Ganz gerechnet hängt ein Rand nicht mehr vom Ausschnitt ab. Am Rand des
   Ausschnitts sahen Glätten und Verdeckung vorher andere Nachbarn, und ein
   Rand konnte beim Verschieben springen. Für grosse Ebenen gilt das weiter.
 - Der Speicher wächst um höchstens 16 MB für die gemerkten Rechnungen und
-  bis `HOEHEN_BYTES` je Art für die Höhen; gemessen sank der JS-Heap von
-  131 MB auf 64–103 MB.
+  bis `HOEHEN_BYTES` je Art für die Höhen; gemessen lag der JS-Heap vorher
+  bei 50–123 MB, nachher bei 64–109 MB.

@@ -2451,7 +2451,10 @@ fn write_tiles(
     }
     // Was schon dieselben Pixel zeigt, kodiert der Lauf nicht, auf keiner
     // Stufe.
-    let hashes = pixel::Pixel::neu(dir, pixel::KODIERSTAND);
+    let hashes = pixel::Pixel::neu(dir, pixel::KODIERSTAND)?;
+    // Die Blöcke der Basis schreibt der Lauf, sobald ihre letzte Kachel
+    // fertig ist; mit einem Thread hält er so nur eine Spalte im Speicher.
+    hashes.erwarte(max_zoom, &reihe);
     let ablage = Ablage {
         packen,
         hashes: Some(&hashes),
@@ -2490,6 +2493,7 @@ fn write_tiles(
                 if let Some(speicher) = &speicher {
                     speicher.abgeben(max_zoom, tile, None)?;
                 }
+                hashes.fertig(max_zoom, tile)?;
                 return Ok(None);
             }
             let (bytes, liegt) = schreibe_oder_lass(dir, max_zoom, tile, &image, ablage)?;
@@ -2505,6 +2509,7 @@ fn write_tiles(
             if let Some(speicher) = &speicher {
                 speicher.abgeben(max_zoom, tile, Some(image))?;
             }
+            hashes.fertig(max_zoom, tile)?;
             Ok(Some((bytes, liegt)))
         },
     )?;

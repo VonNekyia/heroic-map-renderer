@@ -76,6 +76,7 @@ das Frontend liest die Datei in `web/src/main.ts`.
 | `look` | `"map"` die Karte, `"cinematic"` oder `"flat"`; fehlt es, die Karte | „Look“ unten |
 | `lookHash` | Fingerabdruck der Werte von Cinematic, 16 Hexziffern; nur mit `"cinematic"` | „Look“ unten |
 | `relief` | das Relief von oben, `"slope"` oder `"shadows"`, `--relief`; fehlt ohne | „Look“ unten |
+| `reliefTiles` | Pfadmuster der Schicht des Reliefs, relativ zum Baum, heute `relief/{z}/{x}/{y}.webp`; steht mit `relief` | [Relief von oben](../renderer/relief.md), „Die Schicht“ |
 | `seaLevel` | Wasserspiegel der Dimension in Blöcken, oder `null` | „Die Welt“ unten |
 | `area` | das Rechteck der Welt, das der Baum zeichnet, `[x0, z0, x1, z1]` in Blöcken | „Die Welt“ unten |
 | `areaFixed` | `true`, wenn `area` mit `--area` gewählt ist; fehlt sonst | „Die Welt“ unten |
@@ -479,7 +480,11 @@ vor #72 und zeigt die Karte. Einen anderen Wert nimmt kein Lauf an.
   er einen Chunk liest, auch mit `--resume`, siehe
   [Zoomstufen](zoomstufen.md), „Ein Baum, ein look“.
 - **`relief`** steht nur mit `--relief`, in `top-north` aus `s` mit
-  `"map"`, siehe [Relief von oben](../renderer/relief.md). Einen anderen
+  `"map"`, siehe [Relief von oben](../renderer/relief.md). Die Kacheln
+  tragen dieses Relief. `reliefTiles` nennt dazu die Schicht, aus der ein
+  Client die anderen Arten rechnet; ein Baum aus einem Stand vor der Schicht
+  hat das Feld nicht. Ein neues Format der Schicht bekäme ein neues Feld.
+  Einen anderen
   Wert nimmt nur ein voller Lauf an, siehe [Updates](updates.md), „Relief
   wechseln“.
 - **`--pyramid`** behält alle drei Felder.

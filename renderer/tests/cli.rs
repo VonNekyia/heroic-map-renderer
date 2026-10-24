@@ -6530,47 +6530,132 @@ fn boden_mit_turm(x: i32, y: i32, z: i32) -> &'static str {
     }
 }
 
-/// Mit `--relief shadows` zeichnet ein Update auch, wohin der Schatten
-/// einer Änderung fällt, über den Chunk daneben hinaus, und gleicht danach
-/// einem vollen Lauf. Die Kachel dort hat sich wirklich geändert: Bei
-/// scale 32 ist eine Kachel 8 Blöcke breit, und die Kachel (5, 5) liegt
+/// Mit Relief zeichnet ein Update auch, wohin der Schatten einer Änderung
+/// fällt, über den Chunk daneben hinaus, und gleicht danach einem vollen
+/// Lauf. Mit `slope` auch: Die Schicht trägt den Schatten. Die Schicht der
+/// Kachel dort hat sich wirklich geändert, mit `shadows` auch die Kachel:
+/// Bei scale 32 ist eine Kachel 8 Blöcke breit, und die Kachel (5, 5) liegt
 /// ausserhalb der 16 Blöcke um den Chunk samt der Reserve von 3 Blöcken
 /// für überstehende Sprites.
 /// Siehe docs/benutzung/updates.md, „Wo ein Update zeichnet“.
 #[test]
 fn relief_update_reicht_so_weit_wie_der_schatten() {
     let chunks = [(0, 0), (1, 1), (2, 2)];
-    let welt = tempdir();
-    let baue = |block: fn(i32, i32, i32) -> &'static str, zeit: u32| {
-        common::write_world_sections(welt.path(), &chunks, 0..=3, block, |_, _| None);
-        common::setze_stempel(welt.path(), 0, 0, zeit);
-    };
-    let extra = [
-        "--camera",
-        "top-north",
-        "--scale",
-        "32",
-        "--relief",
-        "shadows",
-    ];
-    baue(boden, 1);
-    let baum = neuer_baum("top-north-s");
-    gelungen(&export(welt.path(), baum.path(), &extra));
-    let vorher = schnappschuss(baum.path());
+    for relief in ["slope", "shadows"] {
+        let welt = tempdir();
+        let baue = |block: fn(i32, i32, i32) -> &'static str, zeit: u32| {
+            common::write_world_sections(welt.path(), &chunks, 0..=3, block, |_, _| None);
+            common::setze_stempel(welt.path(), 0, 0, zeit);
+        };
+        let extra = ["--camera", "top-north", "--scale", "32", "--relief", relief];
+        baue(boden, 1);
+        let baum = neuer_baum("top-north-s");
+        gelungen(&export(welt.path(), baum.path(), &extra));
+        let vorher = schnappschuss(baum.path());
 
-    baue(boden_mit_turm, 2);
-    let update: Vec<&str> = extra.iter().copied().chain(["--update"]).collect();
-    let log = String::from_utf8_lossy(&gelungen(&export(welt.path(), baum.path(), &update)).stdout)
-        .into_owned();
-    assert!(log.contains("Update:     1 Chunks geändert"), "{log}");
-    let voll = neuer_baum("top-north-s");
-    gelungen(&export(welt.path(), voll.path(), &extra));
-    gleiche_baeume(baum.path(), voll.path(), "--relief shadows --update");
-    let fern = format!("{}/5/5.webp", max_zoom(voll.path()));
-    assert_ne!(
-        vorher.get(&fern),
-        schnappschuss(voll.path()).get(&fern),
-        "{fern}"
+        baue(boden_mit_turm, 2);
+        let update: Vec<&str> = extra.iter().copied().chain(["--update"]).collect();
+        let log =
+            String::from_utf8_lossy(&gelungen(&export(welt.path(), baum.path(), &update)).stdout)
+                .into_owned();
+        assert!(
+            log.contains("Update:     1 Chunks geändert"),
+            "{relief}: {log}"
+        );
+        let voll = neuer_baum("top-north-s");
+        gelungen(&export(welt.path(), voll.path(), &extra));
+        gleiche_baeume(
+            baum.path(),
+            voll.path(),
+            &format!("--relief {relief} --update"),
+        );
+        let nachher = schnappschuss(voll.path());
+        let fern = format!("{}/5/5.webp", max_zoom(voll.path()));
+        let schicht = format!("relief/{fern}");
+        assert_ne!(
+            vorher.get(&schicht),
+            nachher.get(&schicht),
+            "{relief}: {schicht}"
+        );
+        assert_eq!(
+            vorher.get(&fern) != nachher.get(&fern),
+            relief == "shadows",
+            "{relief}: {fern}"
+        );
+    }
+}
+
+/// Die Schicht trägt beide Reliefs: Die Kachel ohne Relief mal den Faktor
+/// aus dem Code ihrer Schicht ist auf jeder Stufe die Kachel mit `slope`
+/// und die mit `shadows`, Pixel für Pixel, gerechnet wie im Renderer. Beide
+/// Läufe schreiben dieselbe Schicht, und `map.json` nennt sie.
+/// Siehe docs/renderer/relief.md, „Die Schicht“.
+#[test]
+fn relief_schicht_ergibt_das_relief() {
+    let welt = tempdir();
+    baue_gelaende(welt.path());
+    baue_aenderungen(welt.path());
+    let baum = |relief: Option<&str>| {
+        let baum = neuer_baum("top-north-s");
+        let mut extra = vec!["--camera", "top-north", "--scale", "8"];
+        extra.extend(
+            relief
+                .map(|relief| ["--relief", relief])
+                .into_iter()
+                .flatten(),
+        );
+        gelungen(&export(welt.path(), baum.path(), &extra));
+        baum
+    };
+    let (ohne, slope, shadows) = (baum(None), baum(Some("slope")), baum(Some("shadows")));
+    let info = |baum: &Path| -> serde_json::Value {
+        serde_json::from_str(&std::fs::read_to_string(baum.join("map.json")).unwrap()).unwrap()
+    };
+    assert!(info(ohne.path()).get("reliefTiles").is_none());
+    assert_eq!(info(slope.path())["reliefTiles"], "relief/{z}/{x}/{y}.webp");
+    let schicht = |baum: &Path| -> BTreeMap<String, Vec<u8>> {
+        schnappschuss(baum)
+            .into_iter()
+            .filter(|(rel, _)| rel.starts_with("relief/"))
+            .collect()
+    };
+    assert!(schicht(ohne.path()).is_empty());
+    assert_eq!(schicht(slope.path()), schicht(shadows.path()));
+
+    let (mut kacheln_geprueft, mut geneigt, mut im_schatten) = (0, 0, 0);
+    for z in 0..=max_zoom(ohne.path()) {
+        for (tile, pfad) in kacheln(ohne.path(), z) {
+            let rel = format!("{z}/{}/{}.webp", tile.x, tile.y);
+            let plain = image::open(&pfad).unwrap().into_rgba8();
+            let codes = image::open(slope.path().join("relief").join(&rel))
+                .unwrap()
+                .into_rgba8();
+            geneigt += codes.pixels().filter(|c| c[3] > 0 && c[0] % 9 != 4).count();
+            im_schatten += codes.pixels().filter(|c| c[3] > 0 && c[0] >= 9).count();
+            for (schatten, baum) in [(false, &slope), (true, &shadows)] {
+                let mut erwartet = plain.clone();
+                for (p, c) in erwartet.pixels_mut().zip(codes.pixels()) {
+                    if p[3] == 0 {
+                        continue;
+                    }
+                    let n = f32::from(c[0] % 9) - 4.0;
+                    let mut faktor = (1.0f32 + 0.12 * (n / 2.0)).clamp(1.0 - 0.24, 1.0 + 0.24);
+                    if schatten && c[0] >= 9 {
+                        faktor *= 0.75;
+                    }
+                    for k in 0..3 {
+                        p[k] = (f32::from(p[k]) * faktor).round().min(255.0) as u8;
+                    }
+                }
+                let mit = image::open(baum.path().join(&rel)).unwrap().into_rgba8();
+                assert!(erwartet == mit, "{rel}, Schatten {schatten}");
+            }
+            kacheln_geprueft += 1;
+        }
+    }
+    assert!(
+        kacheln_geprueft > 0 && geneigt > 0 && im_schatten > 0,
+        "{kacheln_geprueft}, {geneigt}, {im_schatten}"
     );
 }
 

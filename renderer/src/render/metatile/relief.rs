@@ -47,16 +47,25 @@ impl Relief {
     }
 
     /// Wie viele Chunks nach Osten und Süden eine Änderung das Relief
-    /// anderer Spalten ändert: das Gefälle einen Block, der Schatten
-    /// [`REICHWEITE`].
+    /// anderer Spalten ändert: so weit, wie der Schatten sucht,
+    /// [`REICHWEITE`]. Auch mit `slope`, denn die Schicht trägt den Schatten.
     /// Siehe docs/benutzung/updates.md, „Wo ein Update zeichnet“.
     pub fn chunks_nach_suedosten(self) -> i32 {
-        match self {
-            Relief::Gefaelle => 1,
-            Relief::Schatten => (REICHWEITE + 15) / 16,
-        }
+        (REICHWEITE + 15) / 16
     }
 }
+
+/// Der Code einer Spalte in der Schicht: die Stufe des Gefälles `n` in
+/// −4…4, um 4 verschoben, dazu 9, wenn sie im Schatten liegt. 4 heisst
+/// unverändert.
+/// Siehe docs/renderer/relief.md, „Die Schicht“.
+fn code([west, ost, nord, sued]: [i32; 4], schatten: bool) -> u8 {
+    let n = (ost - west + sued - nord).clamp(-4, 4);
+    (n + 4) as u8 + 9 * u8::from(schatten)
+}
+
+/// Der Code, der nichts ändert.
+pub const UNVERAENDERT: u8 = 4;
 
 /// Die Helligkeit einer Spalte aus den Höhen ihrer Nachbarn im Westen,
 /// Osten, Norden und Süden: Steigt die Oberfläche nach Südosten, schaut sie
@@ -90,14 +99,15 @@ impl ChunkCache<'_> {
 /// Legt das Relief auf das Bild des Ausschnitts `rect`: je Block der
 /// Oberfläche ein Faktor auf Rot, Grün und Blau seiner Pixel, Alpha bleibt.
 /// Die Höhen kommen aus `WORLD_SURFACE` der Chunks, ein Pixel hängt so nur
-/// an der Welt, nicht am Ausschnitt.
+/// an der Welt, nicht am Ausschnitt. Liefert je Pixel des Bilds den Code
+/// der Schicht ([`code`]), mit Schatten, auch wenn `relief` keinen zeichnet.
 /// Siehe docs/renderer/relief.md, „Höhen“.
 pub(super) fn zeichne(
     chunks: &mut ChunkCache,
     bild: &mut RgbaImage,
     rect: ScreenRect,
     relief: Relief,
-) -> Result<()> {
+) -> Result<Vec<u8>> {
     let p = chunks.sprites.projection();
     let o = p.project_block([0, 0, 0]);
     let (sx, sz) = (
@@ -110,12 +120,9 @@ pub(super) fn zeichne(
         block(rect.right() - 1, o.0, sx),
         block(rect.bottom() - 1, o.1, sz),
     );
-    // Die Höhen samt Rand: ein Block rundum, mit Schatten nach Nordwesten so
-    // weit, wie er sucht.
-    let r = match relief {
-        Relief::Gefaelle => 1,
-        Relief::Schatten => REICHWEITE,
-    };
+    // Die Höhen samt Rand: ein Block nach Osten und Süden, nach Nordwesten so
+    // weit, wie der Schatten sucht.
+    let r = REICHWEITE;
     let (gx0, gz0, gx1, gz1) = (bx0 - r, bz0 - r, bx1 + 1, bz1 + 1);
     let breite = (gx1 - gx0 + 1) as usize;
     let mut hoehen = vec![None; breite * (gz1 - gz0 + 1) as usize];
@@ -134,6 +141,7 @@ pub(super) fn zeichne(
     }
     let an = |x: i32, z: i32| hoehen[(z - gz0) as usize * breite + (x - gx0) as usize];
     let (w, h) = (bild.width() as i32, bild.height() as i32);
+    let mut codes = vec![UNVERAENDERT; (w * h) as usize];
     for z in bz0..=bz1 {
         for x in bx0..=bx1 {
             let Some(h0) = an(x, z) else {
@@ -141,17 +149,30 @@ pub(super) fn zeichne(
             };
             // Ohne Nachbarn gilt er als gleich hoch.
             let um = |dx: i32, dz: i32| an(x + dx, z + dz).unwrap_or(h0);
-            let mut faktor = gefaelle([um(-1, 0), um(1, 0), um(0, -1), um(0, 1)]);
-            if relief == Relief::Schatten && im_schatten(h0, |k| an(x - k, z - k)) {
+            let nachbarn = [um(-1, 0), um(1, 0), um(0, -1), um(0, 1)];
+            let schatten = im_schatten(h0, |k| an(x - k, z - k));
+            let mut faktor = gefaelle(nachbarn);
+            if relief == Relief::Schatten && schatten {
                 faktor *= IM_SCHATTEN;
+            }
+            let px0 = (o.0 + f64::from(x) * sx).round() as i32 - rect.x;
+            let pz0 = (o.1 + f64::from(z) * sz).round() as i32 - rect.y;
+            let code = code(nachbarn, schatten);
+            let (spalten, zeilen) = (
+                px0.max(0)..(px0 + sx as i32).min(w),
+                pz0.max(0)..(pz0 + sz as i32).min(h),
+            );
+            if code != UNVERAENDERT && !spalten.is_empty() {
+                for py in zeilen.clone() {
+                    let zeile = (py * w) as usize;
+                    codes[zeile + spalten.start as usize..zeile + spalten.end as usize].fill(code);
+                }
             }
             if faktor == 1.0 {
                 continue;
             }
-            let px0 = (o.0 + f64::from(x) * sx).round() as i32 - rect.x;
-            let pz0 = (o.1 + f64::from(z) * sz).round() as i32 - rect.y;
-            for py in pz0.max(0)..(pz0 + sz as i32).min(h) {
-                for px in px0.max(0)..(px0 + sx as i32).min(w) {
+            for py in zeilen {
+                for px in spalten.clone() {
                     let pixel = bild.get_pixel_mut(px as u32, py as u32);
                     if pixel[3] == 0 {
                         continue;
@@ -163,7 +184,7 @@ pub(super) fn zeichne(
             }
         }
     }
-    Ok(())
+    Ok(codes)
 }
 
 #[cfg(test)]
@@ -188,6 +209,21 @@ mod tests {
         assert!((gefaelle([64, 64, 65, 64]) - 0.94).abs() < 1e-6);
         assert_eq!(gefaelle([60, 70, 60, 70]), 1.0 + HOECHSTENS);
         assert_eq!(gefaelle([70, 60, 70, 60]), 1.0 - HOECHSTENS);
+    }
+
+    /// Der Code: eben 4, die Stufe des Gefälles zwischen 0 und 8 begrenzt
+    /// wie der Faktor, im Schatten 9 dazu.
+    #[test]
+    fn code_der_schicht() {
+        assert_eq!(code([64, 64, 64, 64], false), UNVERAENDERT);
+        assert_eq!(code([64, 65, 64, 64], false), 5);
+        assert_eq!(code([64, 64, 65, 64], false), 3);
+        assert_eq!(code([60, 70, 60, 70], false), 8);
+        assert_eq!(code([70, 60, 70, 60], false), 0);
+        assert_eq!(code([64, 64, 64, 64], true), 13);
+        assert_eq!(code([70, 60, 70, 60], true), 9);
+        // Wo der Code begrenzt, ist es auch der Faktor.
+        assert_eq!(gefaelle([64, 68, 64, 64]), gefaelle([60, 70, 60, 70]));
     }
 
     /// Schatten nur, wo eine Spalte im Nordwesten über 45° ragt, bis

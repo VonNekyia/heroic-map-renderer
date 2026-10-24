@@ -677,11 +677,12 @@ pub const ZEICHENSTAND_MAP: u32 = 4;
 pub const ZEICHENSTAND_CINEMATIC: u32 = 3;
 /// Ebenso für `look` `flat`, die einfarbige Ansicht.
 pub const ZEICHENSTAND_FLAT: u32 = 5;
-/// Wie der Renderer das Relief von oben zeichnet, `--relief`: Er geht nur in
-/// den Abdruck von Bäumen mit Relief ein, und eine Änderung am Relief hebt
-/// nur ihn.
+/// Wie der Renderer das Relief von oben zeichnet, `--relief`, samt seiner
+/// Schicht: Er geht nur in den Abdruck von Bäumen mit Relief ein, und eine
+/// Änderung am Relief hebt nur ihn. 2 seit der Schicht, die Bäume mit 1
+/// nicht haben.
 /// Siehe docs/entscheidungen/0122-relief-von-oben.md.
-pub const ZEICHENSTAND_RELIEF: u32 = 1;
+pub const ZEICHENSTAND_RELIEF: u32 = 2;
 
 /// Die Looks, wie `look` in `map.json` sie nennt, mit ihrem Zeichenstand.
 pub const LOOKS: [(&str, u32); 3] = [

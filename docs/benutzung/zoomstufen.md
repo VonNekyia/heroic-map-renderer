@@ -67,9 +67,8 @@ keine eigenen Bäume. Entschieden in
   „Token“. Wer 4 px hat, hat 2 und 1 dazu; wer von 1 auf 4 px wechselt,
   lädt nur die feineren Stufen.
 - **Auf der Webkarte** zeigen dieselben Stufen beim Herauszoomen 2 und
-  1 px; dazu hat der Umschalter je Baum die Ansichten „2 px je Block“ und
-  „1 px je Block“ mit gekappter feinster Stufe, siehe
-  [Frontend](../frontend.md), „Ansichten und Kompass“.
+  1 px. Eigene Ansichten dafür hat sie nicht mehr, siehe
+  [0121](../entscheidungen/0121-zwei-d-drei-d-statt-liste.md).
 - **Goldbilder:** `pyramide-top-north-2px` und `pyramide-top-north-1px`
   halten die Szene der Tests über diesen Stufen fest, siehe
   [Tests](../entwicklung/tests.md), „Goldbild“.

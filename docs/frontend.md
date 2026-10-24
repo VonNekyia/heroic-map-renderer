@@ -281,8 +281,17 @@ Server, der stattdessen die Seite schickt) ist der Kachelpfad selbst der
 Baum, wie bisher. Eine Liste ohne brauchbare Einträge zeigt die Seite als
 Fehler an, wie eine fehlende `map.json`.
 
-Bei mehr als einem Baum steht neben dem Kompass ein `select`. Er nennt
-jeden Baum lesbar, nicht mit seinen Kürzeln:
+Bei mehr als einem Baum steht neben dem Kompass ein Umschalter, nach
+[0121](entscheidungen/0121-zwei-d-drei-d-statt-liste.md):
+
+- **2D und 3D:** Gibt es einen Baum aus `top-north`, der nicht einfarbig
+  ist (2D), und einen mit einer Kamera W:H (3D), ist er ein Knopf
+  `button.zwei-drei` zwischen dem ersten Baum jeder Art. Er trägt den Namen
+  der anderen Art, „2D“ oder „3D“, und als `title` deren Namen wie unten.
+  Aus jedem anderen Baum, offen über `?tree=`, führt er nach 2D.
+- **Sonst** ist er ein `select` mit allen Bäumen.
+
+Beide nennen jeden Baum lesbar, nicht mit seinen Kürzeln:
 
 | Kamera | Name |
 |---|---|
@@ -295,26 +304,15 @@ Ein `look` ausser `map` kommt dazu, `cinematic` als „· Cinematic“, `flat`
 als „· Einfarbig“; ein unbekannter wie in `trees.json`. Eine
 unbekannte Kamera oder Richtung steht als `camera · direction` da.
 
-Jeder Baum aus `top-north` ausser einem einfarbigen steht zweimal mehr da,
-als „· 2 px je Block“ und „· 1 px je Block“ (#293). Das sind keine eigenen
-Bäume, sondern seine Stufen, siehe [Zoomstufen](benutzung/zoomstufen.md),
-„1 und 2 px je Block“:
+Ansichten mit 1 und 2 px je Block gibt es auf der Webkarte nicht; dieselben
+Stufen zeigt sie beim Herauszoomen, siehe [Zoomstufen](benutzung/zoomstufen.md),
+„1 und 2 px je Block“. Ein alter Link mit `?px` zeigt die volle Ansicht.
 
-- **Gekappt:** Die feinste Stufe mit Kacheln ist die, auf der ein Block
-  so breit ist, `maxZoom − log2(scale / px)`. Darüber vergrössert Leaflet
-  ihre Kacheln, bis ein Block 64 Pixel breit ist, wie in jedem Baum.
-- **Nur, wo der Baum sie hergibt:** mit `"downscale": "nearest"` in
-  `map.json`, `scale / px` eine Zweierpotenz über 1 und die gekappte Stufe
-  nicht unter `minZoom`. Sonst zeigt die Seite die volle Ansicht. Ein Baum
-  aus älterem Stand ohne `downscale` mittelt beim Verkleinern; seine
-  Stufen wären weich.
-
-Die Wahl lädt die Seite neu, mit bis zu vier Parametern in der Adresse:
+Die Wahl lädt die Seite neu, mit bis zu drei Parametern in der Adresse:
 
 | Parameter | Inhalt |
 |---|---|
 | `tree` | `path` des Baums aus `trees.json` |
-| `px` | 2 oder 1 für die Ansicht mit so vielen Pixeln je Block; fehlt bei der vollen |
 | `at` | der Block in der Mitte, `x,y,z` in Weltkoordinaten |
 | `zoom` | die Zoomstufe ab der feinsten gerenderten: 0 ist ein Pixel der Kachel je Pixel des Bildschirms, −1 halb so gross |
 
@@ -335,8 +333,7 @@ neue zeigt die ganze Karte.
 
 Die Adresse folgt der Karte: Nach jedem Verschieben oder Zoomen schreibt
 das Frontend `at` und `zoom` hinein, mit dem Baum in `tree`, wenn es eine
-Liste gibt, und `px` in einer gekappten Ansicht. `zoom` zählt dort wie im
-Baum, ein Block bleibt beim Wechsel also gleich gross. Es nimmt `history.replaceState`, der Verlauf bekommt also
+Liste gibt. Es nimmt `history.replaceState`, der Verlauf bekommt also
 keine Einträge. Wer die Adresse kopiert oder die Seite neu lädt, sieht
 denselben Block in der Mitte auf derselben Stufe. Ohne Koordinaten gibt es
 keinen Block für `at`, und die Adresse bleibt, wie sie ist.

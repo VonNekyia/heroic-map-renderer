@@ -628,7 +628,8 @@ neu gebaut.
       Blöcken, die nicht bis zum Strahl reichen, mit demselben Ergebnis;
       dann auf dem Schirm vereinfacht, bis kein weggelassener Punkt
       mehr als ε = 0,5 px vom Zug liegt; jeder Wechsel von verdeckt oder
-      gestrichelt bleibt;
+      gestrichelt bleibt. Leaflet vereinfacht den Strich nicht noch einmal
+      (`smoothFactor` 0), sonst wüchse der Fehler bis 1,5 px;
     - ein Kreis hat so viele Seiten, dass die Pfeilhöhe jeder Seite auf dem
       Schirm unter ε bleibt, mindestens 12;
     - die Wand hat je Band mindestens 8 px, höchstens 12 Bänder, unter 1 px

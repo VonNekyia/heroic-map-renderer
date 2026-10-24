@@ -1940,6 +1940,24 @@ mod tests {
         );
     }
 
+    /// Nur die Flächen, für die `kippt` gilt, kippen, etwa die Blätter am
+    /// Bambus; die anderen bleiben, wie sie sind.
+    #[test]
+    fn nur_gewaehlte_flaechen_kippen() {
+        let stange = viereck([
+            [0.5, 1.0, 0.4],
+            [0.5, 0.0, 0.4],
+            [0.5, 0.0, 0.6],
+            [0.5, 1.0, 0.6],
+        ]);
+        let mut model = kreuz(1.0);
+        model.quads.push(stange.clone());
+        let gekippt = gekippt_von_oben(&model, [0.0, -1.0], |q| q.corners != stange.corners);
+        assert_eq!(gekippt.quads.len(), 3);
+        assert_eq!(gekippt.quads[0].corners, stange.corners);
+        assert!(gekippt.quads[1..].iter().all(|q| q.shade == Some(Face::Up)));
+    }
+
     /// Hat eine Bodenpflanze eine liegende Fläche, kippt nichts; von ihren
     /// festen Flächen bleiben nur die liegenden. Liegt eine ab cos 45°.
     #[test]

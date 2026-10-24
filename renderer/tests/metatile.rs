@@ -6469,7 +6469,7 @@ fn welt_mit_wurzeln(dir: &TempDir) -> World {
 
 /// Bodenpflanzen auf Gras: ein Kreuz mit der Textur `richtung`, eine
 /// Feldfrucht mit Löchern, eine Pflanze breiter als ihr Block, Seegras und
-/// Laubstreu, die schon eine Oberseite hat.
+/// Laubstreu.
 fn welt_mit_pflanzen(dir: &TempDir) -> World {
     common::write_world(dir.path(), &[(0, 0)], |x, y, z| match (y, x, z) {
         (0, _, _) => "minecraft:grass_block",
@@ -6483,14 +6483,19 @@ fn welt_mit_pflanzen(dir: &TempDir) -> World {
     World::open(dir.path()).unwrap()
 }
 
-/// Von oben liegt eine Bodenpflanze flach über ihrem Block, statt mit ihren
-/// senkrechten Flächen zu verschwinden: das Kreuz mit Westen blau und Norden
-/// dunkel, die Feldfrucht mit dem Gras in ihren Löchern, die breite Pflanze
-/// nur über ihrem Block. Die Laubstreu bleibt, wie sie ist. In 2:1 zeichnet
-/// jede Pflanze wie vorher. Goldbild `metatile-pflanzen-top-north`.
+/// Von oben kippt eine Bodenpflanze um 45° nach Norden, eingepasst in ihren
+/// Block, statt mit ihren senkrechten Flächen zu verschwinden:
+/// - das Kreuz mit Westen blau, Osten rot und der dunklen Spitze im Norden,
+///   nur in seinem Block;
+/// - die breite Pflanze, eine Ebene quer zu Norden, nur in ihrer Reihe,
+///   nach Osten und Westen über ihren Block hinaus wie im Modell;
+/// - Feldfrucht, Seegras und Laubstreu der Testszene sind je eine Ebene,
+///   die nach Osten und Westen schaut: Sie steht auch gekippt auf der Kante.
+///
+/// Goldbild `metatile-pflanzen-top-north`.
 /// Siehe docs/renderer/kamera.md, „Pflanzen von oben“.
 #[test]
-fn pflanzen_liegen_von_oben_flach() {
+fn pflanzen_kippen_von_oben() {
     let dir = tempdir();
     let world = welt_mit_pflanzen(&dir);
     let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
@@ -6499,7 +6504,7 @@ fn pflanzen_liegen_von_oben_flach() {
         fixtures.join("assets-pflanzen"),
     ])
     .unwrap();
-    // Bei scale 16 ist jedes Texel einer Oberseite ein Pixel.
+    // Bei scale 16 ist ein Block 16 × 16 Pixel.
     let projection = Projection::mit_kamera(16, Kamera::ObenNord);
     let sprites = tabelle(&mut assets, &world, projection);
     let rect = ScreenRect {
@@ -6526,24 +6531,46 @@ fn pflanzen_liegen_von_oben_flach() {
             .filter(|&(x, y)| bild.get_pixel(x, y) != gras.get_pixel(x, y))
             .count()
     };
-    // Das Kreuz deckt seinen Block ganz, die Feldfrucht genau mit den 64
-    // deckenden Texeln von `spaerlich.png`.
-    assert_eq!(anders(2, 2), 256, "Kreuz");
-    assert_eq!(anders(6, 2), 64, "Feldfrucht");
-    assert_eq!(anders(10, 2), 256, "breite Pflanze");
-    assert_eq!(anders(9, 2) + anders(11, 2), 0, "breite Pflanze daneben");
-    assert_eq!(anders(2, 8), 256, "Seegras");
-    // Westen blau, Osten rot, Norden dunkel wie in `richtung.png`.
-    let pixel = |x: u32, y: u32| bild.get_pixel(32 + x, 32 + y).0;
-    let [w, o] = [pixel(0, 8), pixel(15, 8)];
+    assert!(anders(2, 2) > 64, "Kreuz: {}", anders(2, 2));
+    for (bx, bz) in [(1, 2), (3, 2), (2, 1), (2, 3)] {
+        assert_eq!(anders(bx, bz), 0, "Kreuz daneben ({bx}, {bz})");
+    }
+    assert!(anders(10, 2) > 64, "breite Pflanze: {}", anders(10, 2));
+    assert_eq!(
+        anders(10, 1) + anders(10, 3),
+        0,
+        "breite Pflanze nördlich, südlich"
+    );
+    assert!(
+        anders(9, 2) > 0 && anders(9, 2) == anders(11, 2),
+        "breite Pflanze quer"
+    );
+    for (was, bx, bz) in [("Feldfrucht", 6, 2), ("Seegras", 2, 8), ("Laubstreu", 6, 8)] {
+        assert_eq!(anders(bx, bz), 0, "{was}");
+    }
+    // In der Mitte des Kreuzes Westen blau, Osten rot wie in `richtung.png`,
+    // im Norden die dunkle Spitze.
+    let gedeckt = |x: u32, y: u32| bild.get_pixel(32 + x, 32 + y) != gras.get_pixel(32 + x, 32 + y);
+    let zeile = |y: u32| (0..16).filter(move |&x| gedeckt(x, y));
+    let mitte = 8;
+    let (w, o) = (
+        bild.get_pixel(32 + zeile(mitte).min().unwrap(), 32 + mitte)
+            .0,
+        bild.get_pixel(32 + zeile(mitte).max().unwrap(), 32 + mitte)
+            .0,
+    );
     assert!(
         w[2] > w[0] && o[0] > o[2],
         "Kreuz: Westen {w:?}, Osten {o:?}"
     );
     let hell = |p: [u8; 4]| u32::from(p[0]) + u32::from(p[1]) + u32::from(p[2]);
+    let norden = (0..16).find(|&y| zeile(y).next().is_some()).unwrap();
+    let spitze = bild
+        .get_pixel(32 + zeile(norden).next().unwrap(), 32 + norden)
+        .0;
     assert!(
-        hell(pixel(8, 0)) < hell(pixel(8, 8)),
-        "Kreuz: Norden nicht dunkel"
+        hell(spitze) < hell(w),
+        "Kreuz: Spitze {spitze:?} nicht dunkel"
     );
     let fehler = goldbild("metatile-pflanzen-top-north", bild);
     assert!(fehler.is_none(), "{}", fehler.unwrap_or_default());

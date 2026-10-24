@@ -672,11 +672,11 @@ impl Stand {
 /// Höhe oder den Abdruck eines Chunks dieses Looks anders schreiben kann,
 /// auch wenn kein Goldbild es zeigt; was alle Looks teilen, hebt jeden.
 /// Siehe docs/entscheidungen/0101-zeichenstand-je-look.md.
-pub const ZEICHENSTAND_MAP: u32 = 4;
+pub const ZEICHENSTAND_MAP: u32 = 5;
 /// Ebenso für `look` `cinematic`.
-pub const ZEICHENSTAND_CINEMATIC: u32 = 3;
+pub const ZEICHENSTAND_CINEMATIC: u32 = 4;
 /// Ebenso für `look` `flat`, die einfarbige Ansicht.
-pub const ZEICHENSTAND_FLAT: u32 = 5;
+pub const ZEICHENSTAND_FLAT: u32 = 6;
 /// Wie der Renderer das Relief von oben zeichnet, `--relief`: Er geht nur in
 /// den Abdruck von Bäumen mit Relief ein, und eine Änderung am Relief hebt
 /// nur ihn.
@@ -725,7 +725,7 @@ const GOLDBILDER_JE_LOOK: [(&str, &str); 15] = [
 /// `zeichenstand_folgt_den_goldbildern`.
 #[cfg(test)]
 const GOLDBILDER: [(&str, u64); 4] = [
-    ("map", 0x44f0_fa44_6f7d_7b9b),
+    ("map", 0x6d10_59d1_e0c6_349f),
     ("cinematic", 0x8338_0150_d842_fd85),
     ("flat", 0x9da5_830a_c6ae_0047),
     ("relief", 0x5b95_9d48_ea25_f298),
@@ -1640,16 +1640,19 @@ mod tests {
         }
     }
 
-    /// Cinematic hat den Abdruck von v0.7.0, Zeichenstand 3 mit denselben
-    /// Tabellen: Sein Stand gilt nach 0101 weiter. Karte und einfarbige
-    /// Ansicht zeichnen anders, seit #295 auch die Pflanzen von oben, und
-    /// haben andere.
+    /// Cinematic hat seit 0133 einen neuen Abdruck, Zeichenstand 4: Redstone
+    /// und Stiele färben, und die Stiele dämpfen als Bodenpflanze den Strahl
+    /// zur Sonne. Bis dahin galt der von v0.7.0. Ändert sich der Wert ohne
+    /// einen neuen Zeichenstand, zeichnete Cinematic unbemerkt anders.
+    /// Siehe docs/entscheidungen/0133-pflanzen-von-oben-gekippt.md.
     #[test]
-    fn abdruck_von_cinematic_wie_in_v0_7_0() {
+    fn abdruck_von_cinematic_seit_0133() {
         const V0_7_0: u64 = 0x2651_7df1_a999_85d2;
-        assert_eq!(fingerabdruck_des_renderers("cinematic", None), V0_7_0);
-        assert_ne!(fingerabdruck_des_renderers("map", None), V0_7_0);
-        assert_ne!(fingerabdruck_des_renderers("flat", None), V0_7_0);
+        const SEIT_0133: u64 = 0x8aa0_455d_a419_9cdf;
+        assert_eq!(fingerabdruck_des_renderers("cinematic", None), SEIT_0133);
+        assert_ne!(SEIT_0133, V0_7_0);
+        assert_ne!(fingerabdruck_des_renderers("map", None), SEIT_0133);
+        assert_ne!(fingerabdruck_des_renderers("flat", None), SEIT_0133);
     }
 
     /// Ohne Relief ist der Abdruck der Karte der von vor dem Relief, mit

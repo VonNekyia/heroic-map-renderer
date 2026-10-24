@@ -322,9 +322,11 @@ reicht.
 - **Ohne Tiefe** bleibt die volle Höhe: für einen Chunk, den der Server
   während des Laufs schrieb, und für einen aus einem Stand der Fassung 1,
   bis ein Lauf ihn wieder liest.
-- **Wie viel:** An der Testwelt liesse die Grenze von 1960 Kacheln im
-  Gebiet 816 weg, keine mit neuen Pixeln, gemessen vor dem Bau, siehe
-  [2026-10-24, Updates je Phase](../messungen/2026-10-24-updates-je-phase.md).
+- **Wie viel:** An der Testwelt hat ein Update mit 16 Änderungen 1144
+  statt 1968 Kacheln im Gebiet und braucht 10,4 statt 13,4 s; es schreibt
+  dieselben 13 Kacheln. Der Vorlauf des vollen Laufs braucht 3,1 s mehr.
+  Gemessen in
+  [2026-10-24, Grenze nach unten](../messungen/2026-10-24-grenze-nach-unten.md).
 - **Geprüft** in `grenze_nach_unten_gleicht_einem_vollen_lauf` in
   `renderer/tests/cli.rs`: ein Berg aus Stein mit einem Schacht in die Halle
   des Chunks daneben, der Reihe nach ein Block oben, Glas, Wasser und Laub

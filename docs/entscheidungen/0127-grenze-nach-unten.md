@@ -82,8 +82,12 @@ weg, 41,6 %, keine mit neuen Pixeln, siehe
 - **Kosten nach Regel 26:** Je gelesenem Chunk E und H, im Vorlauf eines
   vollen Laufs für jeden Chunk. Im Stand 28 statt 19 Bytes je Chunk, auch im
   Speicher. Der Vorlauf hält je Chunk die Tiefe, bis der Stand steht, 24
-  Bytes mehr, auf der grossen Welt gerechnet rund 60 MB. Die Zeit dafür ist
-  noch nicht gemessen.
+  Bytes mehr, auf der grossen Welt gerechnet rund 60 MB.
+- **Gemessen** in
+  [2026-10-24, Grenze nach unten](../messungen/2026-10-24-grenze-nach-unten.md):
+  Ein Update mit 16 Änderungen braucht an der Testwelt 10,4 statt 13,4 s,
+  sein Gebiet hat 1144 statt 1968 Kacheln. Der Vorlauf des vollen Laufs
+  braucht 3,1 s mehr, 1 % des Laufs; der Arbeitsspeicher bleibt gleich.
 - **Wirkung:** nur für Chunks, deren Tiefe der Stand kennt, also nach einem
   vollen Lauf oder sobald ein Update den Chunk liest.
 - **Geprüft:**

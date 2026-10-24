@@ -2432,6 +2432,11 @@ fn write_tiles(
             ablage,
         )
     });
+    // Testhaken: ein Abbruch nach so vielen neu geschriebenen Basiskacheln.
+    // Siehe docs/entwicklung/tests.md, „Testhaken“.
+    let abbruch_nach =
+        abbruch().and_then(|wert| wert.strip_prefix("basis-")?.parse::<usize>().ok());
+    let neu_geschrieben = AtomicUsize::new(0);
     let (stufe, auf_der_karte) = rendere(
         world,
         &sprites,
@@ -2451,6 +2456,12 @@ fn write_tiles(
             let (bytes, liegt) = schreibe_oder_lass(dir, max_zoom, tile, &image, ablage)?;
             if liegt && let Some(liegen) = &liegen {
                 liegen.liegt(tile)?;
+            }
+            if let Some(n) = abbruch_nach
+                && !liegt
+                && neu_geschrieben.fetch_add(1, Ordering::Relaxed) + 1 >= n
+            {
+                bail!("Abbruch nach {n} neuen Basiskacheln (HEROIC_ABBRUCH)");
             }
             if let Some(speicher) = &speicher {
                 speicher.abgeben(max_zoom, tile, Some(image))?;
@@ -2550,7 +2561,27 @@ fn write_tiles(
         }
         kandidaten.extend(unten);
     }
-    build_pyramid(dir, z, kandidaten, &waisen, &mut weg, &im_speicher, ablage)?;
+    // Testhaken: ein Abbruch zwischen Basis und Pyramide.
+    // Siehe docs/entwicklung/tests.md, „Testhaken“.
+    if abbruch().as_deref() == Some("vor-pyramide") {
+        bail!("Abbruch vor der Pyramide (HEROIC_ABBRUCH)");
+    }
+    let nur_neue = pyramide_nur_ueber_neuen(&bereich, umstellen);
+    // Leer und vorher ohne Datei: Für die Eltern ändert sich nichts. Eine,
+    // die dieses Update leert, baut ihre Eltern wie eine mit neuen Pixeln.
+    if nur_neue && stufen == 0 {
+        kandidaten.retain(|tile| basis.contains(tile) || !leer.contains(tile));
+    }
+    build_pyramid(
+        dir,
+        z,
+        kandidaten,
+        &waisen,
+        &mut weg,
+        &im_speicher,
+        ablage,
+        nur_neue,
+    )?;
     if prune && !veraltet.is_empty() {
         ohne_veraltete(dir, max_zoom, stufen, &veraltet, &gezeigt, &mut weg, ablage)?;
     }
@@ -3773,6 +3804,11 @@ fn schreibe_info(dir: &Path, info: &MapInfo, zeit: Option<SystemTime>) -> Result
 /// oder hier: Einer Elternkachel sieht man nicht an, ob sie zu ihren
 /// Kindern passt.
 /// Siehe docs/entscheidungen/0019-resume-behaelt-die-basiskacheln.md.
+///
+/// Mit `nur_neue`, in einem Update, bauen nur Kinder ohne Treffer im Hash
+/// ihre Eltern ([`pixel::Pixel::getroffen`]), Waisen immer.
+/// Siehe docs/entscheidungen/0124-pyramide-nur-ueber-neuen-kindern.md.
+#[allow(clippy::too_many_arguments)]
 fn build_pyramid(
     dir: &Path,
     max_zoom: u32,
@@ -3781,11 +3817,13 @@ fn build_pyramid(
     weg: &mut BTreeSet<(u32, TileId)>,
     im_speicher: &Speicherstand,
     ablage: Ablage<'_>,
+    nur_neue: bool,
 ) -> Result<()> {
     let started = Instant::now();
     let mut kandidaten = kandidaten;
     let mut bytes = 0usize;
     let mut gesamt = 0usize;
+    let mut ausgelassen = 0usize;
     // Im Speicher entsteht nur, was über der Stufe liegt, die ihn füllt;
     // sonst hätte der Lauf eine gerenderte Stufe verkleinert.
     debug_assert!(
@@ -3802,6 +3840,11 @@ fn build_pyramid(
     let schon = im_speicher.values().flatten().count();
 
     for z in (0..max_zoom).rev() {
+        if nur_neue && let Some(hashes) = ablage.hashes {
+            let vorher = kandidaten.len();
+            kandidaten.retain(|tile| !hashes.getroffen(z + 1, *tile));
+            ausgelassen += vorher - kandidaten.len();
+        }
         kandidaten.extend(waisen.get(&(z + 1)).into_iter().flatten());
         kandidaten = pyramid::parents(&kandidaten);
         let rest: BTreeSet<TileId> = kandidaten
@@ -3831,13 +3874,32 @@ fn build_pyramid(
         } else {
             String::new()
         };
+        let ohne = match ausgelassen {
+            0 => String::new(),
+            n => format!(", über {n} Kacheln mit gleichen Pixeln nicht neu gebaut"),
+        };
         println!(
-            "Pyramide:   {gesamt} Kacheln, {:.1} MB in {:.1} s{davon}",
+            "Pyramide:   {gesamt} Kacheln, {:.1} MB in {:.1} s{davon}{ohne}",
             bytes as f64 / 1_048_576.0,
             started.elapsed().as_secs_f64()
         );
     }
     Ok(())
+}
+
+/// Ob die Pyramide nur über Kindern ohne Treffer entsteht: in einem Update,
+/// ausser es stellt um; dann baut es jede Elternkachel neu, auch über
+/// Treffern, denn ihre Pixel entstehen anders.
+/// Siehe docs/entscheidungen/0124-pyramide-nur-ueber-neuen-kindern.md.
+fn pyramide_nur_ueber_neuen(bereich: &Bereich, umstellen: bool) -> bool {
+    matches!(bereich, Bereich::Update) && !umstellen
+}
+
+/// Testhaken `HEROIC_ABBRUCH`: `vor-pyramide` bricht zwischen Basis und
+/// Pyramide ab, `basis-N` nach N neu geschriebenen Basiskacheln.
+/// Siehe docs/entwicklung/tests.md, „Testhaken“.
+fn abbruch() -> Option<String> {
+    std::env::var("HEROIC_ABBRUCH").ok()
 }
 
 /// Was [`ImSpeicher`] gebaut hat: je Kachel ihre Bytes, `None` für eine,
@@ -6017,6 +6079,7 @@ mod tests {
             &mut weg,
             &im_speicher,
             Ablage::default(),
+            false,
         )
         .unwrap();
         assert_eq!(weg, BTreeSet::from([(1, t(0, 0)), (0, t(0, 0))]));
@@ -6347,6 +6410,24 @@ mod tests {
             assert!(!geht(&ohne), "ohne {}", alle[fehlt]);
         }
         assert!(!geht(&["--web", "w", "--site-image", "v.jpg"]));
+    }
+
+    /// Nur ein Update ohne Umstellen baut die Pyramide nur über Kindern ohne
+    /// Treffer; ein voller Lauf, ein Ausschnitt und ein Update, das umstellt,
+    /// bauen jede Elternkachel.
+    /// Siehe docs/entscheidungen/0124-pyramide-nur-ueber-neuen-kindern.md.
+    #[test]
+    fn pyramide_nur_ueber_neuen_nur_im_update_ohne_umstellen() {
+        let rechteck = Bereich::Ausschnitt(ScreenRect {
+            x: 0,
+            y: 0,
+            width: 1,
+            height: 1,
+        });
+        assert!(pyramide_nur_ueber_neuen(&Bereich::Update, false));
+        assert!(!pyramide_nur_ueber_neuen(&Bereich::Update, true));
+        assert!(!pyramide_nur_ueber_neuen(&Bereich::Welt, false));
+        assert!(!pyramide_nur_ueber_neuen(&rechteck, false));
     }
 
     /// `--pyramid` lehnt jeden Schalter ausser `--threads`, `--low-priority`

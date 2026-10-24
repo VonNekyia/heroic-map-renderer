@@ -6,7 +6,7 @@
 //! neu.
 //! Siehe docs/benutzung/updates.md, „Gleiche Pixel“.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, PoisonError};
@@ -60,6 +60,9 @@ pub(super) struct Pixel {
     kodierstand: u64,
     bloecke: Mutex<HashMap<BlockId, Block>>,
     gespart: AtomicUsize,
+    /// Die Kacheln dieses Laufs mit einem Treffer, je Stufe, siehe
+    /// [`Pixel::getroffen`].
+    getroffen: Mutex<HashSet<(u32, TileId)>>,
 }
 
 /// SHA-256 über die Packung und die RGBA-Bytes, die ersten 16 Bytes: Kompakt
@@ -106,6 +109,7 @@ impl Pixel {
             kodierstand,
             bloecke: Mutex::default(),
             gespart: AtomicUsize::new(0),
+            getroffen: Mutex::default(),
         }
     }
 
@@ -141,8 +145,25 @@ impl Pixel {
         let gilt = eintrag.hash == *hash && datei(pfad) == Some((eintrag.bytes, eintrag.zeit));
         gilt.then(|| {
             self.gespart.fetch_add(1, Ordering::Relaxed);
+            self.getroffen
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .insert((z, tile));
             eintrag.bytes as usize
         })
+    }
+
+    /// Ob die Kachel in diesem Lauf einen Treffer hatte ([`Pixel::gleich`]):
+    /// Dann hat der letzte fertige Lauf ihre Eltern aus genau dieser Datei
+    /// gebaut, denn die Hashes schreibt ein Lauf erst nach der Pyramide. Eine
+    /// Kachel mit gleichen Bytes ohne gültigen Eintrag, eine liegen gelassene
+    /// und eine entfernte haben nie einen.
+    /// Siehe docs/entscheidungen/0124-pyramide-nur-ueber-neuen-kindern.md.
+    pub(super) fn getroffen(&self, z: u32, tile: TileId) -> bool {
+        self.getroffen
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .contains(&(z, tile))
     }
 
     /// Merkt sich die Pixel einer Kachel, die eben geschrieben wurde oder

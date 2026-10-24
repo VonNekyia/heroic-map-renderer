@@ -353,6 +353,17 @@ An den Goldbildern hängt der Zeichenstand:
 FNV-1a über alle in `GOLDBILDER` fest und fällt, sobald sich eines ändert,
 siehe [0098](../entscheidungen/0098-der-zeichenstand-statt-des-builds.md).
 
+## Testhaken
+
+Umgebungsvariablen, mit denen Tests einen Lauf an einer Stelle scheitern
+lassen; ohne sie läuft der Renderer, wie er ist.
+
+| Variable | Wirkung | Test |
+|---|---|---|
+| `HEROIC_ABBRUCH=vor-pyramide` | bricht nach der Basis ab, bevor die Pyramide von der Platte entsteht | `update_nach_abbruch_gleicht_einem_vollen_lauf` |
+| `HEROIC_ABBRUCH=basis-N` | bricht nach N neu geschriebenen Basiskacheln ab | ebenda |
+| `HEROIC_GPU_GRENZE` | lässt die Karte schon beim Anlegen des Zeichners an einer Grenze in Bytes scheitern | `versagende_karte_steht_einmal_im_log` |
+
 ## GPU-Tests
 
 Die Tests, die eine Karte brauchen, überspringen sich ohne Karte und sagen

@@ -306,7 +306,7 @@ export async function zeichneAnsicht(
   const waende = new Map<string, Punkt[][][]>();
   let seit = performance.now();
   for (const [index, f] of formen.entries()) {
-    // Nach `STUECK_MS` gibt die Rechnung den Hauptfaden frei, so kommen Bilder und Eingaben durch; siehe docs/entscheidungen/0122-raender-unabhaengig-vom-ausschnitt.md.
+    // Nach `STUECK_MS` gibt die Rechnung den Hauptfaden frei, so kommen Bilder und Eingaben durch; siehe docs/entscheidungen/0123-formen-im-iso-gemerkt-je-stufe.md.
     if (performance.now() - seit > STUECK_MS) {
       await new Promise((weiter) => setTimeout(weiter));
       // Gilt die Ansicht nicht mehr, etwa nach dem nächsten Verschieben, bricht die Rechnung ab.

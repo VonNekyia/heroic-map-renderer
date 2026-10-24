@@ -577,7 +577,7 @@ test('nach 0111: Formen weit ausserhalb des Ausschnitts ändern die Punkte nicht
   }
 });
 
-test('nach 0111: ein grosser Kreis hat als Rand und als Fläche höchstens 2 · Umfang auf dem Schirm / ε Punkte, gleich wie gross in Blöcken; nach 0122 ganz gerechnet, ohne neue Rechnung beim Verschieben', async ({ page }) => {
+test('nach 0111: ein grosser Kreis hat als Rand und als Fläche höchstens 2 · Umfang auf dem Schirm / ε Punkte, gleich wie gross in Blöcken; nach 0123 ganz gerechnet, ohne neue Rechnung beim Verschieben', async ({ page }) => {
   // Einmal nur Rand, einmal nur Fläche, je ohne Wand; auf Zoom −3 rund 110 px Radius.
   const arten = { rand: { stroke: { color: '#5500AA' } }, flaeche: { fill: '#5500AA55' } };
   for (const [art, mehr] of Object.entries(arten)) {

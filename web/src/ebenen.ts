@@ -119,7 +119,7 @@ const REGEL = { eps: 0.5, warten: 150 };
 /**
  * Die ganze Ebene statt des Ausschnitts rechnet die Karte, solange ihr Rahmen
  * höchstens `fenster` Fenster gross ist; gemerkt je Stufe, zusammen höchstens
- * `bytes`, geschätzt mit `bytesJePunkt`. Siehe docs/entscheidungen/0122-raender-unabhaengig-vom-ausschnitt.md.
+ * `bytes`, geschätzt mit `bytesJePunkt`. Siehe docs/entscheidungen/0123-formen-im-iso-gemerkt-je-stufe.md.
  */
 const GANZ = { fenster: 9, bytes: 16 * 1024 * 1024, bytesJePunkt: 64 };
 

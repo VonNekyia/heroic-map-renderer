@@ -238,6 +238,17 @@ impl Richtung {
 
     /// Wohin die Normale einer Fläche der Welt im Blick zeigt, wie
     /// [`Richtung::versatz_in_den_blick`].
+    /// Die Richtung der Welt, die im Blick nach Norden zeigt, als (x, z):
+    /// von oben die nach oben im Bild, aus `s` Norden.
+    pub fn norden_im_blick(self) -> [f32; 2] {
+        match self.0 {
+            0 => [0.0, -1.0],
+            1 => [1.0, 0.0],
+            2 => [0.0, 1.0],
+            _ => [-1.0, 0.0],
+        }
+    }
+
     pub fn normale_in_den_blick(self, [x, y, z]: [f32; 3]) -> [f32; 3] {
         match self.0 {
             0 => [x, y, z],

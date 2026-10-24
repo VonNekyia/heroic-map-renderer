@@ -318,42 +318,129 @@ fn von_oben(projection: &Projection) -> bool {
     matches!(projection.kamera(), Kamera::Oben | Kamera::ObenNord)
 }
 
-/// Von oben stünden die senkrechten Flächen einer Bodenpflanze auf der
-/// Kante. Ein Modell ohne Fläche zur Kamera legt darum die Textur seiner
-/// ersten senkrechten Fläche flach über den ganzen Block: das Rechteck ihrer
-/// UV, oben im Norden und links im Westen, 1/16 über dem Boden des Blocks,
-/// mit ihrer Tönung. Seine übrigen Flächen ausser denen einer Flüssigkeit
-/// fallen weg. Ein Modell mit einer Fläche zur Kamera, etwa Blüten am Boden,
-/// bleibt, wie es ist.
+/// Um so viel kippt eine Pflanze von oben, nach oben im Bild.
+/// Siehe docs/entscheidungen/0133-pflanzen-von-oben-gekippt.md.
+const KIPPEN_GRAD: f64 = 45.0;
+/// Ab hier liegt eine Fläche eher, als sie steht: n_y ≥ cos 45° · |n|, mit
+/// etwas Spiel für die Rundung in f32, wie im Mod.
+const LIEGT: f32 = std::f32::consts::FRAC_1_SQRT_2 - 1e-6;
+/// Unter Wasser bleibt eine gekippte Pflanze so weit unter der Oberfläche.
+const UNTER_WASSER: f32 = 1.0 / 64.0;
+
+/// Liegt die Fläche eher, als sie steht?
+fn liegt(q: &Quad) -> bool {
+    let n = q.normal();
+    n[1] >= LIEGT * (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt()
+}
+
+/// Zeigt die Fläche nach oben, mehr als `EDGE_ON` ihrer Normalen?
+fn nach_oben(q: &Quad) -> bool {
+    let n = q.normal();
+    n[1] > 1e-4 * (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt()
+}
+
+/// Von oben stünden die senkrechten Flächen einer Pflanze auf der Kante.
+/// Darum kippen die Flächen, für die `kippt` gilt, starr um die waagrechte
+/// Achse durch die Mitte des Blockbodens, oben nach `norden` (x, z), um
+/// [`KIPPEN_GRAD`], und kommen zurück auf ihre alte Tiefe. Es bleiben die,
+/// die danach nach oben zeigen, schattiert wie nach oben. Entlang `norden`
+/// werden sie so wenig wie nötig in den Block geschoben, über einen Block
+/// Spanne auf einen gestaucht. Unter Wasser bleiben sie
+/// [`UNTER_WASSER`] unter seiner Oberfläche. Alle anderen Flächen bleiben,
+/// wie sie sind.
 /// Siehe docs/renderer/kamera.md, „Pflanzen von oben“.
-fn flach_von_oben(models: &[(u32, BakedModel)], projection: &Projection) -> Vec<(u32, BakedModel)> {
+fn gekippt_von_oben(
+    model: &BakedModel,
+    norden: [f32; 2],
+    kippt: impl Fn(&Quad) -> bool,
+) -> BakedModel {
+    let [dx, dz] = norden.map(f64::from);
+    let (sin, cos) = KIPPEN_GRAD.to_radians().sin_cos();
+    let (gekippt, bleiben): (Vec<&Quad>, Vec<&Quad>) = model.quads.iter().partition(|q| kippt(q));
+    let (mut alt, mut neu) = (f32::MAX, f32::MAX);
+    let mut flaechen: Vec<Quad> = gekippt
+        .iter()
+        .map(|q| {
+            let corners = q.corners.map(|[x, y, z]| {
+                let (x, z) = (f64::from(x) - 0.5, f64::from(z) - 0.5);
+                let (t, w) = (x * dx + z * dz, -x * dz + z * dx);
+                let (t, y2) = (t * cos + f64::from(y) * sin, -t * sin + f64::from(y) * cos);
+                [
+                    (0.5 + t * dx - w * dz) as f32,
+                    y2 as f32,
+                    (0.5 + t * dz + w * dx) as f32,
+                ]
+            });
+            for (vorher, nachher) in q.corners.iter().zip(&corners) {
+                alt = alt.min(vorher[1]);
+                neu = neu.min(nachher[1]);
+            }
+            Quad {
+                corners,
+                shade: Some(Face::Up),
+                cullface: None,
+                ..(*q).clone()
+            }
+        })
+        .filter(nach_oben)
+        .collect();
+    // Eingepasst wird entlang `norden`, gemessen an den sichtbaren Flächen.
+    let entlang = |[x, _, z]: [f32; 3]| (f64::from(x) - 0.5) * dx + (f64::from(z) - 0.5) * dz;
+    let (von, bis) = flaechen
+        .iter()
+        .flat_map(|q| q.corners.map(entlang))
+        .fold((f64::MAX, f64::MIN), |(von, bis), u| {
+            (von.min(u), bis.max(u))
+        });
+    let (stauchen, schieben) = match bis - von {
+        spanne if spanne > 1.0 => (1.0 / spanne, -0.5 - von / spanne),
+        _ if von < -0.5 => (1.0, -0.5 - von),
+        _ if bis > 0.5 => (1.0, 0.5 - bis),
+        _ => (1.0, 0.0),
+    };
+    let wasser = model
+        .quads
+        .iter()
+        .filter(|q| q.fluid.is_some())
+        .flat_map(|q| q.corners.map(|[_, y, _]| y))
+        .reduce(f32::max)
+        .map_or(f32::MAX, |oben| oben - UNTER_WASSER);
+    for q in &mut flaechen {
+        for ecke in &mut q.corners {
+            let u = entlang(*ecke);
+            let dazu = u * stauchen + schieben - u;
+            ecke[0] += (dazu * dx) as f32;
+            ecke[2] += (dazu * dz) as f32;
+            ecke[1] = (ecke[1] + alt - neu).min(wasser);
+        }
+    }
+    BakedModel {
+        quads: bleiben.into_iter().cloned().chain(flaechen).collect(),
+        ..model.clone()
+    }
+}
+
+/// Die Modelle einer Bodenpflanze von oben ([`gekippt_von_oben`]): Ihre
+/// festen Flächen kippen. Hat ein Modell eine, die liegt, etwa ein
+/// Blütenteppich oder Laubstreu, kippt nichts; von seinen festen Flächen
+/// bleiben dann nur die liegenden.
+fn bodenpflanze_von_oben(models: &[(u32, BakedModel)], norden: [f32; 2]) -> Vec<(u32, BakedModel)> {
     models
         .iter()
         .map(|(weight, model)| {
-            let feste = || model.quads.iter().filter(|q| q.fluid.is_none());
-            let vorlage = match feste().any(|q| faces_camera(q, projection)) {
-                true => None,
-                false => feste().next(),
+            let fest = |q: &Quad| q.fluid.is_none();
+            let model = match model.quads.iter().any(|q| fest(q) && liegt(q)) {
+                true => BakedModel {
+                    quads: model
+                        .quads
+                        .iter()
+                        .filter(|q| !fest(q) || liegt(q))
+                        .cloned()
+                        .collect(),
+                    ..model.clone()
+                },
+                false => gekippt_von_oben(model, norden, fest),
             };
-            let Some(v) = vorlage else {
-                return (*weight, model.clone());
-            };
-            let [u0, u1, w0, w1] = v.uvs.iter().fold(
-                [f32::MAX, f32::MIN, f32::MAX, f32::MIN],
-                |[u0, u1, w0, w1], [u, w]| [u0.min(*u), u1.max(*u), w0.min(*w), w1.max(*w)],
-            );
-            let y = 1.0 / 16.0;
-            // Nordwest, Südwest, Südost, Nordost: die Normale zeigt nach oben.
-            let flach = Quad {
-                corners: [[0.0, y, 0.0], [0.0, y, 1.0], [1.0, y, 1.0], [1.0, y, 0.0]],
-                uvs: [[u0, w0], [u0, w1], [u1, w1], [u1, w0]],
-                shade: v.shade.map(|_| Face::Up),
-                cullface: None,
-                ..v.clone()
-            };
-            let mut model = model.clone();
-            model.quads.retain(|q| q.fluid.is_some());
-            model.quads.push(flach);
             (*weight, model)
         })
         .collect()
@@ -899,7 +986,7 @@ impl SpriteSet {
 
     /// Ob der Block eine Bodenpflanze ist ([`Assets::bodenpflanze`]), wo
     /// es zählt: in Cinematic für die Sonne, sonst von oben für
-    /// [`flach_von_oben`].
+    /// [`bodenpflanze_von_oben`].
     fn bodenpflanze(&self, assets: &mut Assets, state: &BlockState) -> Result<bool> {
         Ok((self.kino.is_some() || von_oben(&self.projection)) && assets.bodenpflanze(state)?)
     }
@@ -907,7 +994,7 @@ impl SpriteSet {
     /// Rastert die Alternativen einer Blockstate zu einer Familie, `None`,
     /// wenn keine etwas zeichnet. `bodenpflanze`: Der Block ist eine
     /// Bodenpflanze ([`SpriteSet::bodenpflanze`]); von oben liegt sie dann
-    /// flach ([`flach_von_oben`]), ausser in Cinematic.
+    /// gekippt ([`bodenpflanze_von_oben`]), ausser in Cinematic.
     fn rastere_familie(
         &mut self,
         assets: &Assets,
@@ -915,13 +1002,25 @@ impl SpriteSet {
         models: &[(u32, BakedModel)],
         bodenpflanze: bool,
     ) -> Option<Family> {
-        let flach;
-        // Cinematic bleibt, wie es war: Sonst stiege sein Zeichenstand für
-        // Bäume, die sich nicht ändern. Siehe
-        // docs/entscheidungen/0108-pflanzen-von-oben-flach.md.
-        let models = if bodenpflanze && von_oben(&self.projection) && self.kino.is_none() {
-            flach = flach_von_oben(models, &self.projection);
-            &flach[..]
+        let gekippt;
+        // Cinematic zeichnet die Pflanzen, wie sie sind.
+        // Siehe docs/entscheidungen/0133-pflanzen-von-oben-gekippt.md.
+        let oben = von_oben(&self.projection) && self.kino.is_none();
+        let norden = self.projection.richtung().norden_im_blick();
+        let models = if oben && bodenpflanze {
+            gekippt = bodenpflanze_von_oben(models, norden);
+            &gekippt[..]
+        } else if oben && state.name() == "minecraft:bamboo" {
+            // Beim Bambus kippen nur die Blätter.
+            let textures = assets.textures();
+            gekippt = models
+                .iter()
+                .map(|(weight, model)| {
+                    let blatt = |q: &Quad| textures.name(q.texture).contains("leaves");
+                    (*weight, gekippt_von_oben(model, norden, blatt))
+                })
+                .collect::<Vec<_>>();
+            &gekippt[..]
         } else {
             models
         };
@@ -1725,6 +1824,152 @@ fn fits_cell(sprite: &Sprite, cell: Cell, projection: Projection) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Ein Viereck mit diesen Ecken, sonst wie aus dem Baker.
+    fn viereck(corners: [[f32; 3]; 4]) -> Quad {
+        Quad {
+            corners,
+            uvs: [[0.0, 0.0], [0.0, 1.0], [1.0, 1.0], [1.0, 0.0]],
+            texture: crate::assets::texture::TextureId(0),
+            tint_index: None,
+            shade: None,
+            force_translucent: false,
+            fluid: None,
+            entity: None,
+            cullface: None,
+        }
+    }
+
+    /// Ein Kreuz wie `block/cross`: zwei Ebenen über die Diagonalen von
+    /// 0,05 bis 0,95, je mit Vorder- und Rückseite, `hoch` Blöcke hoch.
+    fn kreuz(hoch: f32) -> BakedModel {
+        let (a, b) = (0.05, 0.95);
+        let ebene = |[x0, z0]: [f32; 2], [x1, z1]: [f32; 2]| {
+            [
+                viereck([[x0, hoch, z0], [x0, 0.0, z0], [x1, 0.0, z1], [x1, hoch, z1]]),
+                viereck([[x1, hoch, z1], [x1, 0.0, z1], [x0, 0.0, z0], [x0, hoch, z0]]),
+            ]
+        };
+        BakedModel {
+            quads: [ebene([a, a], [b, b]), ebene([b, a], [a, b])].concat(),
+            ambient_occlusion: false,
+        }
+    }
+
+    fn spanne(quads: &[Quad], achse: usize) -> (f32, f32) {
+        quads
+            .iter()
+            .flat_map(|q| q.corners.map(|e| e[achse]))
+            .fold((f32::MAX, f32::MIN), |(von, bis), v| {
+                (von.min(v), bis.max(v))
+            })
+    }
+
+    /// Ein volles Kreuz kippt nach Norden: Vor dem Einpassen reichte es von
+    /// z = −0,525 bis 0,818, eine Spanne von 1,344, wie im Mod. Eingepasst
+    /// liegt es genau im Block, gestaucht mit 0,744: Die untere Ecke im
+    /// Nordwesten, vorher bei 0,182, liegt bei 0,5265. Es bleiben die beiden
+    /// Seiten, die nach oben zeigen, schattiert wie nach oben; quer zu Norden
+    /// bleibt alles, und die Pflanze steht wieder auf dem Boden.
+    /// Siehe docs/renderer/kamera.md, „Pflanzen von oben“.
+    #[test]
+    fn kreuz_kippt_nach_norden_eingepasst() {
+        let gekippt = gekippt_von_oben(&kreuz(1.0), [0.0, -1.0], |_| true);
+        assert_eq!(gekippt.quads.len(), 2);
+        assert!(
+            gekippt
+                .quads
+                .iter()
+                .all(|q| q.shade == Some(Face::Up) && nach_oben(q))
+        );
+        let (z0, z1) = spanne(&gekippt.quads, 2);
+        assert!(
+            z0.abs() < 1e-5 && (z1 - 1.0).abs() < 1e-5,
+            "z {z0} bis {z1}"
+        );
+        assert_eq!(spanne(&gekippt.quads, 0), (0.05, 0.95));
+        assert!(spanne(&gekippt.quads, 1).0.abs() < 1e-5, "auf dem Boden");
+        let unten_nordwest = gekippt
+            .quads
+            .iter()
+            .flat_map(|q| q.corners)
+            .find(|e| (e[0] - 0.05).abs() < 1e-6 && e[1].abs() < 1e-5)
+            .expect("Ecke unten im Westen");
+        assert!(
+            (unten_nordwest[2] - 0.5265).abs() < 1e-3,
+            "{unten_nordwest:?}"
+        );
+    }
+
+    /// Ein Kreuz halber Höhe hat gekippt die Spanne 0,99: Es wird nur in den
+    /// Block geschoben, nicht gestaucht.
+    #[test]
+    fn halbes_kreuz_wird_nur_geschoben() {
+        let gekippt = gekippt_von_oben(&kreuz(0.5), [0.0, -1.0], |_| true);
+        let (z0, z1) = spanne(&gekippt.quads, 2);
+        assert!(z0.abs() < 1e-5, "{z0}");
+        assert!((z1 - z0 - 0.99).abs() < 1e-3, "Spanne {}", z1 - z0);
+    }
+
+    /// Im Wasser bleibt die gekippte Pflanze 1/64 unter der Oberfläche; die
+    /// Flüssigkeit bleibt, wie sie ist.
+    #[test]
+    fn unter_wasser_geklemmt() {
+        let mut model = kreuz(1.0);
+        let oben = 14.0 / 16.0;
+        model.quads.push(Quad {
+            fluid: Some((Fluid::Water, Face::Up)),
+            ..viereck([
+                [0.0, oben, 0.0],
+                [0.0, oben, 1.0],
+                [1.0, oben, 1.0],
+                [1.0, oben, 0.0],
+            ])
+        });
+        let gekippt = gekippt_von_oben(&model, [0.0, -1.0], |q| q.fluid.is_none());
+        let pflanze: Vec<Quad> = gekippt
+            .quads
+            .iter()
+            .filter(|q| q.fluid.is_none())
+            .cloned()
+            .collect();
+        assert!(spanne(&pflanze, 1).1 <= oben - 1.0 / 64.0 + 1e-6);
+        assert_eq!(
+            gekippt.quads.iter().filter(|q| q.fluid.is_some()).count(),
+            1
+        );
+    }
+
+    /// Hat eine Bodenpflanze eine liegende Fläche, kippt nichts; von ihren
+    /// festen Flächen bleiben nur die liegenden. Liegt eine ab cos 45°.
+    #[test]
+    fn liegende_flaeche_kippt_nicht() {
+        let flach = viereck([
+            [0.0, 0.1, 0.0],
+            [0.0, 0.1, 1.0],
+            [1.0, 0.1, 1.0],
+            [1.0, 0.1, 0.0],
+        ]);
+        let mut model = kreuz(1.0);
+        model.quads.push(flach.clone());
+        let ergebnis = bodenpflanze_von_oben(&[(1, model)], [0.0, -1.0]);
+        let [(_, oben)] = &ergebnis[..] else {
+            panic!("ein Modell");
+        };
+        assert_eq!(oben.quads.len(), 1);
+        assert_eq!(oben.quads[0].corners, flach.corners);
+        // 45° geneigt liegt, etwas steiler nicht mehr.
+        let neigung = |dy: f32| {
+            viereck([
+                [0.0, 0.0, 0.0],
+                [0.0, dy, 1.0],
+                [1.0, dy, 1.0],
+                [1.0, 0.0, 0.0],
+            ])
+        };
+        assert!(liegt(&neigung(1.0)));
+        assert!(!liegt(&neigung(1.01)));
+    }
     use crate::assets::model_of;
     use crate::render::rasterizer::over;
     use crate::world::Muster;

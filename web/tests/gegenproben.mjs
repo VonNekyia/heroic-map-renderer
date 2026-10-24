@@ -150,4 +150,5 @@ export default [
   { name: 'kopf-fuss-unten', datei: 'src/ebenen.ts', alt: '{ fuss: [KOPF.seite, KOPF.seite] }', neu: '{ fuss: [KOPF.seite, 2 * KOPF.seite] }', spec: 'tests/ebenen.spec.ts', titel: 'nach 0118 zeigt eine Nadel mit head' },
   { name: 'head-auch-gross', datei: 'src/ebenen.ts', alt: '/^[0-9a-f]{64}$/.test(wert.head)', neu: '/^[0-9a-fA-F]{64}$/.test(wert.head)', spec: 'tests/ebenen.spec.ts', titel: 'nach 0118 zeigt eine Nadel mit head' },
   { name: 'tafel-ueber-ganzem-icon', datei: 'src/ebenen.ts', alt: 'options.iconAnchor as L.PointTuple)[1]', neu: 'options.iconSize as L.PointTuple)[1]', spec: 'tests/ebenen.spec.ts', titel: 'nach 0118 zeigt eine Nadel mit head' },
+  { name: 'leaflet-glaettet-strich', datei: 'src/formen.ts', alt: '    smoothFactor: 0,\n  };', neu: '    smoothFactor: 1,\n  };', spec: 'tests/formen.spec.ts', titel: 'nach 0111 vereinfacht Leaflet einen Strich nicht noch einmal' },
 ];

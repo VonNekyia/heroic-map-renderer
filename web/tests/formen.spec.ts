@@ -94,6 +94,27 @@ test('eine Linie über unebenem Grund liegt auf ihm: ihr Pfad reicht so weit, wi
   nah(await rahmen(pfad), [Math.min(...auf.map((p) => p[0]!)), Math.min(...auf.map((p) => p[1]!)), Math.max(...auf.map((p) => p[0]!)), Math.max(...auf.map((p) => p[1]!))]);
 });
 
+test('nach 0111 vereinfacht Leaflet einen Strich nicht noch einmal: eine Zickzacklinie mit Ecken 0,75 px neben der Sehne behält im Pfad jeden Punkt', async ({ page }) => {
+  // Wie weit die Ecke (8, −20 + d) neben der Sehne von (0, −20) nach (16, −20) liegt, auf Zoom −3, in Pixeln je Block d.
+  const zoom = -3;
+  const p = (x: number, z: number) => projiziere(x, 11, z, zweiZuEins(16));
+  const [a, b, c] = [p(0, -20), p(8, -19), p(16, -20)];
+  const jeBlock = (Math.abs((c[0] - a[0]) * (b[1] - a[1]) - (c[1] - a[1]) * (b[0] - a[0])) / Math.hypot(c[0] - a[0], c[1] - a[1])) * 2 ** zoom;
+  // Über ε = 0,5 px, unter dem 1 px, mit dem Leaflet sonst vereinfacht.
+  const d = 0.75 / jeBlock;
+  const zickzack = { id: 'zickzack', type: 'line', points: Array.from({ length: 13 }, (_, k) => [8 * k, -20 + (k % 2) * d]), stroke: { color: '#123456', width: 2 } };
+  await welt(page, staedte([zickzack], { hoehe: () => 10 }));
+  await page.goto(`${DEMO}&punkte&at=48,10,-20&zoom=${zoom}`);
+  const pfad = page.locator('path[stroke="#123456"]');
+  await expect(pfad).toHaveCount(1);
+  await expect.poll(() => punkteDerEbene(page)).toBeGreaterThan(0);
+  const gerechnet = await punkteDerEbene(page);
+  // Jede Ecke bleibt nach ε; im Pfad steht je Punkt ein Paar Zahlen.
+  expect(gerechnet).toBeGreaterThanOrEqual(13);
+  const imPfad = ((await pfad.getAttribute('d'))!.match(/-?\d+(\.\d+)?/g)!.length) / 2;
+  expect(imPfad).toBe(gerechnet);
+});
+
 test('eine gestrichelte Linie wird nicht am Rand des Renderers geschnitten, so springen ihre Striche beim Verschieben nicht', async ({ page }) => {
   const lang = { id: 'lang', type: 'line', points: [[-400, 4], [400, 4]], stroke: { color: '#654321', width: 2, style: 'dashed' } };
   await welt(page, staedte([lang]));

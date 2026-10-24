@@ -1060,9 +1060,14 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
   /**
    * Wie lange Namen ein- und ausblenden, in ms, aus `--namen-dauer` in
    * style.css; danach setzt `namenAn` `namen-aus`. Je Aufruf gelesen: Beim
-   * Start gilt das Stylesheet womöglich noch nicht.
+   * Start gilt das Stylesheet womöglich noch nicht. Mit Einheit: Der Build
+   * schreibt `250ms` als `.25s`.
    */
-  const namenDauer = (): number => Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--namen-dauer')) || 0;
+  const namenDauer = (): number => {
+    const wert = getComputedStyle(document.documentElement).getPropertyValue('--namen-dauer').trim();
+    const zahl = Number.parseFloat(wert) || 0;
+    return wert.endsWith('ms') ? zahl : zahl * 1000;
+  };
   /** Je Pane der Zeitgeber bis `namen-aus`. */
   const namenAus = new WeakMap<HTMLElement, ReturnType<typeof setTimeout>>();
   /**

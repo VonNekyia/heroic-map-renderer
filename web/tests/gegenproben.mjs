@@ -188,4 +188,5 @@ export default [
   { name: 'namen-aus-sofort', datei: 'src/ebenen.ts', alt: "setTimeout(() => el.classList.add('namen-aus'), namenDauer())", neu: "setTimeout(() => el.classList.add('namen-aus'), 0 * namenDauer())", spec: 'tests/ebenen.spec.ts', titel: 'nach dem Ausblenden aus 0119 sind die Namen' },
   { name: 'namen-aus-zeitgeber-bleibt', datei: 'src/ebenen.ts', alt: '    clearTimeout(namenAus.get(el));\n', neu: '', spec: 'tests/ebenen.spec.ts', titel: 'nach dem Ausblenden aus 0119 sind die Namen' },
   { name: 'namen-springen-ein', datei: 'src/ebenen.ts', alt: '      void el.offsetWidth;\n', neu: '', spec: 'tests/ebenen.spec.ts', titel: 'nach dem Ausblenden aus 0119 sind die Namen' },
+  { name: 'namen-dauer-ohne-einheit', datei: 'src/ebenen.ts', alt: "return wert.endsWith('ms') ? zahl : zahl * 1000;", neu: "return wert.endsWith('ms') ? zahl : zahl;", spec: 'tests/ebenen.spec.ts', titel: 'nach dem Ausblenden aus 0119 sind die Namen' },
 ];

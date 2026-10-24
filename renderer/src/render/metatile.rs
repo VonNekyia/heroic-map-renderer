@@ -115,25 +115,29 @@ pub fn render_area(
     Ok(canvas)
 }
 
+/// Die Schicht eines Ausschnitts: je Pixel ihr Code in Rot, Grün und Blau,
+/// Alpha 255, und der Rest, wo das Relief bei 255 abschneidet.
+/// Siehe docs/renderer/relief.md, „Die Schicht“.
+pub type Reliefschicht = (RgbaImage, Option<RgbaImage>);
+
 /// Legt das Relief aus `--relief` auf das Bild des Ausschnitts `rect`, auf
 /// der CPU wie nach der Grafikkarte; ohne Relief bleibt es, wie es ist. Mit
-/// Relief liefert es die Schicht des Ausschnitts: je Pixel ihr Code in Rot,
-/// Grün und Blau, Alpha 255.
+/// Relief liefert es dessen Schicht.
 /// Siehe docs/renderer/relief.md, „Die Schicht“.
 pub fn mit_relief(
     chunks: &mut ChunkCache,
     bild: &mut RgbaImage,
     rect: ScreenRect,
-) -> Result<Option<RgbaImage>> {
+) -> Result<Option<Reliefschicht>> {
     let Some(relief) = chunks.sprites.relief() else {
         return Ok(None);
     };
-    let codes = relief::zeichne(chunks, bild, rect, relief)?;
+    let (codes, rest) = relief::zeichne(chunks, bild, rect, relief)?;
     let mut schicht = RgbaImage::new(bild.width(), bild.height());
     for (pixel, code) in schicht.pixels_mut().zip(codes) {
         pixel.0 = [code, code, code, 255];
     }
-    Ok(Some(schicht))
+    Ok(Some((schicht, rest)))
 }
 
 /// Kantenlänge der Stücke von [`render_area`], in Pixeln. Kandidaten,

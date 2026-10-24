@@ -23,10 +23,10 @@ use heroic_map_renderer::render::stand::{
 };
 use heroic_map_renderer::render::{
     BLEND_DEFAULT, BLEND_MAX, BiomeTable, ChunkCache, Flaeche, Gebiet, Gpu, Kamera, MapInfo,
-    Packen, Projection, ProjectionInfo, Reach, Relief, Richtung, ScreenRect, SpriteSet, Survey,
-    TILE, TileId, Verkleinern, corner_tiles, decode_webp, draw_list, encode_webp,
-    gebiet_der_aenderungen, mit_relief, render, render_area, render_area_with, streifenbreite,
-    survey, survey_in, survey_mit_fortschritt, world_box,
+    Packen, Projection, ProjectionInfo, Reach, Relief, Reliefschicht, Richtung, ScreenRect,
+    SpriteSet, Survey, TILE, TileId, Verkleinern, corner_tiles, decode_webp, draw_list,
+    encode_webp, gebiet_der_aenderungen, mit_relief, render, render_area, render_area_with,
+    streifenbreite, survey, survey_in, survey_mit_fortschritt, world_box,
 };
 use heroic_map_renderer::world::biomzoom::{obfuscate_seed, zoom};
 use heroic_map_renderer::world::{BlockState, Blockdaten, Generator, REGION, World};
@@ -2471,15 +2471,28 @@ fn write_tiles(
         hashes: Some(&hashes),
         verkleinern,
     };
-    // Mit Relief die Schicht in `relief/`, mit eigenen Hashes.
+    // Mit Relief die Schicht in `relief/` und ihr Rest, mit eigenen Hashes.
     let schicht_dir = dir.join(SCHICHT);
-    let schicht_hashes = relief.map(|_| pixel::Pixel::neu(&schicht_dir, pixel::KODIERSTAND));
-    let schicht = schicht_hashes.as_ref().map(|hashes| Schicht {
+    let rest_dir = schicht_dir.join(REST);
+    let hashes_der_schicht = relief.map(|_| {
+        (
+            pixel::Pixel::neu(&schicht_dir, pixel::KODIERSTAND),
+            pixel::Pixel::neu(&rest_dir, pixel::KODIERSTAND),
+        )
+    });
+    let ohne_rest = Mutex::new(BTreeSet::new());
+    let schicht = hashes_der_schicht.as_ref().map(|(schicht, rest)| Schicht {
         dir: &schicht_dir,
         ablage: Ablage {
-            hashes: Some(hashes),
+            hashes: Some(schicht),
             ..ablage
         },
+        rest: &rest_dir,
+        rest_ablage: Ablage {
+            hashes: Some(rest),
+            ..ablage
+        },
+        ohne_rest: &ohne_rest,
     });
     // Ohne native Stufen gibt die Basis die Viertel für die feinen Stufen
     // ab.
@@ -2644,7 +2657,9 @@ fn write_tiles(
     // Die Pyramide der Schicht entsteht von der Platte, über ihren eigenen
     // Treffern: Im Ring des Schattens ändert sich die Schicht, wo die Kachel
     // gleich bleibt.
-    let mut weg_der_schicht = BTreeSet::new();
+    // Der Rest hat keine eigenen Waisen: Ihm fehlen Eltern zu Recht, wo
+    // der gewählte Pixel keinen abgeschnittenen trifft.
+    let (mut weg_der_schicht, mut weg_des_rests) = (BTreeSet::new(), BTreeSet::new());
     if let Some(schicht) = &schicht {
         weg_der_schicht = weg.clone();
         build_pyramid(
@@ -2655,6 +2670,19 @@ fn write_tiles(
             &mut weg_der_schicht,
             &Speicherstand::new(),
             schicht.ablage,
+            nur_neue,
+            false,
+        )?;
+        weg_des_rests = weg.clone();
+        weg_des_rests.append(&mut ohne_rest.lock().unwrap_or_else(PoisonError::into_inner));
+        build_pyramid(
+            schicht.rest,
+            z,
+            kandidaten.clone(),
+            &waisen,
+            &mut weg_des_rests,
+            &Speicherstand::new(),
+            schicht.rest_ablage,
             nur_neue,
             false,
         )?;
@@ -2682,6 +2710,15 @@ fn write_tiles(
                 &mut weg_der_schicht,
                 schicht.ablage,
             )?;
+            ohne_veraltete(
+                schicht.rest,
+                max_zoom,
+                stufen,
+                &veraltet,
+                &gezeigt,
+                &mut weg_des_rests,
+                schicht.rest_ablage,
+            )?;
         }
     }
 
@@ -2697,6 +2734,9 @@ fn write_tiles(
         for (z, tile) in weg.union(&weg_der_schicht) {
             entferne(&tile_path(schicht.dir, *z, *tile))?;
         }
+        for (z, tile) in weg.iter().chain(&weg_der_schicht).chain(&weg_des_rests) {
+            entferne(&tile_path(schicht.rest, *z, *tile))?;
+        }
     }
     // Ohne Relief hat ein Baum keine Schicht; die eines Laufs mit Relief
     // nimmt der volle Lauf weg, der es abschaltet.
@@ -2707,8 +2747,9 @@ fn write_tiles(
     for pfad in &hoehen_weg {
         entferne(pfad)?;
     }
-    if let Some(hashes) = schicht_hashes {
-        hashes.schreibe()?;
+    if let Some((schicht, rest)) = hashes_der_schicht {
+        schicht.schreibe()?;
+        rest.schreibe()?;
     }
     let (gespart, bloecke) = hashes.schreibe()?;
     println!(
@@ -5110,7 +5151,7 @@ fn rendere<T: Send>(
 }
 
 /// Das Bild einer Kachel und, mit Relief, ihre Schicht ([`mit_relief`]).
-type MitSchicht = (RgbaImage, Option<RgbaImage>);
+type MitSchicht = (RgbaImage, Option<Reliefschicht>);
 
 /// Die Bilder einer Gruppe von höchstens [`GPU_TILES`] Kacheln: auf der
 /// Karte, solange sie nicht versagt hat, sonst auf der CPU, auf beiden
@@ -5434,23 +5475,43 @@ struct Ablage<'a> {
 }
 
 /// Der Ordner der Schicht des Reliefs im Baum, ein Baum mit denselben
-/// Kacheln.
+/// Kacheln, und darin der Ordner ihres Rests.
 /// Siehe docs/renderer/relief.md, „Die Schicht“.
 const SCHICHT: &str = "relief";
+const REST: &str = "rest";
 
-/// Die Schicht des Reliefs: ein Baum im Ordner [`SCHICHT`] mit eigenen
-/// Hashes. Eine Kachel, die nichts zeigt, behält ihre Schicht bis zum Ende
-/// des Laufs; unter durchsichtigen Pixeln wirkt sie nicht.
+/// Die Schicht des Reliefs: ein Baum im Ordner [`SCHICHT`], der Rest einer
+/// in [`REST`] darin, beide mit eigenen Hashes. Eine Kachel, die nichts
+/// zeigt, behält Schicht und Rest bis zum Ende des Laufs; unter
+/// durchsichtigen Pixeln wirken sie nicht.
 #[derive(Clone, Copy)]
 struct Schicht<'a> {
     dir: &'a Path,
     ablage: Ablage<'a>,
+    rest: &'a Path,
+    rest_ablage: Ablage<'a>,
+    /// Die Kacheln, deren Rest dieser Lauf leerte; sie verschwinden am Ende.
+    ohne_rest: &'a Mutex<BTreeSet<(u32, TileId)>>,
 }
 
 impl Schicht<'_> {
-    /// Legt die Schicht einer Kachel ab.
-    fn lege_ab(&self, z: u32, tile: TileId, bild: &RgbaImage) -> Result<()> {
-        schreibe(self.dir, z, tile, bild, self.ablage).map(drop)
+    /// Legt die Schicht einer Kachel ab und ihren Rest. Hat sie keinen mehr,
+    /// zeigt der alte schon jetzt nichts mehr: Er gälte sonst über Pixeln,
+    /// die das Relief nicht mehr abschneidet.
+    fn lege_ab(&self, z: u32, tile: TileId, (codes, rest): &Reliefschicht) -> Result<()> {
+        schreibe(self.dir, z, tile, codes, self.ablage)?;
+        match rest {
+            Some(rest) => schreibe(self.rest, z, tile, rest, self.rest_ablage).map(drop),
+            None if tile_path(self.rest, z, tile).is_file() => {
+                verblasse(self.rest, z, tile)?;
+                self.ohne_rest
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .insert((z, tile));
+                Ok(())
+            }
+            None => Ok(()),
+        }
     }
 }
 

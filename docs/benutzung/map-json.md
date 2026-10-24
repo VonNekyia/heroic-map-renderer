@@ -483,11 +483,30 @@ vor #72 und zeigt die Karte. Einen anderen Wert nimmt kein Lauf an.
   `"map"`, siehe [Relief von oben](../renderer/relief.md). Die Kacheln
   tragen dieses Relief. `reliefTiles` nennt dazu die Schicht, aus der ein
   Client die anderen Arten rechnet; ein Baum aus einem Stand vor der Schicht
-  hat das Feld nicht. Ein neues Format der Schicht bekäme ein neues Feld.
-  Einen anderen
+  hat das Feld nicht. Ein neues Format der Schicht bekäme ein neues Feld,
+  siehe „Die Schicht lesen“. Einen anderen
   Wert nimmt nur ein voller Lauf an, siehe [Updates](updates.md), „Relief
   wechseln“.
 - **`--pyramid`** behält alle drei Felder.
+
+## Die Schicht lesen
+
+So rechnet ein Client aus einer Kachel und ihrer Schicht die drei Arten des
+Reliefs, für jeden Pixel der Kachel mit Alpha über 0. Pixel mit Alpha 0
+bleiben, auch wo die Schicht oder der Rest etwas zeigt. Wie die Schicht
+entsteht, steht in [Relief von oben](../renderer/relief.md), „Die
+Schicht“.
+
+- **Der Code** c steht in Rot der Schicht, 0 bis 17. Einen grösseren liest
+  ein Client wie 4. Fehlt die Schicht einer Kachel, gilt überall 4.
+- **Die Faktoren**, gerechnet in f32:
+  - `slope`: f = 1 + 0,12 · ((c mod 9) − 4) / 2, begrenzt auf 0,76 bis 1,24.
+  - `shadows`: dasselbe, ab c = 9 mal 0,75.
+  - f_k ist der Faktor der Art, die `relief` nennt, die der Kachel.
+- **Ohne Relief:** Wo der Rest Alpha 255 hat, seine Farbe; sonst je Kanal
+  round(k / f_k) der Kachel k. Das trifft die Farbe ohne Relief auf ±1.
+- **Eine Art:** die Farbe ohne Relief mal ihren Faktor, je Kanal gerundet
+  und bei 255 gekappt. Für die Art in `relief` ist das genau die Kachel.
 
 ## Wann sie geschrieben wird
 

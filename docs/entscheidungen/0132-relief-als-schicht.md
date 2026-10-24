@@ -69,6 +69,12 @@ Renderer:
 
 - **Über 1** liegt jede Abweichung auf einem abgeschnittenen Pixel: helle
   Hänge zum Licht, Schnee und Sand. Ohne Abschneiden bleibt es bei ±1.
+- **Darum der Rest:** An den abgeschnittenen Pixeln steht die Farbe ohne
+  Relief in `relief/rest/`, nur zu Kacheln, die welche haben. Mit ihm
+  trifft der Mod jede Art auf ±1, nach der Regel in
+  [`map.json`](../benutzung/map-json.md), „Die Schicht lesen“. Reviewer am
+  24.10., Mod einverstanden. Übersteigt der Rest 3 % des Baums, liefert ihn
+  erst eine eigene Entscheidung aus.
 
 ## Verworfene Alternativen
 

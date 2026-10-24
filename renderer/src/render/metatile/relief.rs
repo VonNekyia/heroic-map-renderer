@@ -100,14 +100,16 @@ impl ChunkCache<'_> {
 /// Oberfläche ein Faktor auf Rot, Grün und Blau seiner Pixel, Alpha bleibt.
 /// Die Höhen kommen aus `WORLD_SURFACE` der Chunks, ein Pixel hängt so nur
 /// an der Welt, nicht am Ausschnitt. Liefert je Pixel des Bilds den Code
-/// der Schicht ([`code`]), mit Schatten, auch wenn `relief` keinen zeichnet.
+/// der Schicht ([`code`]), mit Schatten, auch wenn `relief` keinen zeichnet,
+/// und den Rest: die Farbe vor dem Relief an jedem Pixel, den es bei 255
+/// abschneidet, mit Alpha 255, sonst durchsichtig; `None` ohne solche.
 /// Siehe docs/renderer/relief.md, „Höhen“.
 pub(super) fn zeichne(
     chunks: &mut ChunkCache,
     bild: &mut RgbaImage,
     rect: ScreenRect,
     relief: Relief,
-) -> Result<Vec<u8>> {
+) -> Result<(Vec<u8>, Option<RgbaImage>)> {
     let p = chunks.sprites.projection();
     let o = p.project_block([0, 0, 0]);
     let (sx, sz) = (
@@ -142,6 +144,7 @@ pub(super) fn zeichne(
     let an = |x: i32, z: i32| hoehen[(z - gz0) as usize * breite + (x - gx0) as usize];
     let (w, h) = (bild.width() as i32, bild.height() as i32);
     let mut codes = vec![UNVERAENDERT; (w * h) as usize];
+    let mut rest: Option<RgbaImage> = None;
     for z in bz0..=bz1 {
         for x in bx0..=bx1 {
             let Some(h0) = an(x, z) else {
@@ -177,14 +180,22 @@ pub(super) fn zeichne(
                     if pixel[3] == 0 {
                         continue;
                     }
+                    let [r, g, b, _] = pixel.0;
+                    let mut geschnitten = false;
                     for c in &mut pixel.0[..3] {
-                        *c = (f32::from(*c) * faktor).round().min(255.0) as u8;
+                        let neu = (f32::from(*c) * faktor).round();
+                        geschnitten |= neu > 255.0;
+                        *c = neu.min(255.0) as u8;
+                    }
+                    if geschnitten {
+                        rest.get_or_insert_with(|| RgbaImage::new(w as u32, h as u32))
+                            .put_pixel(px as u32, py as u32, image::Rgba([r, g, b, 255]));
                     }
                 }
             }
         }
     }
-    Ok(codes)
+    Ok((codes, rest))
 }
 
 #[cfg(test)]

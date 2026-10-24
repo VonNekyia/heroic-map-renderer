@@ -82,12 +82,20 @@ siehe [0132](../entscheidungen/0132-relief-als-schicht.md).
   [2026-10-24, Relief als Schicht](../messungen/2026-10-24-relief-als-schicht.md),
   geprüft in `relief_schicht_ergibt_das_relief` in
   [`renderer/tests/cli.rs`](../../renderer/tests/cli.rs).
+- **Der Rest:** Wo das Relief der Kachel bei 255 abschneidet, liesse sich
+  die Farbe ohne Relief nicht mehr zurückrechnen. Dort steht sie im Rest,
+  `relief/rest/` mit denselben Pfaden: Rot, Grün und Blau ohne Relief, Alpha
+  255; jeder andere Pixel ist durchsichtig. Einen Rest gibt es nur zu
+  Kacheln mit solchen Pixeln. Wie ein Client damit rechnet, steht in
+  [`map.json`](../benutzung/map-json.md), „Die Schicht lesen“.
 - **Die Pyramide der Schicht** nimmt je 2 × 2 denselben Pixel wie die der
-  Kacheln. Sie entsteht von der Platte, über eigenen Hashes der Pixel in
+  Kacheln, die des Rests ebenso. Sie entsteht von der Platte, über eigenen Hashes der Pixel in
   `relief/pixel`: Im Ring des Schattens ändert sich die Schicht, wo die
   Kachel gleich bleibt.
 - **Mit der Kachel:** Die Schicht entsteht vor ihrer Kachel und
-  verschwindet mit ihr. Ein voller Lauf ohne Relief nimmt den Ordner weg.
+  verschwindet mit ihr. Schneidet das Relief einer Kachel nichts mehr ab,
+  zeigt ihr alter Rest sofort nichts mehr und verschwindet am Ende des
+  Laufs. Ein voller Lauf ohne Relief nimmt den Ordner weg.
 
 ## Wo es zeichnet
 

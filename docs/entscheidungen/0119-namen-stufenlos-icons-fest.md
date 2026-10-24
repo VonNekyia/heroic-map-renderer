@@ -38,7 +38,9 @@ aussehende Übergänge. Plan des Frontends, freigegeben vom Reviewer am
   Sichtbar bleibt der Name, bis er ausgeblendet ist.
 - **Gerade und im Bogen** werden gleich behandelt: der gerade Name um seine
   Oberkante, der Bogen um den Fuss.
-- **Der Mod** hat weiter die feste Grösse aus 0097.
+- **Der Mod** hatte zunächst weiter die feste Grösse aus 0097. Seit 0.2.69
+  folgt er dieser Regel, ohne die Animation, siehe
+  [mod 0035](https://github.com/VonNekyia/heroic-map-renderer-mod/blob/main/docs/entscheidungen/0035-namen-weit-draussen-kleiner.md).
 
 ## Verworfene Alternativen
 

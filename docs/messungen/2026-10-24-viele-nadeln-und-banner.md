@@ -1,6 +1,6 @@
 ---
 title: Viele Nadeln und Banner
-description: Stresstest der Ebenen mit 1000 Bannern und 1000 Nadeln, dicht und weit, bei dpr 1 und 3, CPU 1× und 4×; Frames, lange Aufgaben, Heap, DOM-Knoten und Pixel der Leinwände beim Laden, Ziehen, Rad und Pinch, dazu eine Chrome-Spur des Ziehens.
+description: Stresstest der Ebenen mit 1000 Bannern und 1000 Nadeln, dicht und weit, bei dpr 1 und 3, CPU 1× und 4×; Frames, lange Aufgaben, Heap, DOM-Knoten und Pixel der Leinwände beim Laden, Ziehen, Rad und Pinch, dazu eine Chrome-Spur des Ziehens und der Versuch, die Icons als Leinwand ohne Beschleunigung oder als <img> zu zeichnen.
 date: 2026-10-24
 commits: [2731158]
 code:
@@ -14,8 +14,10 @@ Mit 2000 Orten ruckelt die Karte beim Ziehen und beim Pinch, schon bei
 CPU 1×. In der Zelle, an der wir entscheiden, „weit“ bei dpr 3 und CPU 4×,
 liegt p95 beim Ziehen bei 150 ms, und die Leinwände der Icons belegen
 66 MiB. Alle drei Schwellen aus dem Plan sind überschritten. Die Zeit geht
-nicht in JS, sondern in den Compositor: Jede Leinwand ist eine eigene
-Ebene, `Commit` und `Layerize` nehmen 69 % des Hauptthreads.
+nicht in JS, sondern in `Commit` und `Layerize`, 69 % des Hauptthreads.
+Eigene Ebenen sind die Leinwände nicht, Chromium zeigt nur 4. Im Versuch
+bringt eine Leinwand ohne Beschleunigung nichts, `<img>` für die Banner
+−30 % p95; beides bleibt weit über 33 ms.
 
 ## Aufbau
 
@@ -107,15 +109,60 @@ gleich verteilt:
 | `Paint` | 448 | 3 % |
 | `Layout` | 440 | 3 % |
 
-- **Der Compositor** nimmt zwei Drittel. Jede Leinwand eines Icons ist in
-  Chromium eine eigene Ebene, und jede Bewegung baut die Liste der Ebenen
-  neu und übergibt sie.
+- **`Commit` und `Layerize`** nehmen zwei Drittel. Das sind die Schritte,
+  in denen Chromium aus dem Gezeichneten die Ebenen bildet und an den
+  Compositor übergibt.
+- **Keine Ebene je Icon:** `LayerTree` zählt in jedem Fall 4 Ebenen,
+  auch mit 2000 Leinwänden; siehe „Versuch V1 und V2“. Die Arbeit wächst
+  also mit den Elementen und ihren Leinwänden, nicht mit den Ebenen. Jedes
+  Icon setzt Leaflet mit eigener Transformation; dass das der Treiber ist,
+  ist vermutet, nicht gemessen.
 - **JS** ist klein, fast nur Leaflet, darunter `_updateOpacity` der
   Kacheln.
-- **Folgerung:** Den grössten Hebel hat, was die Zahl der Ebenen senkt.
-  Weniger Marker im DOM tut das, oder Icons, die keine eigene Ebene
-  sind, etwa `<img>` mit einem Sprite für alle oder eine Leinwand ohne
-  Beschleunigung. Welcher Weg, entscheidet ein Versuch.
+
+## Versuch V1 und V2
+
+Zwei kleine Wege, gemessen in „weit“ und „dicht“ bei dpr 3 und CPU 4×, je
+drei Läufe gegen master. Der Code liegt unter dem Tag
+`versuch/icons-leinwand-img`, siehe
+[Icons als Leinwand oder Bild](../versuche/icons-leinwand-oder-bild.md).
+
+- **V1:** die Leinwand mit `getContext('2d', { willReadFrequently: true })`,
+  also ohne Beschleunigung.
+- **V2:** Banner als `<img>` mit der Adresse ihres Sprites, Nadeln weiter
+  als Leinwand. Die CSP erlaubt Bilder nur von `'self'`; eine Nadel wird
+  eingefärbt gezeichnet und hat keine Adresse.
+
+Median aus drei Läufen, am selben Tag nach der Reihe oben, die Wege
+nacheinander: erst master, dann V1, dann V2, je 7 min. master liegt hier
+höher als oben; verglichen wird nur innerhalb dieser Tabelle.
+
+| Weg | Variante | p95 Ziehen | lang Ziehen | p95 Pinch | lang Pinch | Leinwand MiB |
+|---|---|---|---|---|---|---|
+| master | weit | 167 | 11 420 (412) | 466 | 2 672 | 66,3 |
+| V1 | weit | 150 | 11 165 (417) | 433 | 2 923 | 66,3 |
+| V2 | weit | **117** | **9 305** (439) | 467 | 2 841 | **26,1** |
+| master | dicht | 167 | 12 908 (477) | 567 | 2 936 | 66,3 |
+| V1 | dicht | 167 | 11 884 (442) | 517 | 3 606 | 66,3 |
+| V2 | dicht | **117** | **8 985** (407) | 500 | 3 313 | **26,1** |
+
+Dazu je ein Lauf mit Spur und `LayerTree` in „weit“. `LayerTree` bremst
+selbst; die Zeiten gelten nur untereinander.
+
+| Weg | Ebenen | alle Aufgaben ms | `Commit` | `Layerize` | p95 Ziehen |
+|---|---|---|---|---|---|
+| master | 4 | 15 623 | 5 858 | 4 773 | 183 |
+| V1 | 4 | 14 762 | 5 536 | 4 536 | 183 |
+| V2 | 4 | 11 017 | 2 728 | 4 003 | 100 |
+| V1 + V2 | 4 | 11 649 | 2 773 | 4 351 | 117 |
+
+- **V1 bringt nichts,** innerhalb des Rauschens. Der Hinweis
+  `willReadFrequently` ändert an den Ebenen nichts, es bleiben 4.
+- **V2** halbiert `Commit`, senkt p95 beim Ziehen um 30 % und die Leinwand
+  um die 40 MiB der Banner. Der Pinch bleibt gleich.
+- **Beide bleiben über 33 ms.** Auch V1 + V2 zusammen kommt nicht darunter.
+  Nach dem Plan ist damit V3 dran, nur Marker im Ausschnitt; dafür kommt
+  zuerst ein Plan.
 
 ## Nebenbei gerechnet
 

@@ -249,7 +249,7 @@ Geschrieben werden die Zeilen von `melde_json` und `fortschritt` in
 | `base` | alle 200 Basiskacheln und bei der letzten | `tiles`, `of`, `rate`, `eta_s`, `s` |
 | `level` | je native Stufe alle 200 Kacheln und bei ihrer letzten | `level`, `tiles`, `of`, `rate`, `eta_s`, `s` |
 | `pyramid` | je verkleinerte Zoomstufe, von fein nach grob bis 0 | `level`, `tiles` dieser Stufe |
-| `done` | einmal, am Ende des Exports | `tiles` als Basiskacheln der Karte, `s` |
+| `done` | einmal, am Ende des Exports | `tiles` als Basiskacheln der Karte, in einem Update oft nur die im Gebiet, siehe [Updates](benutzung/updates.md), „Die Liste der Basis“; `s` |
 
 - **`tiles` und `of`:** fertige Kacheln der Phase und wie viele sie hat; im
   Vorlauf `regions` und `of` für Regionen. Regionen am Rand der Welt

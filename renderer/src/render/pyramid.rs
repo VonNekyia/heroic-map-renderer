@@ -410,20 +410,32 @@ fn vorhanden<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
     Option::<T>::deserialize(feld).map(Some)
 }
 
+/// Die Grenzen dieser Kacheln in Pixeln: links, oben, rechts, unten; ohne
+/// Kacheln alle 0.
+pub fn grenzen(tiles: &BTreeSet<TileId>) -> [i32; 4] {
+    let tile = TILE as i32;
+    [
+        tiles.iter().map(|t| t.x).min().unwrap_or(0) * tile,
+        tiles.iter().map(|t| t.y).min().unwrap_or(0) * tile,
+        tiles.iter().map(|t| t.x + 1).max().unwrap_or(0) * tile,
+        tiles.iter().map(|t| t.y + 1).max().unwrap_or(0) * tile,
+    ]
+}
+
 impl MapInfo {
     pub fn new(scale: u32, max_zoom: u32, tiles: &BTreeSet<TileId>) -> MapInfo {
-        let tile = TILE as i32;
-        let links = tiles.iter().map(|t| t.x).min().unwrap_or(0) * tile;
-        let oben = tiles.iter().map(|t| t.y).min().unwrap_or(0) * tile;
-        let rechts = tiles.iter().map(|t| t.x + 1).max().unwrap_or(0) * tile;
-        let unten = tiles.iter().map(|t| t.y + 1).max().unwrap_or(0) * tile;
+        MapInfo::mit_grenzen(scale, max_zoom, grenzen(tiles))
+    }
+
+    /// Wie [`MapInfo::new`], mit den Grenzen in Pixeln.
+    pub fn mit_grenzen(scale: u32, max_zoom: u32, bounds: [i32; 4]) -> MapInfo {
         MapInfo {
             tile_size: TILE,
             scale,
             min_zoom: 0,
             max_zoom,
             tiles: "{z}/{x}/{y}.webp".to_string(),
-            bounds: [links, oben, rechts, unten],
+            bounds,
             native_levels: None,
             biome_blend: None,
             compact: None,

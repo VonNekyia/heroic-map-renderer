@@ -606,9 +606,12 @@ function fertig(el: HTMLImageElement): void {
   weiter();
 }
 
-/** Nimmt eine wartende Kachel aus der Schlange, ohne dass sie ans Netz geht. */
+/** Nimmt eine Kachel aus der Schlange: wartend, ohne dass sie ans Netz geht; ladend bricht sie ab, ohne `src`, und gibt ihren Platz frei. */
 const vergiss = (el: HTMLImageElement): void => {
   for (const wartend of schlange.wartend) wartend.delete(el);
+  if (!schlange.laufend.has(el)) return;
+  el.removeAttribute('src');
+  fertig(el);
 };
 
 /** Leaflet intern: Ladeende einer Kachel an `done` melden. */

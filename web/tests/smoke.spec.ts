@@ -901,7 +901,10 @@ async function baeume(page: Page): Promise<void> {
     await route.fulfill({ response: await route.fetch({ url }) });
   });
   await page.route('**/tiles-baeume/*/map.json', async (route) => {
-    const [, direction, flat] = /2x1-(\w+)(-flat)?\//.exec(route.request().url())!;
+    // Einen Baum, den die Liste nicht nennt, gibt es nicht.
+    const treffer = /2x1-(\w+)(-flat)?\//.exec(route.request().url());
+    if (!treffer) return route.fulfill({ status: 404 });
+    const [, direction, flat] = treffer;
     const url = route.request().url().replace(/\/tiles-baeume\/2x1-[\w-]+\//, '/tiles-demo/');
     const response = await route.fetch({ url });
     const info = (await response.json()) as { minZoom: number; maxZoom: number };
@@ -1062,4 +1065,59 @@ test('ein Baum allein braucht keinen Umschalter, nur den Kompass', async ({ page
   await expect(page.locator('.kacheln img.leaflet-tile-loaded').first()).toBeVisible();
   await expect(page.locator('select.baeume')).toHaveCount(0);
   await expect(page.locator('.kompass')).toHaveAttribute('style', /rotate\(63\.4deg\)/);
+});
+
+/** Hält Anfragen auf `muster`, bis `frei` aufgerufen wird; zählt die Anfragen der Seite in ihrer Reihenfolge. */
+async function halteBis(page: Page, muster: string): Promise<{ frei: () => void; reihe: string[] }> {
+  const reihe: string[] = [];
+  page.on('request', (r) => reihe.push(new URL(r.url()).pathname));
+  let frei = () => {};
+  const offen = new Promise<void>((weiter) => (frei = weiter));
+  await page.route(muster, async (route) => {
+    await offen;
+    await route.fallback();
+  });
+  return { frei: () => frei(), reihe };
+}
+
+test('beim Start gehen layers.json und api/ich los, bevor map.json da ist, und layers.json nur einmal', async ({ page }) => {
+  const { frei, reihe } = await halteBis(page, '**/tiles-demo/map.json');
+  await page.goto(DEMO, { waitUntil: 'commit' });
+  await expect.poll(() => reihe.includes('/tiles-demo/map.json')).toBe(true);
+  await expect.poll(() => reihe.includes('/tiles-demo/layers.json') && reihe.includes('/api/ich')).toBe(true);
+  frei();
+  await expect(page.locator('.kacheln img.leaflet-tile-loaded').first()).toBeVisible();
+  await page.waitForTimeout(500);
+  expect(reihe.filter((p) => p === '/tiles-demo/layers.json')).toHaveLength(1);
+  expect(reihe.filter((p) => p === '/api/ich')).toHaveLength(1);
+});
+
+test('mit ?tree= geht map.json dieses Baums mit trees.json los; ein Name, den es nicht gibt, nimmt danach den ersten', async ({ page }) => {
+  await baeume(page);
+  const { frei, reihe } = await halteBis(page, '**/tiles-baeume/trees.json');
+  await page.goto('/?tiles=/tiles-baeume&tree=2x1-nw', { waitUntil: 'commit' });
+  await expect.poll(() => reihe.includes('/tiles-baeume/2x1-nw/map.json')).toBe(true);
+  frei();
+  await expect(page.locator('select.baeume')).toHaveValue('2x1-nw');
+  // Einmal geholt, nicht noch einmal nach der Liste.
+  expect(reihe.filter((p) => p === '/tiles-baeume/2x1-nw/map.json')).toHaveLength(1);
+  await page.goto('/?tiles=/tiles-baeume&tree=gibt-es-nicht');
+  await expect(page.locator('select.baeume')).toHaveValue('2x1-se');
+  await page.unrouteAll({ behavior: 'ignoreErrors' });
+});
+
+test('?tree= ohne den Namen eines Baums holt map.json erst nach trees.json und nie ausserhalb des Ordners', async ({ page }) => {
+  await baeume(page);
+  const reihe: string[] = [];
+  page.on('request', (r) => reihe.push(new URL(r.url()).pathname));
+  for (const tree of ['../x', '..%2Fx', 'a%2F..%2F..%2Fx', 'A-GROSS']) {
+    reihe.length = 0;
+    await page.goto(`/?tiles=/tiles-baeume&tree=${tree}`);
+    await expect(page.locator('select.baeume')).toHaveValue('2x1-se');
+    const karten = reihe.filter((p) => p.endsWith('/map.json'));
+    expect(karten, tree).toEqual(['/tiles-baeume/2x1-se/map.json']);
+    // Vor trees.json kein map.json.
+    expect(reihe.indexOf('/tiles-baeume/trees.json'), tree).toBeLessThan(reihe.indexOf('/tiles-baeume/2x1-se/map.json'));
+  }
+  await page.unrouteAll({ behavior: 'ignoreErrors' });
 });

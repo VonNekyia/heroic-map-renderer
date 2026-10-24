@@ -59,6 +59,26 @@ Ohne echte Kacheln zeigt `http://localhost:5173/?tiles=/tiles-demo` einen
 kleinen Kachelbaum, der mit im Repository liegt, 7 Dateien, 6,6 kB. Er ist
 zugleich das Fixture des Smoke-Tests.
 
+## Laden
+
+Beim Öffnen holt die Seite, was nicht aufeinander wartet, zugleich
+([`main.ts`](../web/src/main.ts), `start`):
+
+- **Gleich zu Beginn:** `trees.json`, `layers.json` und, ohne Anmelde-Token,
+  `api/ich` (`ebenenVorab` in [`ebenen.ts`](../web/src/ebenen.ts)). Die
+  Ebenen nehmen die Liste und die erste Antwort von `api/ich` von dort, statt
+  sie nach dem Aufbau der Karte noch einmal zu fragen. Mit Token fragt die
+  Seite `api/ich` erst nach dem Anmelden.
+- **Mit `?tree=`** geht `map.json` dieses Baums mit `trees.json` los, aber
+  nur, wenn der Name die Form eines Baums hat, `^[a-z0-9-]{1,64}$`
+  (`BAUM_NAME`); ein Link kann alles enthalten. Nennt die Liste den Baum,
+  nimmt die Karte diese Antwort, sonst holt sie den ersten Baum wie bisher.
+- **Danach** in dieser Reihe: `map.json`, die Karte, dann je Ebene ihre Datei,
+  bei Bannern mit Entwurf `satz.json` und die Sprites, und die Kartenschrift.
+- **Gemessen** in [Start der Webkarte](messungen/2026-10-24-start-der-webkarte.md):
+  bei 150 ms Umlaufzeit kommt das erste Objekt einer Ebene 330 ms früher, mit
+  `?tree=` 530 ms früher, die erste Kachel mit `?tree=` 180 ms früher.
+
 ## Einem Render zusehen
 
 Wer einem langen Render zusehen will, legt die Kacheln woanders ab und
@@ -538,7 +558,8 @@ für alle Banner.
   - der Fuss auf `P(x, y + 1, z)`: beim Sprite der Punkt `foot` aus
     `satz.json`, die linke obere Ecke also auf Ort − `foot`; sonst
     `⌊Breite / 2⌋` Pixel rechts der linken Kante, an der Unterkante; ohne `y` auf der Oberfläche aus den Höhen, bilinear zwischen den
-    Zellen, einmal je Punkt gerechnet. Koordinaten und Ebenen teilen sich
+    Zellen, einmal je Punkt gerechnet und für höchstens 4096 Punkte gemerkt,
+    der am längsten nicht gefragte fällt zuerst. Koordinaten und Ebenen teilen sich
     einen Cache der Höhen ([`web/src/hoehen.ts`](../web/src/hoehen.ts));
   - die Nadel mit `head`: das Gesicht aus `koepfe/<head>.png` der Wurzel
     statt Schild und Nadel, nach
@@ -1036,6 +1057,12 @@ npm run check     # tsc --noEmit
 npm run lint      # ESLint
 npm test          # Playwright, baut vorher und prüft den Build
 ```
+
+ESLint prüft dazu mit einer eigenen Regel in
+[`web/eslint.config.js`](../web/eslint.config.js), `eigen/jsdoc-doppelt`,
+dass nie zwei JSDoc-Blöcke ohne Leerzeile aufeinander folgen: Der erste hinge
+an nichts, etwa wenn eine Konstante zwischen ein JSDoc und seine Funktion
+rutscht.
 
 Die Tests: [Tests](entwicklung/tests.md). Lighthouse in der CI und lokal:
 [CI](entwicklung/ci.md), „Lighthouse“.

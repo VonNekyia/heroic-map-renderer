@@ -4385,7 +4385,8 @@ fn pruefe_look(dir: &Path, bestand: Option<&MapInfo>, look: Option<&Look>) -> Re
 /// Ob dieser Lauf das Relief des Baums aus `map.json` wechselt. Das darf
 /// nur ein voller Lauf, und er zeichnet dann jede Kachel neu, auch mit
 /// `--resume`. Ein Update und ein Ausschnitt brechen ab, bevor sie einen
-/// Chunk lesen; sie mischten sonst Kacheln mit und ohne Relief.
+/// Chunk lesen; sie mischten sonst Kacheln mit und ohne Relief. Den Satz
+/// „Das Relief wechselt nur ein voller Lauf“ liest das Plugin.
 /// Siehe docs/benutzung/updates.md, „Relief wechseln“.
 fn pruefe_relief(
     dir: &Path,

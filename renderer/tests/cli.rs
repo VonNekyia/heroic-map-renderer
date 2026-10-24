@@ -5909,6 +5909,9 @@ fn relief_wechselt_nur_mit_vollem_lauf() {
     assert!(info(baum.path()).get("relief").is_none());
     let ohne = schnappschuss(baum.path());
 
+    // Das Plugin erkennt den Wechsel am Satz „Das Relief wechselt nur ein
+    // voller Lauf“: den Wortlaut nur zusammen mit dem Plugin ändern.
+    // Siehe docs/plugin.md, „Was das Plugin vom Renderer nutzt“.
     for dazu in [
         &["--relief", "slope", "--update"][..],
         &["--relief", "slope", "--size", "64"],
@@ -5964,7 +5967,8 @@ fn relief_wechselt_nur_mit_vollem_lauf() {
         !ausgabe.status.success()
             && meldung.contains(
                 "gehört zu einem Baum mit Relief slope, dieser Lauf zeichnet ohne Relief"
-            ),
+            )
+            && meldung.contains("Das Relief wechselt nur ein voller Lauf"),
         "{meldung}"
     );
     gelungen(&lauf(&[]));

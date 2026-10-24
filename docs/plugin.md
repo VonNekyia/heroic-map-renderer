@@ -61,8 +61,10 @@ dem Plugin-Programmierer ab.
     voll, Update und Fortsetzen, nur mit `camera: "top-north"` aus `s` und
     ohne Cinematic. Der Ordner bleibt.
   - Wechselt das Relief, bricht ein Update ab, mit „Das Relief wechselt nur
-    ein voller Lauf“ in der Meldung (`pruefe_relief` in `cli.rs`). Dann
-    braucht der Baum einen vollen Lauf, siehe
+    ein voller Lauf“ in der Meldung (`pruefe_relief` in `cli.rs`). Den
+    Wortlaut hält `relief_wechselt_nur_mit_vollem_lauf` in
+    `renderer/tests/cli.rs` fest. Dann braucht der Baum einen vollen Lauf,
+    siehe
     [Updates](benutzung/updates.md), „Relief wechseln“.
   - Steigt `ZEICHENSTAND_RELIEF`, nennen die Notizen des Release die Bäume
     mit `--relief`, siehe unten.

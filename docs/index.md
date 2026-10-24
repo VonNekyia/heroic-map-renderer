@@ -205,6 +205,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 
 Gemessen und tragfähig, aber nicht übernommen. Der Code liegt je in einem Tag `versuch/…`.
 
+- [Rand der feinen Kacheln](versuche/rand-feiner-kacheln.md): D2, die feinen Kacheln eine Kachel über das Fenster hinaus; bei 50 Mbit/s 3,6 → 0,6 % schwarz beim Ziehen, bei 10 Mbit/s 6,0 → 8,9 %, für +60 % Bytes; verworfen, wieder messen nach einer Warteschlange mit Vorrang fürs Sichtbare.
 - [Arbeit je Block über die nativen Stufen](versuche/arbeit-je-block.md): #207 B1, die nativen Stufen eines Bands nehmen Licht, Farben und Masken voneinander, wo ihre Tabellen dasselbe geben; −4 bis −7 % für 0,8 bis 2,0 GiB mehr Speicher.
 
 ## Messungen
@@ -276,6 +277,7 @@ Gemessen und tragfähig, aber nicht übernommen. Der Code liegt je in einem Tag 
 - [2026-10-24, Relief von oben](messungen/2026-10-24-relief-von-oben.md): `--relief` auf einer Stadt der grossen Welt bei scale 4, erster Render im Rauschen, je Kachel auf einem Thread `slope` +2 %, `shadows` +5 %, Platz +13 bis 19 %, Kacheln je Chunk 2,25 und 3,06.
 - [2026-10-24, Updates je Phase](messungen/2026-10-24-updates-je-phase.md): ein Update wie im Plugin an der Testwelt, 2:1 scale 32, ein Thread: ohne Änderung 0,71 s, mit 16 Änderungen 15,1–15,9 s, davon Basis 61 %, Pyramide 19 %; von 1960 Kacheln im Gebiet 10 mit neuen Pixeln, eine Grenze nach unten liesse 41,6 % weg, keine davon neu.
 - [2026-10-20, Flächen nach 0111](messungen/2026-10-20-flaechen-nach-0111.md): Punkte im DOM, gerechnete Punkte und JS-Heap, wenn auch die Flächen 0111 folgen, mit Feldern ab 4 und ab 16 px; weit 94 141 auf 781 Punkte, Heap 3,4–6,8 MB; ohne Laufzeit.
+- [2026-10-24, Rand der feinen Kacheln](messungen/2026-10-24-rand-feiner-kacheln.md): Kachelstrom mit Grundschicht, ohne und mit Rand der feinen Kacheln, 50 und 10 Mbit/s; bei 10 Mbit/s schlechter, +60 % Bytes; keine doppelten Anfragen nahe `minNativeZoom`.
 - [2026-10-24, Grundschicht](messungen/2026-10-24-grundschicht.md): Kachelstrom auf der grossen Welt vor und mit einer Grundschicht, fünf Stände, 50 und 10 Mbit/s; mit 3 Stufen ohne Ring schwarz beim Ziehen 8,2 → 1,8 %, beim Hineinzoomen 19,4 → 0 %, für +3–15 % Bytes.
 - [2026-10-24, Regionen im iso schneller](messungen/2026-10-24-regionen-im-iso-schneller.md): Rechnen der Ansichten, lange Tasks, Bildzeit, Heap und Anfragen der Höhen auf der grossen Welt vor und nach 0123, je drei Läufe; Blockieren 3 952 → 21 ms, Rechnen 3 828 → 454 ms.
 - [2026-10-09, Flächen im Browser](messungen/2026-10-09-flaechen-im-browser.md): was ein Kreis mit 2000 Blöcken Radius auf der Webkarte an Zeit, JS-Heap und Punkten kostet, nur mit Rand, gefüllt und mit Tafel und Schrift, von oben und im iso.

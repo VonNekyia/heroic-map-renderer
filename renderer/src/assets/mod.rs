@@ -553,7 +553,7 @@ fn find_file<'a>(
 
 /// Die Vorlagen der Bodenpflanzen in den Modellen des Spiels: das Kreuz,
 /// die Ebenen der Feldfrüchte, Blütenteppiche und Laub, die Vorlage des
-/// Seegrases.
+/// Seegrases, die Stiele von Kürbis und Melone.
 /// Siehe docs/renderer/cinematic.md, „Bodenpflanzen“.
 fn vorlage_der_bodenpflanzen(id: &str) -> bool {
     let (namespace, name) = split_id(id);
@@ -565,8 +565,10 @@ fn vorlage_der_bodenpflanzen(id: &str) -> bool {
                 | "block/cross_emissive"
                 | "block/crop"
                 | "block/template_seagrass"
+                | "block/stem_fruit"
         ) || name.starts_with("block/flowerbed_")
-            || name.starts_with("block/template_leaf_litter_"))
+            || name.starts_with("block/template_leaf_litter_")
+            || name.starts_with("block/stem_growth"))
 }
 
 /// `minecraft:block/stone` -> `("minecraft", "block/stone")`. Ohne Namensraum,

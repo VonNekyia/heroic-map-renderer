@@ -8,7 +8,8 @@ use crate::assets::baker::{BakedModel, Quad, box_quads};
 use crate::assets::blockentity;
 use crate::assets::blockstate::{self, KOLLISION, ModelRef, Nachbarregel, seite};
 use crate::assets::colors::{
-    Resolver, Source, Tint, eigene_laubfarbe, source_of, tinted_below, ungetoentes_laub,
+    Resolver, Source, Tint, eigene_laubfarbe, source_of, source_of_state, tinted_below,
+    ungetoentes_laub,
 };
 use crate::assets::fluid::Fluid;
 use crate::assets::laubkopie::Kopie;
@@ -1252,7 +1253,7 @@ impl SpriteSet {
             });
         // Fichte und Birke tragen ihre feste Farbe sonst im Bild; mit
         // eigenen Laubfarben bekommen sie eine Tönungskarte wie Eiche.
-        let source = match source_of(state.name()).filter(|_| block) {
+        let source = match source_of_state(state).filter(|_| block) {
             _ if block && self.festes_laub && eigene_laubfarbe(state.name()) => {
                 Some(Source::Biome(Resolver::Foliage))
             }

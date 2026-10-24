@@ -2135,13 +2135,16 @@ fn write_tiles(
         stand => stand,
     };
     // Ein voller Lauf über einen Baum mit Stand weiss wie ein Update, welche
-    // Chunks sich geändert haben, auch mit --resume.
-    let aenderungen = match (aenderungen, &stand) {
-        (None, Some(neu)) if matches!(bereich, Bereich::Welt) => lies_stand(dir, STAND)
-            .ok()
-            .flatten()
-            .map(|alt| neu.aenderungen_seit(&alt, Y_RANGE.1)),
-        (aenderungen, _) => aenderungen,
+    // Chunks sich geändert haben, auch mit --resume. Den alten Stand liest er
+    // dafür einmal; vor der ersten Kachel macht er darin unbekannt, was er
+    // liest.
+    let alter_stand = match bereich {
+        Bereich::Welt => lies_stand(dir, STAND).ok().flatten(),
+        Bereich::Update | Bereich::Ausschnitt(_) => None,
+    };
+    let aenderungen = match (aenderungen, &stand, &alter_stand) {
+        (None, Some(neu), Some(alt)) => Some(neu.aenderungen_seit(alt, Y_RANGE.1)),
+        (aenderungen, _, _) => aenderungen,
     };
 
     // Basiskacheln eines früheren Laufs, die kein Chunk mehr berührt; der
@@ -2334,22 +2337,22 @@ fn write_tiles(
     // Update und ein Ausschnitt legen ihr Gebiet ab, das nächste Update
     // zeichnet es noch einmal.
     // Siehe docs/benutzung/updates.md, „Das offene Gebiet“.
-    if let Some(alt) = lies_stand(dir, STAND).ok().flatten() {
-        match &gebiet {
-            None => {
-                let alt = alt.unbekannt_wo(
-                    &world.stempel()?,
-                    |cx, cz| reach.liest(cx, cz),
-                    |rx, rz| reach.region(rx, rz),
-                );
-                lege_stand_ab(dir, STAND, &alt)?;
-            }
-            Some(gebiet) => {
-                let mut offen = lies_offen(dir, stufen)?;
-                offen.extend(gebiet.kacheln().iter().copied());
-                lege_offen_ab(dir, stufen, &offen)?;
-            }
+    match (&gebiet, alter_stand) {
+        (None, Some(alt)) => {
+            let alt = alt.unbekannt_wo(
+                &world.stempel()?,
+                |cx, cz| reach.liest(cx, cz),
+                |rx, rz| reach.region(rx, rz),
+            );
+            lege_stand_ab(dir, STAND, &alt)?;
         }
+        // Für das Gebiet reicht es, dass es einen Stand gibt.
+        (Some(gebiet), _) if dir.join(STAND).exists() => {
+            let mut offen = lies_offen(dir, stufen)?;
+            offen.extend(gebiet.kacheln().iter().copied());
+            lege_offen_ab(dir, stufen, &offen)?;
+        }
+        _ => {}
     }
     // Der angefangene Stand, ebenso vor der ersten Kachel: Bricht der Lauf
     // ab, setzt --resume mit ihm fort. Ein Fortsetzen behält den alten,

@@ -502,6 +502,13 @@ für alle Banner.
   nicht höher ist, sonst ganz unten. „Reihe des Servers“ unter der Liste,
   nur bei umgestellter Reihe, löscht den Eintrag. Panes und Liste folgen
   derselben Reihe; „Mitspieler“ bleibt oben.
+- **Zoomgrenze,** nach [0131](entscheidungen/0131-zoomgrenze-je-ebene.md):
+  Mit `maxBlocksPerPixel` aus `layers.json` lädt und zeigt die Karte eine
+  Ebene nur, solange ein CSS-Pixel höchstens so viele Blöcke zeigt
+  (`imBereich`). Nach jedem Zoom hängt `bereichAnwenden` sie aus oder ein,
+  ohne neu zu laden; eine offene Tafel schliesst dabei, der Fokus geht an
+  die Karte. Die Zeile in der Liste bleibt angehakt und steht jenseits der
+  Grenze gedimmt mit „(beim Hineinzoomen)“.
 - **Laden:** Eine Ebene lädt erst, wenn sie an ist. Alle 30 Sekunden und
   beim Zurückkehren auf den Tab fragt die Karte `layers.json` mit
   `cache: 'no-cache'` nach und lädt neu, was an ist und eine neue `version`

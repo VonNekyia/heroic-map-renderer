@@ -205,6 +205,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0127](entscheidungen/0127-grenze-nach-unten.md): Ein Update auf der Karte ohne Cinematic und Relief zeichnet einen geänderten Chunk erst ab `min(16·K_alt, E_neu) − 16`, wenn seine Sections unter K denselben Abdruck H haben; E der tiefste erste Block, der das Licht ganz aufhält; ergänzt 0062.
 - [0128](entscheidungen/0128-marker-nur-im-ausschnitt.md): Nadeln und Banner nur im Fenster mit einem Rand von einem Viertel je Seite im DOM, Icons erst beim ersten Sichtbarwerden in Stücken gebaut; offene Tafel und Fokus halten einen Marker; Tab erreicht nur Orte im Rahmen.
 - [0129](entscheidungen/0129-banner-als-bild.md): Ein Banner als `<img>` mit der Adresse seines Sprites, `pixelated`, alle mit demselben Bild teilen es; Nadeln und Köpfe bleiben Leinwand, ohne Änderung an der CSP; Pixel auf Pixel auf dem Schirm geprüft.
+- [0131](entscheidungen/0131-zoomgrenze-je-ebene.md): Die Webkarte zeigt und lädt eine Ebene nur bis `maxBlocksPerPixel` Blöcke je CSS-Pixel, genau auf der Grenze sichtbar; beim Zoomen aus- und einhängen ohne neues Laden; eine offene Tafel schliesst, der Fokus geht an die Karte.
 - [0114](entscheidungen/0114-koepfe-der-mitspieler.md): Mitspieler als ihr Gesicht, 8 × 8 mit Hutschicht, öffentlich unter `koepfe/<sha256>.png` nach dem Hash des Bildes, `immutable`, `kopf` in `sicht.json`; kein Steve und kein Alex, Aufräumen über die Zeit der Datei; die Karte prüft 64 hex, 16 KiB, 8 × 8.
 
 ## Versuche

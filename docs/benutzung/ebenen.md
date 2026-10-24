@@ -138,8 +138,12 @@ genug ist, etwa Regionen nur, bis die Karte weit draussen ist.
   älteren Liste. Ansichten, die das Feld nicht kennen, zeigen die Ebene
   immer.
 - **Im Plugin:** `Layer.maxBlocksPerPixel(double)`, bei Ebenen aus Dateien
-  `maxBlocksPerPixel` im Kopf. Das Plugin schreibt das Feld nur, wenn eine
-  Grenze gesetzt ist; ab welcher Fassung, steht in seiner Doku.
+  `maxBlocksPerPixel` im Kopf. Das Plugin schreibt das Feld ab 0.20.0 in die
+  Liste, nur wenn eine Grenze gesetzt ist, auch für Aktionsebenen; in der
+  Datei der Ebene unter `layers/` steht es nicht.
+- **Webkarte:** wie sie aus- und einhängt, was mit Tafel und Fokus
+  geschieht, steht in
+  [0131](../entscheidungen/0131-zoomgrenze-je-ebene.md).
 
 ## Datei einer Ebene
 
@@ -156,9 +160,10 @@ genug ist, etwa Regionen nur, bis die Karte weit draussen ist.
 ```
 
 - **Kopf:** `id`, `name`, `visible` und `order` wie in der Liste, dazu
-  `designs`, die Entwürfe der Banner, siehe „Banner“. Beim Plugin auch
-  `maxBlocksPerPixel`; es übernimmt den Wert in die Liste, siehe
-  „Zoomgrenze“.
+  `designs`, die Entwürfe der Banner, siehe „Banner“. In den Ebenen aus
+  Dateien des Plugins auch `maxBlocksPerPixel`; das Plugin übernimmt den
+  Wert in die Liste und schreibt ihn nicht in die Datei unter `layers/`,
+  siehe „Zoomgrenze“.
 - **Nur beim Plugin:**
   - `web`, Vorgabe `true`: ob die Ebene auf die Webkarte kommt;
   - `permission`: wer sie im Mod sieht. Eine Ebene mit `permission` kommt

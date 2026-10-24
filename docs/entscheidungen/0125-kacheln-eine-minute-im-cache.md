@@ -43,9 +43,9 @@ entschieden.
 
 ## Folgen
 
-- **Frische:** Eine getauschte Kachel zeigt der Browser höchstens eine
-  Minute lang alt. Ein Update des Plugins kommt ohnehin nur alle paar
-  Minuten.
+- **Frische:** Lädt die Webkarte eine Kachel nach einem Update innerhalb von
+  60 s noch einmal, sieht sie bis zu 60 s die alte. Updates kommen nur alle
+  2 min; das ist in Kauf genommen.
 - **Kosten nach Regel 26:** Am Renderer nichts. Beim Betrachter entfallen
   die Nachfragen innerhalb einer Minute. Frontend misst nach dem Rollout auf
   dem Spiegel mit demselben Skript.

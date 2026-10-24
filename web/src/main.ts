@@ -13,7 +13,7 @@ import {
   type Block,
   type Projektion,
 } from './pick';
-import { ebenen } from './ebenen';
+import { ebenen, ebenenVorab } from './ebenen';
 import { nimmToken } from './konto';
 import { FRISCH, hoehen, type Hoehenkarten } from './hoehen';
 import { VERSION, type Grenzen, type Rechteck } from './skin-api';
@@ -75,6 +75,12 @@ function point(x: number, y: number): L.LatLng {
 }
 
 /**
+ * Leaflets Typen führen `transformation` nicht auf, obwohl jede
+ * mitgelieferte CRS sie setzt und `latLngToPoint` sie benutzt.
+ */
+type Crs = L.CRS & { transformation: L.Transformation };
+
+/**
  * Das Koordinatensystem der Karte.
  *
  * Eine Karteneinheit ist ein Pixel der feinsten Stufe. Leaflets
@@ -82,12 +88,6 @@ function point(x: number, y: number): L.LatLng {
  * Stufe den Faktor 1 bekommen.
  * Siehe docs/frontend.md, „Das Koordinatensystem“.
  */
-/**
- * Leaflets Typen führen `transformation` nicht auf, obwohl jede
- * mitgelieferte CRS sie setzt und `latLngToPoint` sie benutzt.
- */
-type Crs = L.CRS & { transformation: L.Transformation };
-
 function crs(info: MapInfo): Crs {
   const simple = L.CRS.Simple as Crs;
   return {
@@ -476,6 +476,9 @@ function istBaum(value: unknown): value is Baum {
   return ['path', 'camera', 'direction', 'look'].every((feld) => typeof baum[feld] === 'string');
 }
 
+/** Der Name eines Baums, wie ihn `trees.json` nennt; nur so geht `map.json` aus `?tree=` vor der Liste los. */
+const BAUM_NAME = /^[a-z0-9-]{1,64}$/;
+
 /** Die Bäume aus `trees.json`, oder `null` ohne sie: dann ist `wurzel` selbst ein Baum. */
 async function ladeListe(wurzel: string): Promise<Baum[] | null> {
   const path = `${wurzel}/trees.json`;
@@ -701,10 +704,15 @@ async function start(): Promise<void> {
   // den Smoke-Test und für mehrere Karten auf demselben Server da.
   const parameter = new URLSearchParams(location.search);
   const wurzel = parameter.get('tiles') ?? 'tiles';
+  // Neben trees.json schon, was nicht am Baum hängt; siehe docs/frontend.md, „Laden“.
+  const vorab = ebenenVorab(wurzel, token !== undefined);
+  // map.json des Baums aus ?tree= gleich mit, nur mit dem Namen eines Baums; ein Link kann alles enthalten.
+  const gewuenscht = parameter.get('tree');
+  const vorabBaum = gewuenscht && BAUM_NAME.test(gewuenscht) ? load(`${wurzel}/${gewuenscht}`).catch(() => undefined) : undefined;
   const liste = await ladeListe(wurzel);
-  const baum = liste && (liste.find((b) => b.path === parameter.get('tree')) ?? liste[0]!);
+  const baum = liste && (liste.find((b) => b.path === gewuenscht) ?? liste[0]!);
   const base = baum ? `${wurzel}/${baum.path}` : wurzel;
-  const { info, stand } = await load(base);
+  const { info, stand } = (baum?.path === gewuenscht ? await vorabBaum : undefined) ?? (await load(base));
   const hoechste = info.maxZoom + extraZoom(info.scale);
 
   const [left, top, right, bottom] = info.bounds;
@@ -789,7 +797,7 @@ async function start(): Promise<void> {
     // der Cache hält so viele wie eine Ansicht höchstens lädt, `HOEHEN_BYTES`.
     const bodenCell = hatHoehen(info) && zelleGilt(info.groundCell) ? info.groundCell : heightsCell;
     const boden = karten && hatHoehen(info) && typeof info.ground === 'string' ? hoehen(base, info.ground, bodenCell!) : undefined;
-    void ebenen({ map, wurzel, blick, scale, maxZoom, karten, boden, bodenCell, heightsCell, seaLevel, minY, maxY, area, satz: satz ?? undefined, token }).catch(
+    void ebenen({ map, wurzel, blick, scale, maxZoom, karten, boden, bodenCell, heightsCell, seaLevel, minY, maxY, area, satz: satz ?? undefined, token, vorab }).catch(
       (error: unknown) => console.error(error),
     );
   }

@@ -59,6 +59,26 @@ Ohne echte Kacheln zeigt `http://localhost:5173/?tiles=/tiles-demo` einen
 kleinen Kachelbaum, der mit im Repository liegt, 7 Dateien, 6,6 kB. Er ist
 zugleich das Fixture des Smoke-Tests.
 
+## Laden
+
+Beim Öffnen holt die Seite, was nicht aufeinander wartet, zugleich
+([`main.ts`](../web/src/main.ts), `start`):
+
+- **Gleich zu Beginn:** `trees.json`, `layers.json` und, ohne Anmelde-Token,
+  `api/ich` (`ebenenVorab` in [`ebenen.ts`](../web/src/ebenen.ts)). Die
+  Ebenen nehmen die Liste und die erste Antwort von `api/ich` von dort, statt
+  sie nach dem Aufbau der Karte noch einmal zu fragen. Mit Token fragt die
+  Seite `api/ich` erst nach dem Anmelden.
+- **Mit `?tree=`** geht `map.json` dieses Baums mit `trees.json` los, aber
+  nur, wenn der Name die Form eines Baums hat, `^[a-z0-9-]{1,64}$`
+  (`BAUM_NAME`); ein Link kann alles enthalten. Nennt die Liste den Baum,
+  nimmt die Karte diese Antwort, sonst holt sie den ersten Baum wie bisher.
+- **Danach** in dieser Reihe: `map.json`, die Karte, dann je Ebene ihre Datei,
+  bei Bannern mit Entwurf `satz.json` und die Sprites, und die Kartenschrift.
+- **Gemessen** in [Start der Webkarte](messungen/2026-10-24-start-der-webkarte.md):
+  bei 150 ms Umlaufzeit kommt das erste Objekt einer Ebene 330 ms früher, mit
+  `?tree=` 530 ms früher, die erste Kachel mit `?tree=` 180 ms früher.
+
 ## Einem Render zusehen
 
 Wer einem langen Render zusehen will, legt die Kacheln woanders ab und
@@ -141,9 +161,17 @@ laden; statt des Grunds der Karte sieht man dort die Gegend unscharf.
   deckt 8 × 8 feine. Für +3–15 % Bytes fällt das Schwarz beim
   Hineinzoomen weg, beim Ziehen sinkt es von 8–9 % auf 2–5 % des Fensters,
   und das volle Bild nach dem Laden kommt 37–45 % früher. Ein Ring von
-  einer Kachel nähme den Rest, kostete aber +26–53 %; das entscheidet die
-  Messung des Rands der feinen Kacheln. Wo die Pyramide endet, laden beide
-  dieselbe Stufe, und der Browser holt sie einmal.
+  einer Kachel nähme den Rest, kostete aber +26–53 %. Wo die Pyramide
+  endet, laden beide dieselbe Stufe, und der Browser holt sie einmal.
+- **Kein Rand:** Weder die Grundschicht noch die feinen Kacheln laden über
+  das Fenster hinaus. Ein Rand der feinen Kacheln ist gemessen und
+  verworfen: Bei 10 Mbit/s nimmt er den sichtbaren die Bandbreite, und er
+  kostet +60 % Bytes; siehe [Rand der feinen Kacheln](versuche/rand-feiner-kacheln.md).
+- **Keine eigene Warteschlange:** Die Kacheln fragt Leaflet an wie immer.
+  Eine Warteschlange mit Vorrang der Grundschicht ist gemessen und
+  verworfen: Über HTTP/1.1 hält Chromium die Anfragen selbst zurück, und
+  eine eigene kostet Bytes oder Verbindungen; siehe
+  [Warteschlange der Kacheln](versuche/warteschlange-der-kacheln.md).
 
 ## Koordinaten
 
@@ -530,7 +558,8 @@ für alle Banner.
   - der Fuss auf `P(x, y + 1, z)`: beim Sprite der Punkt `foot` aus
     `satz.json`, die linke obere Ecke also auf Ort − `foot`; sonst
     `⌊Breite / 2⌋` Pixel rechts der linken Kante, an der Unterkante; ohne `y` auf der Oberfläche aus den Höhen, bilinear zwischen den
-    Zellen, einmal je Punkt gerechnet. Koordinaten und Ebenen teilen sich
+    Zellen, einmal je Punkt gerechnet und für höchstens 4096 Punkte gemerkt,
+    der am längsten nicht gefragte fällt zuerst. Koordinaten und Ebenen teilen sich
     einen Cache der Höhen ([`web/src/hoehen.ts`](../web/src/hoehen.ts));
   - die Nadel mit `head`: das Gesicht aus `koepfe/<head>.png` der Wurzel
     statt Schild und Nadel, nach
@@ -938,11 +967,17 @@ liegen als `tiles/` daneben, oder `?tiles=` nennt ihren Pfad.
   Grundschicht, siehe „Grundschicht“; ein neues Leaflet braucht einen Blick
   auf alle vier.
 - **Cache:** Ein neuer Lauf tauscht Kacheln unter derselben URL. Damit der
-  Browser danach den neuen Stand zeigt:
-  - **Betreiber** setzen für `tiles/` `Cache-Control: no-cache`, in nginx
-    etwa `location /tiles/ { add_header Cache-Control no-cache; }`. Der
-    Browser fragt dann je Kachel mit `ETag` oder `Last-Modified` nach, und
-    für eine unveränderte kommt ein kurzes 304.
+  Browser danach bald den neuen Stand zeigt, ohne je Besuch jede Kachel neu
+  zu erfragen, nach [0125](entscheidungen/0125-kacheln-eine-minute-im-cache.md):
+  - **Kacheln** (`*.webp` eines Baums): `Cache-Control: max-age=60` mit
+    `ETag` oder `Last-Modified`. Eine Minute nimmt der Browser sie ohne
+    Nachfrage aus dem Cache, danach fragt er nach, und für eine unveränderte
+    kommt ein kurzes 304. So setzt es `--serve`; in nginx etwa
+    `location ~ ^/tiles/(?!layers/).*\.webp$ { add_header Cache-Control "max-age=60"; }`, ohne die Bilder der Ebenen unter `layers/`.
+    Mit `no-cache` kostete jede Kachel bei jedem Besuch einen Umlauf.
+  - **Alles andere unter `tiles/`**, `map.json`, `trees.json`,
+    `layers.json`, die Ebenen samt ihren Bildern und die Höhen, bleibt bei
+    `Cache-Control: no-cache`.
   - **Ohne den Header** schätzt der Browser die Frische selbst, üblich 10 %
     der Zeit seit `Last-Modified` (RFC 9111, 4.2.2). Eine Kachel, die 30
     Tage unverändert war, zeigt er nach einem neuen Lauf bis etwa 3 Tage
@@ -1022,6 +1057,12 @@ npm run check     # tsc --noEmit
 npm run lint      # ESLint
 npm test          # Playwright, baut vorher und prüft den Build
 ```
+
+ESLint prüft dazu mit einer eigenen Regel in
+[`web/eslint.config.js`](../web/eslint.config.js), `eigen/jsdoc-doppelt`,
+dass nie zwei JSDoc-Blöcke ohne Leerzeile aufeinander folgen: Der erste hinge
+an nichts, etwa wenn eine Konstante zwischen ein JSDoc und seine Funktion
+rutscht.
 
 Die Tests: [Tests](entwicklung/tests.md). Lighthouse in der CI und lokal:
 [CI](entwicklung/ci.md), „Lighthouse“.

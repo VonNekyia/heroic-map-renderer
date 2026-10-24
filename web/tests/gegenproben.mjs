@@ -161,4 +161,8 @@ export default [
   { name: 'grund-zwei-stufen', datei: 'src/main.ts', alt: 'const GRUND = { stufen: 3 };', neu: 'const GRUND = { stufen: 2 };', spec: 'tests/smoke.spec.ts', titel: 'die Grundschicht liegt drei Stufen gröber' },
   { name: 'grund-nicht-groeber', datei: 'src/main.ts', alt: 'grob ? Math.round(zoom) - grob : zoom', neu: 'grob ? Math.round(zoom) - 0 * grob : zoom', spec: 'tests/smoke.spec.ts', titel: 'die Grundschicht liegt unter den Kacheln' },
   { name: 'grund-oben', datei: 'src/main.ts', alt: "grob: GRUND.stufen, zIndex: 0, className: 'grund'", neu: "grob: GRUND.stufen, zIndex: 2, className: 'grund'", spec: 'tests/smoke.spec.ts', titel: 'die Grundschicht liegt unter den Kacheln' },
+  // Wasserfall beim Start, A2.
+  { name: 'ebenen-erst-nach-karte', datei: 'src/main.ts', alt: 'satz: satz ?? undefined, token, vorab }).catch(', neu: 'satz: satz ?? undefined, token, vorab: void vorab }).catch(', spec: 'tests/smoke.spec.ts', titel: 'beim Start gehen layers.json und api/ich los' },
+  { name: 'baum-ohne-pruefung', datei: 'src/main.ts', alt: 'gewuenscht && BAUM_NAME.test(gewuenscht) ?', neu: 'gewuenscht && (BAUM_NAME.test(gewuenscht) || true) ?', spec: 'tests/smoke.spec.ts', titel: '?tree= ohne den Namen eines Baums' },
+  { name: 'vorab-baum-ungenutzt', datei: 'src/main.ts', alt: '(baum?.path === gewuenscht ? await vorabBaum : undefined) ??', neu: '(baum?.path === gewuenscht && !vorabBaum ? await vorabBaum : undefined) ??', spec: 'tests/smoke.spec.ts', titel: 'mit ?tree= geht map.json dieses Baums mit trees.json los' },
 ];

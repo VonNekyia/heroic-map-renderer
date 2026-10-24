@@ -1098,13 +1098,22 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     const [gb, gh] = [b * k, h * k];
     const [sb, sh] = [gb / devicePixelRatio, gh / devicePixelRatio];
     const html = L.DomUtil.create('div', 'nadel');
-    const kopie = document.createElement('canvas');
-    [kopie.width, kopie.height] = [gb, gh];
-    [kopie.style.width, kopie.style.height] = [`${sb}px`, `${sh}px`];
-    const ctx = kopie.getContext('2d')!;
-    ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(bild, 0, 0, gb, gh);
-    html.append(kopie);
+    if (bild instanceof HTMLImageElement) {
+      // Ein Bild mit Adresse, Sprite oder `image` eines Banners: Der Browser zeigt es selbst, alle Icons teilen es. Siehe 0129.
+      const img = document.createElement('img');
+      img.src = bild.src;
+      img.alt = '';
+      [img.style.width, img.style.height] = [`${sb}px`, `${sh}px`];
+      html.append(img);
+    } else {
+      const kopie = document.createElement('canvas');
+      [kopie.width, kopie.height] = [gb, gh];
+      [kopie.style.width, kopie.style.height] = [`${sb}px`, `${sh}px`];
+      const ctx = kopie.getContext('2d')!;
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(bild, 0, 0, gb, gh);
+      html.append(kopie);
+    }
     const [ax, ay] = [(fx * sb) / b, (fy * sh) / h];
     if (name && ort?.winkel !== undefined) {
       // Gemessen in der Kartenschrift: bannerIcon wartet, bis sie geladen ist.

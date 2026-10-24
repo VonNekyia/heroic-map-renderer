@@ -1,5 +1,5 @@
 /** Eine Welt für die Tests der Ebenen: der Demobaum mit Höhen und Ebenen, die der Test liefert. */
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { crc32, deflateSync } from 'node:zlib';
 
@@ -154,3 +154,40 @@ export const aufDemSchirm = (page: Page, px: number, py: number) =>
     const kachel = document.querySelector('.kacheln img[src$="/2/0/0.webp"]')!.getBoundingClientRect();
     return [kachel.left + px, kachel.top + py];
   }, [px, py] as [number, number]);
+
+/**
+ * Prüft ein Icon aus `png` auf dem Schirm, in Pixeln des Geräts, aus einem
+ * Screenshot: Jedes Pixel ganz im Element hat genau die Farbe des Pixels der
+ * Quelle, das Nächster-Nachbar bei `k` Pixeln des Geräts je Pixel trifft.
+ * Gibt die Abweichungen zurück, leer, wenn alles stimmt; dazu die Zahl der
+ * geprüften Pixel. `ohneUnten` lässt so viele Zeilen der Quelle unten weg,
+ * etwa unter dem Namen im Bogen. Gilt für Leinwand und `<img>` gleich.
+ */
+export async function pixelAufPixel(page: Page, ziel: Locator, k: number, ohneUnten = 0): Promise<{ fehler: string[]; geprueft: number }> {
+  const box = (await ziel.boundingBox())!;
+  const bild = (await page.screenshot({ scale: 'device', animations: 'disabled' })).toString('base64');
+  return page.evaluate(
+    async ({ bild, box, k }) => {
+      const bytes = Uint8Array.from(atob(bild), (c) => c.charCodeAt(0));
+      // createImageBitmap aus einem Blob lädt keine Adresse; die Content-Security-Policy der Seite bleibt unberührt.
+      const bmp = await createImageBitmap(new Blob([bytes], { type: 'image/png' }));
+      const ctx = new OffscreenCanvas(bmp.width, bmp.height).getContext('2d')!;
+      ctx.drawImage(bmp, 0, 0);
+      const d = devicePixelRatio;
+      const [X, Y] = [box.x * d, box.y * d];
+      const [x0, y0, x1, y1] = [Math.ceil(X), Math.ceil(Y), Math.floor(X + box.width * d), Math.floor(Y + box.height * d)];
+      const daten = ctx.getImageData(x0, y0, x1 - x0, y1 - y0).data;
+      const fehler: string[] = [];
+      for (let j = y0; j < y1; j++)
+        for (let i = x0; i < x1; i++) {
+          const [sx, sy] = [Math.floor((i + 0.5 - X) / k), Math.floor((j + 0.5 - Y) / k)];
+          const o = 4 * ((j - y0) * (x1 - x0) + (i - x0));
+          const ist = [daten[o], daten[o + 1], daten[o + 2]].join();
+          const soll = [(sx * 7) % 256, (sy * 3) % 256, 128].join();
+          if (ist !== soll && fehler.length < 5) fehler.push(`(${i}, ${j}): ${ist} statt ${soll}`);
+        }
+      return { fehler, geprueft: (x1 - x0) * (y1 - y0) };
+    },
+    { bild, box: { ...box, height: box.height - (ohneUnten * k) / (await page.evaluate(() => devicePixelRatio)) }, k },
+  );
+}

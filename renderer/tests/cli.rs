@@ -6229,8 +6229,24 @@ fn stand_der_fassung_1_gilt_weiter() {
     assert!(log.contains("Stand:      "), "{log}");
     assert!(!log.contains("Stand:      unverändert"), "{log}");
     let mut erwartet = zwei.clone();
-    // Der Kopf nennt jetzt ein Update.
+    // Der Kopf nennt jetzt ein Update. Die Tiefe kennt Fassung 1 nicht; sie
+    // kommt erst wieder, wenn ein Lauf den Chunk liest.
     erwartet.get_mut("stand.bin").unwrap()[12] = 1;
+    assert!(
+        erwartet["stand/1.0.bin"][12..]
+            .chunks(28)
+            .any(|eintrag| eintrag[19] != 0x80),
+        "der volle Lauf kennt die Tiefe"
+    );
+    for (_, daten) in erwartet
+        .iter_mut()
+        .filter(|(name, _)| name.starts_with("stand/"))
+    {
+        for eintrag in daten[12..].chunks_mut(28) {
+            eintrag[19] = 0x80;
+            eintrag[20..].fill(0);
+        }
+    }
     assert!(
         schnappschuss_des_stands(baum.path()) == erwartet,
         "Fassung 2"
@@ -6257,6 +6273,138 @@ fn schnappschuss_des_stands(baum: &Path) -> BTreeMap<String, Vec<u8>> {
             std::fs::read(baum.join("stand.bin")).unwrap(),
         )])
         .collect()
+}
+
+/// Was in der Welt der Grenze nach unten steht, [`berg`].
+#[derive(Clone, Copy, Default, Debug)]
+struct Berg {
+    /// Ein Block Stein auf dem Berg.
+    block: bool,
+    /// Glas, Wasser und Laub direkt auf dem Berg, über E.
+    glas: bool,
+    wasser: bool,
+    laub: bool,
+    /// Leuchtstein unten im Schacht, unter K.
+    glut: bool,
+    /// Der Schacht ohne Deckel.
+    offen: bool,
+    /// Der Schacht auch ohne Boden: eine Spalte ohne dichten Block.
+    ohne_boden: bool,
+}
+
+/// Die Welt der Grenze nach unten, 4 × 4 Chunks auf einem Boden aus Stein
+/// bis y = 4:
+/// - Der Chunk (1, 1) ist ein Berg aus Stein bis y = 100, E und K
+///   also 100 und 6. In seiner Spalte (31, 24) steht ein Schacht von y = 5
+///   bis 99 unter einem Deckel bei y = 100.
+/// - Der Chunk (2, 1) daneben hat unter einem Dach von y = 20 bis 100 eine
+///   Halle, die nach Osten offen ist. Unten geht der Schacht in sie auf.
+fn berg(b: Berg, x: i32, y: i32, z: i32) -> &'static str {
+    let im_berg = (16..32).contains(&x) && (16..32).contains(&z);
+    let in_der_halle = (32..48).contains(&x) && (16..32).contains(&z);
+    let schacht = (x, z) == (31, 24);
+    match y {
+        ..=4 if schacht && b.ohne_boden => "minecraft:air",
+        ..=4 => "minecraft:stone",
+        5 if schacht && b.glut => "minecraft:glowstone",
+        100 if schacht && !b.offen => "minecraft:stone",
+        ..=100 if schacht => "minecraft:air",
+        ..=100 if im_berg => "minecraft:stone",
+        20..=100 if in_der_halle => "minecraft:stone",
+        101 if b.block && (x, z) == (20, 20) => "minecraft:stone",
+        101 if b.glas && (x, z) == (26, 18) => "minecraft:glass_pane",
+        101 if b.wasser && (x, z) == (18, 26) => "minecraft:water",
+        101 if b.laub && (22..26).contains(&x) && (22..26).contains(&z) => "minecraft:oak_leaves",
+        _ => "minecraft:air",
+    }
+}
+
+/// Die Kacheln im Gebiet aus der Zeile `Update:`.
+fn kacheln_im_gebiet(log: &str) -> usize {
+    log.lines()
+        .find_map(|z| z.strip_prefix("Update:     "))
+        .and_then(|z| z.split(", ").nth(1)?.split(' ').next()?.parse().ok())
+        .unwrap_or_else(|| panic!("Zeile Update: {log}"))
+}
+
+/// Die Grenze nach unten: Ein Update auf der Karte zeichnet erst ab
+/// `min(16·K_alt, E_neu) − 16`, wenn sich unter K nichts geändert hat, und
+/// gleicht danach einem vollen Lauf. Der Reihe nach:
+/// 1. ein Block auf dem Berg, mit Grenze;
+/// 2. bis 5. Glas, Wasser und Laub direkt über E, dann je eins weg;
+/// 6. und 7. Leuchtstein unter K: ohne Grenze, sein Licht zeigt die Halle;
+/// 8. der Schacht geht auf: E_neu liegt unten, das Himmelslicht fällt durch
+///    ihn in die Halle des Nachbarchunks;
+/// 9. der Schacht geht zu;
+/// 10. und 11. eine Spalte ganz ohne dichten Block, dann der Block auf dem
+///     Berg weg: ohne Grenze und mit mehr Kacheln als in 1.
+///
+/// Siehe docs/entscheidungen/0127-grenze-nach-unten.md.
+#[test]
+fn grenze_nach_unten_gleicht_einem_vollen_lauf() {
+    let chunks: Vec<(i32, i32)> = (0..4).flat_map(|x| (0..4).map(move |z| (x, z))).collect();
+    let baue = |welt: &Path, b: Berg, zeit: u32| {
+        common::write_world_sections(
+            welt,
+            &chunks,
+            0..=7,
+            |x, y, z| berg(b, x, y, z),
+            |_, _| None,
+        );
+        for (cx, cz) in [(1, 1), (2, 1)] {
+            common::setze_stempel(welt, cx, cz, zeit);
+        }
+    };
+    let welt = tempdir();
+    let mut b = Berg::default();
+    baue(welt.path(), b, 1);
+    let baum = neuer_baum("2x1-se");
+    let extra = ["--scale", "16"];
+    gelungen(&export(welt.path(), baum.path(), &extra));
+    type Schritt = (&'static str, fn(&mut Berg));
+    let schritte: [Schritt; 11] = [
+        ("Block", |b| b.block = true),
+        ("Glas, Wasser, Laub", |b| {
+            (b.glas, b.wasser, b.laub) = (true, true, true)
+        }),
+        ("Glas weg", |b| b.glas = false),
+        ("Wasser weg", |b| b.wasser = false),
+        ("Laub weg", |b| b.laub = false),
+        ("Leuchtstein unter K", |b| b.glut = true),
+        ("Leuchtstein weg", |b| b.glut = false),
+        ("Schacht auf", |b| b.offen = true),
+        ("Schacht zu", |b| b.offen = false),
+        ("ohne dichten Block", |b| {
+            (b.offen, b.ohne_boden) = (true, true)
+        }),
+        ("Block weg", |b| b.block = false),
+    ];
+    let mut gebiet = Vec::new();
+    for (i, (was, schritt)) in schritte.into_iter().enumerate() {
+        schritt(&mut b);
+        baue(welt.path(), b, i as u32 + 2);
+        let log = String::from_utf8_lossy(
+            &gelungen(&export(
+                welt.path(),
+                baum.path(),
+                &["--scale", "16", "--update"],
+            ))
+            .stdout,
+        )
+        .into_owned();
+        gebiet.push(kacheln_im_gebiet(&log));
+        let voll = neuer_baum("2x1-se");
+        gelungen(&export(welt.path(), voll.path(), &extra));
+        gleiche_baeume(
+            baum.path(),
+            voll.path(),
+            &format!("{}. {was}, {b:?}", i + 1),
+        );
+    }
+    assert!(
+        gebiet[0] < gebiet[10],
+        "derselbe Block mit Grenze und ohne: {gebiet:?}"
+    );
 }
 
 /// Boden aus einer Lage, für die Tests des Reliefs.

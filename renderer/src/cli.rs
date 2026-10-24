@@ -18,7 +18,7 @@ use heroic_map_renderer::render::heights::{self, Heights, RegionHeights};
 use heroic_map_renderer::render::look::{LOOK, Look};
 use heroic_map_renderer::render::pyramid;
 use heroic_map_renderer::render::stand::{
-    Aenderung, Art, Eintrag, Gelesen, Inhalt, Stand, fingerabdruck_der_dateien,
+    Aenderung, Art, Eintrag, Gelesen, Inhalt, Lesung, Stand, fingerabdruck_der_dateien,
     fingerabdruck_des_renderers,
 };
 use heroic_map_renderer::render::{
@@ -2113,13 +2113,22 @@ fn write_tiles(
                         Eintrag {
                             stempel,
                             inhalt: Inhalt::Keiner,
+                            tiefe: None,
                         },
                     );
                 }
             }
-            for ([cx, cz], inhalt) in std::mem::take(&mut survey.inhalte) {
+            for ([cx, cz], inhalt, tiefe) in std::mem::take(&mut survey.inhalte) {
                 let stempel = neu.eintrag(cx, cz).stempel;
-                neu.setze(cx, cz, Eintrag { stempel, inhalt });
+                neu.setze(
+                    cx,
+                    cz,
+                    Eintrag {
+                        stempel,
+                        inhalt,
+                        tiefe,
+                    },
+                );
             }
             Some(neu)
         }
@@ -2969,15 +2978,20 @@ fn fortzusetzen(dir: &Path, art: Art, abdruecke: (u64, u64)) -> Result<Angefange
     Ok(Angefangen::Passend(stand, seit))
 }
 
-/// Was der Renderer aus diesen Chunks der Region zeichnet, siehe
-/// [`Inhalt::von`].
-fn lies_inhalte(world: &World, rx: i32, rz: i32, lagen: &[[i32; 2]]) -> Result<Vec<Inhalt>> {
+/// Diese Chunks der Region, je mit dem K des alten Stands, siehe
+/// [`Lesung::von`].
+fn lies_inhalte(
+    world: &World,
+    rx: i32,
+    rz: i32,
+    lagen: &[([i32; 2], Option<i8>)],
+) -> Result<Vec<Lesung>> {
     let Some(mut region) = world.region(rx, rz)? else {
-        return Ok(vec![Inhalt::Keiner; lagen.len()]);
+        return Ok(vec![Lesung::von(None, None); lagen.len()]);
     };
     lagen
         .iter()
-        .map(|&[cx, cz]| Ok(Inhalt::von(region.stored_chunk(cx, cz)?.as_ref())))
+        .map(|&([cx, cz], k)| Ok(Lesung::von(region.stored_chunk(cx, cz)?.as_ref(), k)))
         .collect()
 }
 

@@ -18,7 +18,7 @@ use crate::world::{BlockState, Blockdaten, Chunk, REGION, World};
 
 use super::heights::{self, Heights, RegionHeights};
 use super::look::Look;
-use super::stand::{Aenderung, Inhalt};
+use super::stand::{Aenderung, Inhalt, Lesung, Tiefe};
 use super::{BLEED_BLOCKS, Projection, Relief, ScreenRect};
 
 /// Kantenlänge einer Kachel in Pixeln. 256 ist, was Leaflet ohne
@@ -313,7 +313,7 @@ pub struct Survey {
     pub unfinished: usize,
     /// Mit [`Reach::mit_inhalt`] je gelesenem Chunk, was der Renderer aus
     /// ihm zeichnet, für den Stand eines vollen Laufs.
-    pub inhalte: Vec<([i32; 2], Inhalt)>,
+    pub inhalte: Vec<([i32; 2], Inhalt, Option<Tiefe>)>,
     /// Laub mit fester Farbe, Fichte oder Birke, und Laub, das das Spiel
     /// nicht tönt, auf dem eine eigene Laubfarbe liegt: Es braucht eine
     /// Familie mit Tönungskarte, siehe [`super::SpriteSet::add_laub`].
@@ -483,7 +483,9 @@ fn zur_sonne(projection: Projection, look: &Look) -> [[i32; 2]; 2] {
 /// 16 Blöcke daneben, so weit reichen Licht (15) und weiche Beleuchtung (1),
 /// die Mischung der Biome liegt darin; in der Höhe von `unten`, der
 /// Unterkante der Dimension, bis 16 Blöcke über [`Aenderung::oben`], denn
-/// Himmelslicht fällt in einer Spalte beliebig tief. Mit Cinematic dazu
+/// Himmelslicht fällt in einer Spalte beliebig tief. Die Karte ohne
+/// Cinematic und Relief beginnt erst bei [`Aenderung::unten`], wenn es das
+/// gibt. Mit Cinematic dazu
 /// jeder Chunk, dessen Strahlen zur Sonne ihn lesen ([`Reach::mit_sonne`]
 /// umgekehrt), und der Rand des Bloom auf jeder nativen Stufe. Mit Relief
 /// dazu die Chunks im Südosten, deren Relief er ändert
@@ -509,8 +511,15 @@ pub fn gebiet_der_aenderungen(
             .max()
             .unwrap_or(0)
     });
+    // Die Schatten von Cinematic und Relief fallen auch auf tiefere Blöcke.
+    // Siehe docs/entscheidungen/0127-grenze-nach-unten.md.
+    let mit_grenze = look.is_none() && relief.is_none();
     let mut kacheln = BTreeSet::new();
     for aenderung in aenderungen {
+        let boden = match aenderung.unten {
+            Some(grenze) if mit_grenze => grenze.max(unten),
+            _ => unten,
+        };
         // Gelesen wird ein Chunk X von jedem Chunk X − d mit d in [von, bis].
         let [x, z] = richtung.in_den_blick(aenderung.chunk);
         let a = richtung.in_die_welt([x - bis[0], z - bis[1]]);
@@ -520,7 +529,7 @@ pub fn gebiet_der_aenderungen(
             [a[0].min(b[0]) * CHUNK, a[1].min(b[1]) * CHUNK],
             [(a[0].max(b[0]) + 1) * CHUNK, (a[1].max(b[1]) + 1) * CHUNK],
             // Bis zur Oberkante des obersten Blocks, wie in `Reach::new`.
-            (unten, aenderung.oben + CHUNK + 1),
+            (boden, aenderung.oben + CHUNK + 1),
         );
         let rect = ScreenRect {
             x: rect.x - bloom,
@@ -640,7 +649,8 @@ fn survey_region(world: &World, reach: &Reach, rx: i32, rz: i32) -> Result<Surve
                 continue;
             };
             if reach.inhalt && im_bild {
-                survey.inhalte.push(([cx, cz], Inhalt::von(Some(&chunk))));
+                let lesung = Lesung::von(Some(&chunk), None);
+                survey.inhalte.push(([cx, cz], lesung.inhalt, lesung.tiefe));
             }
             if !chunk.is_generated() {
                 survey.unfinished += usize::from(im_bild);
@@ -1053,47 +1063,58 @@ mod tests {
     /// Das Gebiet einer Änderung enthält jede Basiskachel, in die ein Block
     /// bis 16 Blöcke neben dem Chunk und von der Unterkante bis 16 über
     /// seinem höchsten Block reicht: So weit wirken Licht und weiche
-    /// Beleuchtung. Je Ecke jedes Blocks, aus jeder Richtung dreier Kameras,
-    /// auf der Basis und bei drei Stufen.
+    /// Beleuchtung. Mit einer Grenze nach unten beginnt es bei ihr. Je Ecke
+    /// jedes Blocks, aus jeder Richtung dreier Kameras, auf der Basis und
+    /// bei drei Stufen.
     /// Siehe docs/benutzung/updates.md, „Wo ein Update zeichnet“.
     #[test]
     fn gebiet_reicht_16_bloecke_um_die_aenderung() {
         use crate::render::{Kamera, Richtung};
-        let (unten, oben, chunk) = (-64, 40, [2, -3]);
-        let aenderung = Aenderung {
-            chunk,
-            oben,
-            bleibt: true,
-        };
-        for kamera in ["2:1", "top-north", "north-45"] {
-            let kamera = Kamera::parse(kamera).unwrap();
-            let namen = if kamera.genordet() {
-                ["s", "w", "n", "e"]
-            } else {
-                ["se", "sw", "nw", "ne"]
+        let (dimension, oben, chunk) = (-64, 40, [2, -3]);
+        for unten in [dimension, 10] {
+            let aenderung = Aenderung {
+                chunk,
+                oben,
+                bleibt: true,
+                unten: (unten != dimension).then_some(unten),
             };
-            for name in namen {
-                let projection =
-                    Projection::mit_kamera(16, kamera).aus(Richtung::parse(name, kamera).unwrap());
-                let richtung = projection.richtung();
-                for stufen in [0, 3] {
-                    let gebiet =
-                        gebiet_der_aenderungen(projection, stufen, unten, &[aenderung], None, None);
-                    for x in chunk[0] * 16 - 16..chunk[0] * 16 + 32 {
-                        for z in chunk[1] * 16 - 16..chunk[1] * 16 + 32 {
-                            for y in [unten, oben + 16] {
-                                for ecke in 0..8 {
-                                    let p = [x + (ecke & 1), y + (ecke >> 1 & 1), z + (ecke >> 2)];
-                                    let (sx, sy) =
-                                        projection.project_block(richtung.versatz_in_den_blick(p));
-                                    let tile = TileId {
-                                        x: (sx / TILE as f64).floor() as i32,
-                                        y: (sy / TILE as f64).floor() as i32,
-                                    };
-                                    assert!(
-                                        gebiet.enthaelt(tile),
-                                        "{kamera:?} {name} {stufen} Stufen, Ecke {p:?}"
-                                    );
+            for kamera in ["2:1", "top-north", "north-45"] {
+                let kamera = Kamera::parse(kamera).unwrap();
+                let namen = if kamera.genordet() {
+                    ["s", "w", "n", "e"]
+                } else {
+                    ["se", "sw", "nw", "ne"]
+                };
+                for name in namen {
+                    let projection = Projection::mit_kamera(16, kamera)
+                        .aus(Richtung::parse(name, kamera).unwrap());
+                    let richtung = projection.richtung();
+                    for stufen in [0, 3] {
+                        let gebiet = gebiet_der_aenderungen(
+                            projection,
+                            stufen,
+                            dimension,
+                            &[aenderung],
+                            None,
+                            None,
+                        );
+                        for x in chunk[0] * 16 - 16..chunk[0] * 16 + 32 {
+                            for z in chunk[1] * 16 - 16..chunk[1] * 16 + 32 {
+                                for y in [unten, oben + 16] {
+                                    for ecke in 0..8 {
+                                        let p =
+                                            [x + (ecke & 1), y + (ecke >> 1 & 1), z + (ecke >> 2)];
+                                        let (sx, sy) = projection
+                                            .project_block(richtung.versatz_in_den_blick(p));
+                                        let tile = TileId {
+                                            x: (sx / TILE as f64).floor() as i32,
+                                            y: (sy / TILE as f64).floor() as i32,
+                                        };
+                                        assert!(
+                                            gebiet.enthaelt(tile),
+                                            "{kamera:?} {name} {stufen} Stufen, Ecke {p:?}"
+                                        );
+                                    }
                                 }
                             }
                         }
@@ -1101,6 +1122,46 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// Die Grenze nach unten macht das Gebiet schräg kleiner; mit Cinematic
+    /// und mit Relief gilt sie nicht, denn deren Schatten fallen auch auf
+    /// tiefere Blöcke.
+    /// Siehe docs/entscheidungen/0127-grenze-nach-unten.md.
+    #[test]
+    fn grenze_nach_unten_nur_auf_der_karte() {
+        use crate::render::look::LOOK;
+        use crate::render::{Kamera, Richtung};
+        let aenderung = |unten| Aenderung {
+            chunk: [2, -3],
+            oben: 90,
+            bleibt: true,
+            unten,
+        };
+        let schraeg = Projection::mit_kamera(16, Kamera::parse("2:1").unwrap())
+            .aus(Richtung::parse("se", Kamera::parse("2:1").unwrap()).unwrap());
+        let gebiet = |projection, unten, look, relief| {
+            gebiet_der_aenderungen(projection, 0, -64, &[aenderung(unten)], look, relief)
+                .kacheln()
+                .len()
+        };
+        let voll = gebiet(schraeg, None, None, None);
+        assert!(gebiet(schraeg, Some(40), None, None) < voll);
+        assert_eq!(
+            gebiet(schraeg, Some(-100), None, None),
+            voll,
+            "nicht unter die Dimension"
+        );
+        assert_eq!(
+            gebiet(schraeg, Some(40), Some(&LOOK), None),
+            gebiet(schraeg, None, Some(&LOOK), None)
+        );
+        let oben = Projection::mit_kamera(16, Kamera::ObenNord)
+            .aus(Richtung::parse("s", Kamera::ObenNord).unwrap());
+        assert_eq!(
+            gebiet(oben, Some(40), None, Some(Relief::Schatten)),
+            gebiet(oben, None, None, Some(Relief::Schatten))
+        );
     }
 
     /// Mit Schatten reicht das Gebiet einer Änderung so weit nach Südosten,
@@ -1117,6 +1178,7 @@ mod tests {
             chunk,
             oben: 40,
             bleibt: true,
+            unten: None,
         };
         let projection = Projection::mit_kamera(32, Kamera::ObenNord)
             .aus(Richtung::parse("s", Kamera::ObenNord).unwrap());

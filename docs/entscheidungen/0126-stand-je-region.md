@@ -49,8 +49,9 @@ Ein Update ohne Änderung schreibt den Stand seit #349 nicht mehr.
   tiefsten ersten dichten Blocks (1 Byte) und ein Abdruck der Sections
   darunter (8 Bytes). Beide bleiben leer, `0x80` und 0, bis die Grenze nach
   unten sie füllt; das kommt in derselben Version des Renderers.
-- **Im Speicher** hält der Stand je Chunk die 19 Bytes der Datei statt
-  eines `Eintrag` mit 32.
+- **Im Speicher** hält der Stand je Chunk die Bytes der Datei, 28 mit der
+  Grenze nach unten aus [0127](0127-grenze-nach-unten.md), statt
+  eines `Eintrag` mit 56.
 - **Fassung 1** liest der Renderer weiter. Sie gilt in jeder Region als
   geändert: Der erste fertige Lauf schreibt alle Regionen in Fassung 2,
   auch ein Update ohne Änderung.

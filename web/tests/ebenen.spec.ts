@@ -1443,7 +1443,7 @@ test('nach dem Ausblenden aus 0119 sind die Namen ganz aus dem Layout, erst nach
       const start = performance.now();
       const werte: { t: number; aus: boolean; display: string; opacity: number }[] = [];
       let geklickt = false;
-      while (performance.now() < start + 600) {
+      while (performance.now() < start + (zurueck === undefined ? 600 : 1600)) {
         await new Promise(requestAnimationFrame);
         const t = performance.now() - start;
         if (zurueck !== undefined && !geklickt && t >= zurueck) {
@@ -1474,8 +1474,10 @@ test('nach dem Ausblenden aus 0119 sind die Namen ganz aus dem Layout, erst nach
   expect(hinein.some((o) => o > 0.05 && o < 0.95), JSON.stringify(hinein)).toBe(true);
   expect(hinein.at(-1)).toBe(1);
   await page.waitForTimeout(300);
-  // Schnell hin und zurück: nach 100 ms wieder hinein, `namen-aus` kommt nicht hinterher.
-  const kurz = await verlauf(100);
+  // Zurück, bevor der Zeitgeber feuert: Während der Animation des Zooms schluckt Leaflet einen Klick, darum hier eine
+  // Dauer von 1000 ms, gesetzt per CSSOM, und zurück nach 400 ms; `namen-aus` darf nicht hinterher kommen.
+  await page.evaluate(() => document.documentElement.style.setProperty('--namen-dauer', '1000ms'));
+  const kurz = await verlauf(400);
   expect(kurz.some((w) => w.aus), JSON.stringify(kurz)).toBe(false);
   expect(kurz.at(-1)!.display).not.toBe('none');
 });

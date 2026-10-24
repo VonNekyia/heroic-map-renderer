@@ -264,14 +264,14 @@ const NAME = { s: 16, sperrung: 0.125 * 16, tief: 0.75 * 16, oeffnung: (2 * Math
  */
 const NAMEN = { grenze: 1 / 16, voll: 8, weg: 5 };
 let bogenNummer = 0;
+/** Ein Kontext nur zum Messen der Namen, für alle Banner. */
+let messen: CanvasRenderingContext2D | undefined;
 
 /**
  * Ein SVG mit dem Ursprung am Fuss: der Name auf einem Kreisbogen darunter,
  * jedes Zeichen aufrecht zum Bogen. `h` ist die gezeichnete Höhe des Banners,
  * `winkel` der aus `satz.json` in Grad, mit `image` 0.
  */
-/** Ein Kontext nur zum Messen der Namen, für alle Banner. */
-let messen: CanvasRenderingContext2D | undefined;
 function nameImBogen(name: string, h: number, winkel: number): SVGSVGElement {
   const { s, sperrung, tief, oeffnung } = NAME;
   const ctx = (messen ??= document.createElement('canvas').getContext('2d')!);

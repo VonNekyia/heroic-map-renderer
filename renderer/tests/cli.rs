@@ -7446,21 +7446,27 @@ fn voller_lauf_mit_resume_raeumt_abgerissenes_weg() {
     gleiche_baeume(baum.path(), neu.path(), "mit --resume");
 }
 
-/// Ein abgebrochenes Update und ein Ausschnitt zeichnen Kacheln, ohne einen
-/// Stand zu schreiben. Wechselt ein Chunk danach zurück, wie ein Ofen, der
-/// wieder ausgeht, gleicht sein Inhalt wieder dem Stand. Trotzdem zeichnet
-/// ihn das nächste Update: Das Gebiet des Laufs liegt offen, und der Baum
-/// gleicht einem vollen Lauf über die Welt von jetzt, auch wo der
+/// Ein abgebrochenes Update, ein abgebrochener voller Lauf und ein
+/// Ausschnitt zeichnen Kacheln, ohne einen Stand zu schreiben. Wechselt ein
+/// Chunk danach zurück, wie ein Ofen, der wieder ausgeht, gleicht sein
+/// Inhalt wieder dem Stand. Trotzdem zeichnet ihn das nächste Update: Das
+/// Gebiet eines Updates oder Ausschnitts liegt offen, und ein voller Lauf
+/// hat im alten Stand unbekannt gemacht, was er liest. Der Baum gleicht
+/// danach einem vollen Lauf über die Welt von jetzt, auch wo der
 /// abgebrochene Lauf einen Turm zeichnete, den es nicht mehr gibt.
 ///
-/// Welche Kacheln das Update vor dem Abbruch schreibt, hängt an der
+/// Welche Kacheln ein Lauf vor dem Abbruch schreibt, hängt an der
 /// Reihenfolge der Threads. Eine geänderte Kachel setzt der Test darum
 /// selbst, aus einem vollen Lauf über die geänderte Welt.
 /// Siehe docs/benutzung/updates.md, „Das offene Gebiet“.
 #[test]
 fn zurueckgewechselter_chunk_wird_gezeichnet() {
     let extra = ["--scale", "12"];
-    for fall in ["abgebrochenes Update", "Ausschnitt"] {
+    for fall in [
+        "abgebrochenes Update",
+        "abgebrochener voller Lauf",
+        "Ausschnitt",
+    ] {
         let welt = tempdir();
         baue_gelaende(welt.path());
         let baum = neuer_baum("2x1-se");
@@ -7493,7 +7499,11 @@ fn zurueckgewechselter_chunk_wird_gezeichnet() {
             };
             std::fs::remove_file(sperre).unwrap();
             std::fs::create_dir(sperre).unwrap();
-            let ausgabe = tiles(welt.path(), baum.path(), &["--scale", "12", "--update"]);
+            let lauf: &[&str] = match fall {
+                "abgebrochener voller Lauf" => &extra,
+                _ => &["--scale", "12", "--update"],
+            };
+            let ausgabe = tiles(welt.path(), baum.path(), lauf);
             assert!(!ausgabe.status.success(), "{fall}: kein Abbruch");
             std::fs::remove_dir(sperre).unwrap();
             std::fs::copy(von, geschrieben).unwrap();

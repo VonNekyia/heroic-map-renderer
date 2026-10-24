@@ -2135,7 +2135,8 @@ fn write_tiles(
         stand => stand,
     };
     // Ein voller Lauf über einen Baum mit Stand weiss wie ein Update, welche
-    // Chunks sich geändert haben, auch mit --resume.
+    // Chunks sich geändert haben, auch mit --resume. Den alten Stand liest er
+    // vor der ersten Kachel noch einmal, statt ihn bis dahin zu halten.
     let aenderungen = match (aenderungen, &stand) {
         (None, Some(neu)) if matches!(bereich, Bereich::Welt) => lies_stand(dir, STAND)
             .ok()
@@ -2334,9 +2335,9 @@ fn write_tiles(
     // Update und ein Ausschnitt legen ihr Gebiet ab, das nächste Update
     // zeichnet es noch einmal.
     // Siehe docs/benutzung/updates.md, „Das offene Gebiet“.
-    if let Some(alt) = lies_stand(dir, STAND).ok().flatten() {
-        match &gebiet {
-            None => {
+    match &gebiet {
+        None => {
+            if let Some(alt) = lies_stand(dir, STAND).ok().flatten() {
                 let alt = alt.unbekannt_wo(
                     &world.stempel()?,
                     |cx, cz| reach.liest(cx, cz),
@@ -2344,12 +2345,14 @@ fn write_tiles(
                 );
                 lege_stand_ab(dir, STAND, &alt)?;
             }
-            Some(gebiet) => {
-                let mut offen = lies_offen(dir, stufen)?;
-                offen.extend(gebiet.kacheln().iter().copied());
-                lege_offen_ab(dir, stufen, &offen)?;
-            }
         }
+        // Für das Gebiet reicht es, dass es einen Stand gibt.
+        Some(gebiet) if dir.join(STAND).exists() => {
+            let mut offen = lies_offen(dir, stufen)?;
+            offen.extend(gebiet.kacheln().iter().copied());
+            lege_offen_ab(dir, stufen, &offen)?;
+        }
+        _ => {}
     }
     // Der angefangene Stand, ebenso vor der ersten Kachel: Bricht der Lauf
     // ab, setzt --resume mit ihm fort. Ein Fortsetzen behält den alten,

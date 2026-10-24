@@ -142,6 +142,12 @@ Eine Region, `stand/<x>.<z>.bin`:
 - **Grösse:** Eine Region kostet 28 684 Byte, eine Welt mit 2,5 Millionen
   Chunks also mindestens rund 70 MB je Baum. Im Speicher hält der Stand je
   Chunk die 28 Bytes.
+- **Einmal im Speicher:** Ein Update hält den alten und den neuen Stand
+  nicht nebeneinander; `Stand::vergleiche` ersetzt den alten Region für
+  Region. Ein voller Lauf liest den alten Stand für die Änderungen und vor
+  der ersten Kachel noch einmal, statt ihn dazwischen zu halten. Ein Update
+  und ein Ausschnitt prüfen vor der ersten Kachel nur, ob es `stand.bin`
+  gibt.
 - **Fassung 1** hatte alles in `stand.bin`: hinter jeder Lage einer Region
   ihre Chunks zu 19 Bytes, 47 MB für dieselbe Welt.
 - **Was das Plugin liest,** steht in [Plugin](../plugin.md), „Was das

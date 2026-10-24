@@ -11,7 +11,7 @@ import feldKlein from './ebenen/schild_klein.png?url&no-inline';
 import rahmenKlein from './ebenen/schild_klein_rahmen.png?url&no-inline';
 import feldMittel from './ebenen/schild_mittel.png?url&no-inline';
 import rahmenMittel from './ebenen/schild_mittel_rahmen.png?url&no-inline';
-import { bereich, flaechenZiele, form, hatFlaeche, versetze, zeichneAnsicht, zuege, type Form, type Strich } from './formen';
+import { bereich, flaechenZiele, form, hatFlaeche, STUECK_MS, versetze, zeichneAnsicht, zuege, type Form, type Strich } from './formen';
 import { BLOCK, bildpunkt, blockBreite, blockHoch, oberflaeche as hoeheAuf, rechteck, schriftPfad, weltRechteck, zurKamera, type Blick, type Gelaende, type Rechteck, type Schirm } from './gelaende';
 import { FRISCH, HOEHEN_BYTES, LEER, regionBytes, type Hoehenkarten } from './hoehen';
 import { REGION } from './pick';
@@ -820,12 +820,28 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     };
   };
 
+  /**
+   * Nadeln und Banner einer Ebene: die Lage aller, ein Marker erst, wenn sein
+   * Ort ins Fenster mit Rand kommt. Siehe docs/entscheidungen/0128-marker-nur-im-ausschnitt.md.
+   */
+  interface Orte {
+    lagen: L.LatLng[];
+    // ponytail: gebaute Marker bleiben bis zum nächsten Laden, höchstens GRENZEN.nadeln je Ebene.
+    marker: Map<number, Promise<L.Marker | undefined>>;
+    baue: (index: number) => Promise<L.Marker | undefined>;
+    /** Jedes Zählen zählt hoch; ein älteres bricht dann ab. */
+    nummer: number;
+    /** Liegt das Fenster nicht mehr darin, zählt die Karte schon beim Ziehen neu. */
+    innen?: L.LatLngBounds;
+  }
+
   interface Geladen {
     version: string;
     /** Was gezeichnet ist: `version`, bei einer Aktionsebene der Inhalt ihrer Datei. */
     stand: string;
-    /** Nadeln und Banner. */
+    /** Die Nadeln und Banner im Fenster mit Rand. */
     gruppe: L.LayerGroup;
+    orte: Orte;
     /** Flächen, Wände, Ränder, Linien und Schrift, in dieser Reihenfolge. */
     formen: L.LayerGroup;
     /** Die Formen, aus denen die Karte Flächen, Ränder, Linien und Wände je Ansicht neu rechnet, und ihr Renderer. */
@@ -1427,6 +1443,66 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     setze(id, g, neu);
   };
   let ansichtWarten: ReturnType<typeof setTimeout> | undefined;
+
+  /** Der Rand um das Fenster, in dem Orte einen Marker haben, als Anteil des Fensters je Seite. */
+  const ORT_RAND = 0.25;
+  /** So viele Marker baut `zeigeOrte` zugleich, dann hängt es sie ein und gibt nach `STUECK_MS` den Hauptfaden frei. */
+  const ORT_STUECK = 32;
+
+  /** Ein Marker mit offener Tafel oder mit dem Fokus bleibt, auch ausserhalb des Rahmens. */
+  const fest = (m: L.Marker): boolean => {
+    const element = m.getElement();
+    if (!element) return false;
+    return element.contains(document.activeElement) || (offen !== undefined && offen.element() === element && map.hasLayer(offen.popup));
+  };
+
+  /**
+   * Hängt die Marker im Fenster mit Rand ein und die übrigen aus, ausser
+   * `fest`; baut fehlende in Stücken, damit Herauszoomen nicht blockiert.
+   * Siehe docs/entscheidungen/0128-marker-nur-im-ausschnitt.md.
+   */
+  const zeigeOrte = async ({ gruppe, orte }: Pick<Geladen, 'gruppe' | 'orte'>, gilt: () => boolean): Promise<void> => {
+    const nummer = ++orte.nummer;
+    const noch = () => orte.nummer === nummer && gilt();
+    const fenster = map.getBounds();
+    const rahmen = fenster.pad(ORT_RAND);
+    orte.innen = fenster.pad(ORT_RAND / 2);
+    gruppe.eachLayer((l) => {
+      if (!rahmen.contains((l as L.Marker).getLatLng()) && !fest(l as L.Marker)) gruppe.removeLayer(l);
+    });
+    const drin = orte.lagen.flatMap((ll, i) => (rahmen.contains(ll) ? [i] : []));
+    let seit = performance.now();
+    for (let a = 0; a < drin.length; a += ORT_STUECK) {
+      const teil = await Promise.all(
+        drin.slice(a, a + ORT_STUECK).map((i) => {
+          let m = orte.marker.get(i);
+          if (!m) orte.marker.set(i, (m = orte.baue(i)));
+          return m;
+        }),
+      );
+      if (!noch()) return;
+      for (const m of teil) if (m && !gruppe.hasLayer(m)) gruppe.addLayer(m);
+      if (performance.now() - seit > STUECK_MS) {
+        await new Promise((weiter) => setTimeout(weiter));
+        if (!noch()) return;
+        seit = performance.now();
+      }
+    }
+  };
+  const orteNeu = (id: string, g: Geladen): void => {
+    void zeigeOrte(g, () => geladen.get(id) === g).catch((fehler: unknown) => console.error(id, fehler));
+  };
+  /** Beim Ziehen, sobald das Fenster den inneren Rahmen verlässt, höchstens einmal je Frame. */
+  let orteGeplant = false;
+  const orteBeimZiehen = (): void => {
+    if (orteGeplant) return;
+    orteGeplant = true;
+    requestAnimationFrame(() => {
+      orteGeplant = false;
+      const fenster = map.getBounds();
+      for (const [id, g] of geladen) if (g.orte.innen && !g.orte.innen.contains(fenster)) orteNeu(id, g);
+    });
+  };
   const ansichtGeaendert = (): void => {
     clearTimeout(ansichtWarten);
     ansichtWarten = setTimeout(() => {
@@ -1505,45 +1581,55 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     const [schriftLagen, ansicht] = await Promise.all([schriftLagenFuer(schriften, formPane), ansichtJetzt(formen, renderer)]);
     // Ohne `gilt` bricht die Rechnung nie ab.
     if (!ansicht) return;
-    // Icons und Symbole gelten nur für dieses Laden und fallen danach weg.
+    // Icons und Symbole gelten für dieses Laden, auch für Marker, die erst später ins Fenster kommen.
     const icons = new Map<string, Promise<HTMLCanvasElement>>();
     const symbole = new Map<string, Promise<HTMLImageElement>>();
-    const marker = await Promise.all(
-      orte.map(async (o, index) => {
-        const icon = 'symbol' in o ? await nadelIcon(o, ordner, e.version, icons, symbole) : await bannerIcon(o, ordner, e.version, symbole, satz);
-        if (!icon) return undefined;
+    const lagen = await Promise.all(
+      orte.map(async (o) => {
         const y = o.y !== undefined ? o.y + 1 : await oberflaeche(o.at[0], o.at[1]);
         const [px, py] = bildpunkt(o.at[0], iso ? y : 0, o.at[1], blick);
-        // In der Ebene liegt das spätere oben, gleich wo auf dem Schirm.
-        const m = L.marker(L.latLng(py, px), {
-          icon,
-          pane: pane(e.id).nadeln,
-          zIndexOffset: index * 100_000,
-          interactive: o.panel !== undefined,
-          keyboard: o.panel !== undefined,
-          title: o.name ?? '',
-          alt: o.name ?? '',
-        });
-        const panel = o.panel;
-        if (panel) {
-          // Vom Fuss bis zur Oberkante des Icons: Die Tafel steht darüber, auch beim Kopf mit dem Fuss in der Mitte.
-          const hoehe = (icon.options.iconAnchor as L.PointTuple)[1];
-          const oeffne = tafelAn(m, () => tafelDerEbene(panel, o.id), () => m.getElement(), () => m.getLatLng(), hoehe);
-          m.on('keypress', (ereignis) => {
-            if (ereignis.originalEvent.key === 'Enter') oeffne(true);
-          });
-        }
-        return m;
+        return L.latLng(py, px);
       }),
     );
+    const baue = async (index: number): Promise<L.Marker | undefined> => {
+      const o = orte[index]!;
+      const icon = 'symbol' in o ? await nadelIcon(o, ordner, e.version, icons, symbole) : await bannerIcon(o, ordner, e.version, symbole, satz);
+      if (!icon) return undefined;
+      // In der Ebene liegt das spätere oben, gleich wo auf dem Schirm.
+      const m = L.marker(lagen[index]!, {
+        icon,
+        pane: pane(e.id).nadeln,
+        zIndexOffset: index * 100_000,
+        interactive: o.panel !== undefined,
+        keyboard: o.panel !== undefined,
+        title: o.name ?? '',
+        alt: o.name ?? '',
+      });
+      const panel = o.panel;
+      if (panel) {
+        // Vom Fuss bis zur Oberkante des Icons: Die Tafel steht darüber, auch beim Kopf mit dem Fuss in der Mitte.
+        const hoehe = (icon.options.iconAnchor as L.PointTuple)[1];
+        const oeffne = tafelAn(m, () => tafelDerEbene(panel, o.id), () => m.getElement(), () => m.getLatLng(), hoehe);
+        m.on('keypress', (ereignis) => {
+          if (ereignis.originalEvent.key === 'Enter') oeffne(true);
+        });
+      }
+      return m;
+    };
+    // Die Marker im Fenster mit Rand, noch ohne Karte; die alte Gruppe steht so lange.
+    const gruppe = L.layerGroup();
+    const neu = { gruppe, orte: { lagen, marker: new Map<number, Promise<L.Marker | undefined>>(), baue, nummer: 0 } };
+    await zeigeOrte(neu, gilt);
     // Hat jemand inzwischen umgeschaltet, gilt sein Auftrag; erst jetzt die alte Gruppe ersetzen.
     if (!gilt()) return;
     weg(e.id);
     // Erst Flächen, Wände, Ränder und Linien, in dieser Reihenfolge von `setze`; zuletzt die Schrift, je in einem eigenen svg über dem des Renderers.
     const formGruppe = L.layerGroup().addTo(map);
-    const gruppe = L.layerGroup(marker.filter((m): m is L.Marker => m !== undefined)).addTo(map);
-    const g: Geladen = { version: e.version, stand, gruppe, formen: formGruppe, quelle: formen, renderer, flaechen, waende: [], striche: [], schirm: ansicht.schirm, ganz: ansicht.ganz, nummer: 0 };
+    gruppe.addTo(map);
+    const g: Geladen = { version: e.version, stand, ...neu, formen: formGruppe, quelle: formen, renderer, flaechen, waende: [], striche: [], schirm: ansicht.schirm, ganz: ansicht.ganz, nummer: 0 };
     geladen.set(e.id, g);
+    // Ein Verschieben während des Ladens, etwa die erste Ansicht der Karte, fand die Ebene noch nicht: noch einmal zählen.
+    orteNeu(e.id, g);
     ganzMerken(e.id, g, ansicht);
     setze(e.id, g, ansicht);
     for (const s of schriftLagen) formGruppe.addLayer(s);
@@ -1976,6 +2062,10 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     for (const g of geladen.values()) versetze(g.striche, faktor());
   });
   map.on('zoomend moveend', ansichtGeaendert);
+  map.on('moveend', () => {
+    for (const [id, g] of geladen) orteNeu(id, g);
+  });
+  map.on('move', orteBeimZiehen);
   map.on('zoomanim', (ereignis) => namenNachZoom(ereignis.zoom));
   map.on('zoom', () => namenNachZoom(map.getZoom()));
   namenNachZoom(map.getZoom());

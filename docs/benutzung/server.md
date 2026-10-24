@@ -81,8 +81,8 @@ Server:     http://127.0.0.1:8080 mit ./tiles unter /tiles/ und ./web/dist unter
   `stand.bin`, die Hashes unter `pixel/`, die Marken des Manifests, der
   Stempel `.stempel` eines Satzes und halb geschriebene Dateien
   `<name>.<pid>.tmp`.
-- **Die Ebenen** liefert er wie die Kacheln, mit ETag, `304` und
-  `no-cache`, ohne Token und ohne Blick in `trees.json`: Alles unter
+- **Die Ebenen** liefert er mit ETag, `304` und `no-cache`, auch ihre
+  Bilder als `.webp`, ohne Token und ohne Blick in `trees.json`: Alles unter
   `layers/` ist öffentlich, siehe [Ebenen](ebenen.md), „Bilder“.
   - **Namen:** `modname`, `ebene`, `bild` und `entwurf` nur nach der
     Regel der Kennung, siehe [Ebenen](ebenen.md), „Kennung“; `satz` nur
@@ -159,10 +159,19 @@ Server:     http://127.0.0.1:8080 mit ./tiles unter /tiles/ und ./web/dist unter
   [Kacheln](kacheln.md), „Gleiche Bytes bleiben liegen“.
 - **`Last-Modified`** an jeder Datei; die Karte zeigt daraus den Stand von
   `map.json`. Eine Zeit vor 1970 oder nach 9999 geht geklemmt hinaus.
-- **`Cache-Control: no-cache`:** Der Browser fragt jedes Mal nach und bekommt
-  für Unverändertes ein kurzes `304`. Nur was sich unter seinem Namen nie
-  ändert, trägt `public, max-age=31536000, immutable`: die gehashten
-  Dateien der Seite unter `/assets/` und die Köpfe unter `/tiles/koepfe/`.
+- **`Cache-Control`:**
+  - **Kacheln eines Baums,** `.webp` unter seinem Ordner, Basis wie
+    Pyramide: `max-age=60`. Eine Minute lang nimmt der Browser sie ohne
+    Nachfrage aus seinem Cache, danach fragt er mit ETag nach. Ein Update
+    des Plugins kommt ohnehin nur alle paar Minuten. Entschieden vom
+    Reviewer am 24.10., auf Wunsch des Frontends, siehe
+    [0125](../entscheidungen/0125-kacheln-eine-minute-im-cache.md).
+  - **Was sich unter seinem Namen nie ändert,** trägt `public,
+    max-age=31536000, immutable`: die gehashten Dateien der Seite unter
+    `/assets/` und die Köpfe unter `/tiles/koepfe/`.
+  - **Alles andere,** etwa `map.json`, `trees.json`, `layers.json`, die
+    Ebenen samt ihren Bildern und die Höhen: `no-cache`. Der Browser fragt
+    jedes Mal nach und bekommt für Unverändertes ein kurzes `304`.
 - **`304`** bei gleichem `If-None-Match`, auch in einer Liste, mit `W/` oder
   `*`. Steht `If-None-Match` da, zählt `If-Modified-Since` nicht; sonst gibt
   `If-Modified-Since` nur bei gleichem Wert `304`. Verglichen wird auf

@@ -274,7 +274,8 @@ fn etag_von(pfad: &Path) -> String {
 }
 
 /// Eine Kachel kommt mit ihren Bytes, ihrem ETag wie im Manifest,
-/// `Last-Modified`, `no-cache` und den Headern der Karte.
+/// `Last-Modified`, `max-age=60` und den Headern der Karte.
+/// Siehe docs/benutzung/server.md, „Header“.
 #[test]
 fn liefert_kacheln_mit_den_headern() {
     let (kacheln, _seite) = wurzel();
@@ -292,7 +293,7 @@ fn liefert_kacheln_mit_den_headern() {
         a.header("last-modified")
             .is_some_and(|w| w.ends_with(" GMT"))
     );
-    assert_eq!(a.header("cache-control"), Some("no-cache"));
+    assert_eq!(a.header("cache-control"), Some("max-age=60"));
     // Die Header der Karte Wert für Wert wie in web/headers.json, auch an
     // einer 404.
     let pfad = Path::new(env!("CARGO_MANIFEST_DIR")).join("../web/headers.json");
@@ -383,6 +384,7 @@ fn mime_und_seite() {
         ),
         ("/", "no-cache"),
         ("/tiles/t/map.json", "no-cache"),
+        ("/tiles/t/0/0/0.webp", "max-age=60"),
     ] {
         let a = hole(server.adresse, pfad);
         assert_eq!(a.header("cache-control"), Some(cache), "{pfad}");
@@ -1512,7 +1514,7 @@ fn tiles_nur_fuer_baeume_der_liste() {
 }
 
 /// Die Ebenen aus docs/benutzung/ebenen.md: `layers.json`, die Datei einer
-/// Ebene und ihre Bilder, mit ETag, `304` und `no-cache` wie die Kacheln,
+/// Ebene und ihre Bilder, mit ETag, `304` und `no-cache`, auch ein Bild als `.webp`,
 /// ohne Token und auch ohne lesbare `trees.json`. Eine halb geschriebene
 /// Datei mit Punkt vorn, `..` und ein Unterordner der Bilder geben `404`.
 #[test]

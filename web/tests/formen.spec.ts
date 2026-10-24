@@ -577,7 +577,7 @@ test('nach 0111: Formen weit ausserhalb des Ausschnitts ändern die Punkte nicht
   }
 });
 
-test('nach 0111: ein grosser Kreis hat als Rand und als Fläche höchstens 2 · Umfang auf dem Schirm / ε Punkte, gleich wie gross in Blöcken; neu gerechnet nach dem Verschieben', async ({ page }) => {
+test('nach 0111: ein grosser Kreis hat als Rand und als Fläche höchstens 2 · Umfang auf dem Schirm / ε Punkte, gleich wie gross in Blöcken; nach 0122 ganz gerechnet, ohne neue Rechnung beim Verschieben', async ({ page }) => {
   // Einmal nur Rand, einmal nur Fläche, je ohne Wand; auf Zoom −3 rund 110 px Radius.
   const arten = { rand: { stroke: { color: '#5500AA' } }, flaeche: { fill: '#5500AA55' } };
   for (const [art, mehr] of Object.entries(arten)) {
@@ -594,13 +594,27 @@ test('nach 0111: ein grosser Kreis hat als Rand und als Fläche höchstens 2 · 
       expect(n, `${art}, Radius ${r}`).toBeLessThanOrEqual((2 * umfang) / 0.5 + 16);
     }
   }
-  // Verschoben aus dem gerechneten Ausschnitt: neu gerechnet, die Punkte folgen.
+  // Auf Zoom −6 passt die Ebene in 9 Fenster: ganz gerechnet. Auch weit verschoben bleiben Fläche und Rand dieselben Pfade, ohne neue Rechnung;
+  // eine neue gäbe dem Rand neue Elemente.
+  await page.unrouteAll({ behavior: 'ignoreErrors' });
+  await welt(page, staedte([{ id: 'k', type: 'circle', center: [32, -16], radius: 800, ...arten.rand, ...arten.flaeche }], { hoehe: buckel, mehr: { maxZoom: 6 } }));
+  await page.goto(`${DEMO}&punkte&at=32,10,-16&zoom=-6`);
+  await expect.poll(() => punkteDerEbene(page)).toBeGreaterThan(0);
   const vorher = await punkteDerEbene(page);
-  await page.mouse.move(640, 360);
-  await page.mouse.down();
-  await page.mouse.move(-600, 360, { steps: 8 });
-  await page.mouse.up();
-  await expect.poll(() => punkteDerEbene(page)).not.toBe(vorher);
+  const pfade = page.locator('.leaflet-pane svg path');
+  expect(await pfade.count()).toBeGreaterThan(1);
+  await pfade.evaluateAll((l) => l.forEach((e) => ((e as SVGPathElement & { probe?: number }).probe = 1)));
+  // Zweimal 1120 px: weit über den Rand eines Ausschnitts von Fenster plus halbem hinaus.
+  for (let i = 0; i < 2; i++) {
+    await page.mouse.move(1200, 360);
+    await page.mouse.down();
+    await page.mouse.move(80, 360, { steps: 8 });
+    await page.mouse.up();
+  }
+  // Lange genug für eine neue Rechnung: 150 ms Warten nach moveend und die Rechnung selbst.
+  await page.waitForTimeout(1500);
+  expect(await punkteDerEbene(page)).toBe(vorher);
+  expect(await pfade.evaluateAll((l) => l.filter((e) => (e as SVGPathElement & { probe?: number }).probe !== 1).length)).toBe(0);
 });
 
 /** Zieht die Karte viermal um 1100 px nach links oder rechts, wie mit der Maus. */

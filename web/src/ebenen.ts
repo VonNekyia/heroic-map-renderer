@@ -116,6 +116,13 @@ const TAKT = 30_000;
  */
 const REGEL = { eps: 0.5, warten: 150 };
 
+/**
+ * Die ganze Ebene statt des Ausschnitts rechnet die Karte, solange ihr Rahmen
+ * höchstens `fenster` Fenster gross ist; gemerkt je Stufe, zusammen höchstens
+ * `bytes`, geschätzt mit `bytesJePunkt`. Siehe docs/entscheidungen/0122-raender-unabhaengig-vom-ausschnitt.md.
+ */
+const GANZ = { fenster: 9, bytes: 16 * 1024 * 1024, bytesJePunkt: 64 };
+
 /** Mit `?punkte` in der Adresse schreibt die Karte die Zahl der Punkte an das Pane der Formen, für Tests und Messungen. */
 const ZAEHLEN = new URLSearchParams(location.search).has('punkte');
 
@@ -804,6 +811,8 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     waende: L.Layer[];
     striche: Strich[];
     schirm: Schirm;
+    /** Gerechnet für die ganze Ebene: Auf derselben Stufe braucht kein Verschieben eine neue Rechnung. */
+    ganz: boolean;
     nummer: number;
   }
   const geladen = new Map<string, Geladen>();
@@ -1265,20 +1274,87 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     return { faktor: faktor(), rahmen: [x0 - w, y0 - h, x1 + w, y1 + h], eps: REGEL.eps };
   };
 
+  /** Ob das Fenster jetzt im Rahmen des Schirms liegt. */
+  const imRahmen = (s: Schirm): boolean => {
+    const [x0, y0, x1, y1] = fenster();
+    const [r0, r1, r2, r3] = s.rahmen;
+    return x0 >= r0 && y0 >= r1 && x1 <= r2 && y1 <= r3;
+  };
+
   /** Was eine Rechnung für die Ansicht gibt. */
-  type Ansicht = ReturnType<typeof zeichneAnsicht> & { schirm: Schirm };
+  type Ansicht = NonNullable<Awaited<ReturnType<typeof zeichneAnsicht>>> & { schirm: Schirm; ganz: boolean };
 
   /**
-   * Flächen, Ränder, Linien und Wände einer Ebene für die Ansicht jetzt, mit
-   * den Höhen nur der Regionen, die im Ausschnitt liegen können. Eigene
-   * Funktion aus demselben Grund wie `schriftLagenFuer`: Die Höhen leben nur
-   * im Aufruf.
+   * Der Rahmen der ganzen Ebene auf dem Schirm, über alle Höhen, wenn er
+   * höchstens `GANZ.fenster` Fenster gross ist und ihre Höhen mit `ground`
+   * ins Budget passen; sonst `undefined`, dann gilt der Ausschnitt.
    */
-  const ansichtJetzt = async (formen: readonly Form[], renderer: L.Renderer): Promise<Ansicht> => {
-    const schirm = schirmJetzt();
+  const ganzerRahmen = (formen: readonly Form[], fensterJetzt: Rechteck): Rechteck | undefined => {
+    if (formen.length === 0) return undefined;
+    const [ymin, ymax] = [umgebung.minY ?? -64, umgebung.maxY ?? 319];
+    const ecken = formen.flatMap((f) => {
+      const [x0, z0, x1, z1] = bereich(f);
+      return [x0, x1].flatMap((x) => [z0, z1].flatMap((z) => [ymin, ymax].map((y) => bildpunkt(x, iso ? y : 0, z, blick))));
+    });
+    const rahmen = rechteck(ecken);
+    const flaeche = (r: Rechteck) => (r[2] - r[0]) * (r[3] - r[1]);
+    if (flaeche(rahmen) > GANZ.fenster * flaeche(fensterJetzt)) return undefined;
+    const cg = umgebung.boden ? (umgebung.bodenCell ?? c) : c;
+    if (regionenFuer(formen, []).size * regionBytes(cg) > HOEHEN_BYTES) return undefined;
+    return rahmen;
+  };
+
+  /**
+   * Flächen, Ränder, Linien und Wände einer Ebene für die Ansicht jetzt: für
+   * die ganze Ebene, wenn `ganzerRahmen` sie erlaubt, sonst mit den Höhen nur
+   * der Regionen, die im Ausschnitt liegen können. Eigene Funktion aus
+   * demselben Grund wie `schriftLagenFuer`: Die Höhen leben nur im Aufruf.
+   */
+  const ansichtJetzt = async (formen: readonly Form[], renderer: L.Renderer, gilt?: () => boolean): Promise<Ansicht | undefined> => {
+    const imFenster = schirmJetzt();
+    const rahmen = ganzerRahmen(formen, fenster());
+    const schirm = rahmen ? { ...imFenster, rahmen } : imFenster;
     const welt = weltRechteck(schirm.rahmen, blick, umgebung.minY ?? -64, umgebung.maxY ?? 319);
     const boden = formen.some((f) => f.rand.breite > 0 || hatFlaeche(f)) ? await ladeGelaende(regionenFuer(formen, [], welt), true) : eben;
-    return { ...zeichneAnsicht(formen, { renderer, blick, gelaende: boden, eben: boden === eben, area: umgebung.area }, schirm), schirm };
+    const teil = await zeichneAnsicht(formen, { renderer, blick, gelaende: boden, eben: boden === eben, area: umgebung.area }, schirm, gilt);
+    return teil && { ...teil, schirm, ganz: rahmen !== undefined };
+  };
+
+  /**
+   * Die letzte Rechnung je Ebene und Stufe, zuletzt gebrauchte hinten,
+   * zusammen höchstens `GANZ.bytes`. Sie gilt wieder, wenn das Fenster in
+   * ihrem Rahmen liegt oder sie die ganze Ebene hat. Eine neu geladene Ebene
+   * hat ein neues `Geladen`, ihre alten Einträge gelten nicht mehr.
+   */
+  const ganze = new Map<string, { g: Geladen; ansicht: Ansicht; bytes: number }>();
+  let ganzeBytes = 0;
+  const vergiss = (schluessel: string): void => {
+    const e = ganze.get(schluessel);
+    if (!e) return;
+    ganzeBytes -= e.bytes;
+    ganze.delete(schluessel);
+  };
+  const ganzGemerkt = (id: string, g: Geladen, f: number): Ansicht | undefined => {
+    const schluessel = `${id} ${f}`;
+    const e = ganze.get(schluessel);
+    if (!e) return undefined;
+    vergiss(schluessel);
+    if (e.g !== g || !(e.ansicht.ganz || imRahmen(e.ansicht.schirm))) return undefined;
+    ganze.set(schluessel, e);
+    ganzeBytes += e.bytes;
+    return e.ansicht;
+  };
+  const ganzMerken = (id: string, g: Geladen, a: Ansicht): void => {
+    const schluessel = `${id} ${a.schirm.faktor}`;
+    vergiss(schluessel);
+    const bytes = a.punkte * GANZ.bytesJePunkt;
+    if (bytes > GANZ.bytes) return;
+    ganze.set(schluessel, { g, ansicht: a, bytes });
+    ganzeBytes += bytes;
+    for (const alt of ganze.keys()) {
+      if (ganzeBytes <= GANZ.bytes) break;
+      vergiss(alt);
+    }
   };
 
   /** Schreibt mit `?punkte` die Punkte von Flächen, Rändern, Linien und Wänden an das Pane der Formen. */
@@ -1313,20 +1389,20 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     if (wieder) for (const { flaeche } of g.flaechen) if (g.formen.hasLayer(flaeche)) flaeche.bringToFront();
     for (const w of neu.waende) g.formen.addLayer(w);
     for (const s of neu.striche) g.formen.addLayer(s.linie);
-    [g.waende, g.striche, g.schirm] = [neu.waende, neu.striche, neu.schirm];
+    [g.waende, g.striche, g.schirm, g.ganz] = [neu.waende, neu.striche, neu.schirm, neu.ganz];
     versetze(g.striche, faktor());
     zaehle(id, neu.punkte);
   };
 
   /** Rechnet eine Ebene neu, wenn sich der Zoom geändert hat oder das Fenster aus dem gerechneten Ausschnitt läuft. */
   const ansichtNeu = async (id: string, g: Geladen): Promise<void> => {
-    const [x0, y0, x1, y1] = fenster();
-    const [r0, r1, r2, r3] = g.schirm.rahmen;
-    if (g.schirm.faktor === faktor() && x0 >= r0 && y0 >= r1 && x1 <= r2 && y1 <= r3) return;
+    if (g.schirm.faktor === faktor() && (g.ganz || imRahmen(g.schirm))) return;
     const nummer = ++g.nummer;
-    const neu = await ansichtJetzt(g.quelle, g.renderer);
     // Ist die Ebene weg, neu geladen oder schon wieder neu gerechnet, gilt dieses Ergebnis nicht.
-    if (geladen.get(id) !== g || g.nummer !== nummer) return;
+    const gilt = () => geladen.get(id) === g && g.nummer === nummer;
+    const neu = ganzGemerkt(id, g, faktor()) ?? (await ansichtJetzt(g.quelle, g.renderer, gilt));
+    if (!neu || !gilt()) return;
+    ganzMerken(id, g, neu);
     setze(id, g, neu);
   };
   let ansichtWarten: ReturnType<typeof setTimeout> | undefined;
@@ -1406,6 +1482,8 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     // Die Ziele der Flächen und die Schrift einmal je version, die Ansicht je Ausschnitt; hier vor dem Tausch.
     const flaechen = flaechenZiele(formen, { renderer, blick, tafel: tafelDerEbene, bediene });
     const [schriftLagen, ansicht] = await Promise.all([schriftLagenFuer(schriften, formPane), ansichtJetzt(formen, renderer)]);
+    // Ohne `gilt` bricht die Rechnung nie ab.
+    if (!ansicht) return;
     // Icons und Symbole gelten nur für dieses Laden und fallen danach weg.
     const icons = new Map<string, Promise<HTMLCanvasElement>>();
     const symbole = new Map<string, Promise<HTMLImageElement>>();
@@ -1444,8 +1522,9 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     // Erst Flächen, Wände, Ränder und Linien, in dieser Reihenfolge von `setze`; zuletzt die Schrift, je in einem eigenen svg über dem des Renderers.
     const formGruppe = L.layerGroup().addTo(map);
     const gruppe = L.layerGroup(marker.filter((m): m is L.Marker => m !== undefined)).addTo(map);
-    const g: Geladen = { version: e.version, stand, gruppe, formen: formGruppe, quelle: formen, renderer, flaechen, waende: [], striche: [], schirm: ansicht.schirm, nummer: 0 };
+    const g: Geladen = { version: e.version, stand, gruppe, formen: formGruppe, quelle: formen, renderer, flaechen, waende: [], striche: [], schirm: ansicht.schirm, ganz: ansicht.ganz, nummer: 0 };
     geladen.set(e.id, g);
+    ganzMerken(e.id, g, ansicht);
     setze(e.id, g, ansicht);
     for (const s of schriftLagen) formGruppe.addLayer(s);
   };

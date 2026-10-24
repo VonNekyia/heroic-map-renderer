@@ -57,6 +57,9 @@ const GRENZEN = { punkte: 10_000, loecher: 100, radius: 100_000 };
  */
 const WAND = { hoehe: 6, unten: 0.6, baender: 12 };
 
+/** So viele ms rechnet `zeichneAnsicht` am Stück, dann gibt sie den Hauptfaden frei. */
+const STUECK_MS = 8;
+
 /** Wie hoch die Wand auf der feinsten Stufe ist, in Pixeln. */
 export const wandHoehe = (blick: Blick): number => WAND.hoehe * blick.p.y;
 
@@ -283,11 +286,12 @@ export function flaechenZiele(formen: readonly Form[], z: Pick<Zeichnen, 'render
  * ausserhalb; `punkte` zählt alle Punkte. Siehe
  * docs/entscheidungen/0111-geometrie-nach-bildschirmfehler.md.
  */
-export function zeichneAnsicht(
+export async function zeichneAnsicht(
   formen: readonly Form[],
   z: Omit<Zeichnen, 'tafel' | 'bediene'>,
   schirm: Schirm,
-): { flaechen: L.LatLng[][][]; waende: L.Layer[]; striche: Strich[]; punkte: number } {
+  gilt: () => boolean = () => true,
+): Promise<{ flaechen: L.LatLng[][][]; waende: L.Layer[]; striche: Strich[]; punkte: number } | undefined> {
   const { renderer, blick, gelaende: g, area, eben } = z;
   const flach = ([x, zz]: Punkt): Punkt => bildpunkt(x, oberflaeche(g, x, zz), zz, blick);
   const wandLagen: L.Layer[] = [];
@@ -300,9 +304,17 @@ export function zeichneAnsicht(
   const welt = weltRechteck(schirm.rahmen, blick, g.grund - 128, g.max);
   /** Je Farbe die Ringe der Wände, je Band von unten nach oben. */
   const waende = new Map<string, Punkt[][][]>();
-  formen.forEach((f, index) => {
+  let seit = performance.now();
+  for (const [index, f] of formen.entries()) {
+    // Nach `STUECK_MS` gibt die Rechnung den Hauptfaden frei, so kommen Bilder und Eingaben durch; siehe docs/entscheidungen/0122-raender-unabhaengig-vom-ausschnitt.md.
+    if (performance.now() - seit > STUECK_MS) {
+      await new Promise((weiter) => setTimeout(weiter));
+      // Gilt die Ansicht nicht mehr, etwa nach dem nächsten Verschieben, bricht die Rechnung ab.
+      if (!gilt()) return undefined;
+      seit = performance.now();
+    }
     const [x0, z0, x1, z1] = bereich(f);
-    if (x1 < welt[0] || x0 > welt[2] || z1 < welt[1] || z0 > welt[3]) return;
+    if (x1 < welt[0] || x0 > welt[2] || z1 < welt[1] || z0 > welt[3]) continue;
     const kreis = f.kreis ? kreisNachSchirm(f.kreis.mitte, f.kreis.radius, blick, schirm) : undefined;
     if (hatFlaeche(f)) {
       const beschnitten = polygone(f, g.c, eben, kreis).map((p) => {
@@ -316,7 +328,7 @@ export function zeichneAnsicht(
       for (const r of ringe) punkte += r.length;
       flaechen[index] = ringe.map((r) => r.map(latLng));
     }
-    if (f.rand.breite === 0) return;
+    if (f.rand.breite === 0) continue;
     for (const stueck of zuege(f, g.c, area, eben, kreis)) {
       const nie = stueck.map(() => false);
       const zz = eben && blick.p.y > 0 ? { punkte: stueck.map(flach), verdeckt: nie, gestrichelt: nie } : zug(stueck, false, g, blick, schirm);
@@ -329,7 +341,7 @@ export function zeichneAnsicht(
       waende.set(farbeWand, baender);
       wand(zz, WAND.hoehe * blick.p.y, baenderZahl).forEach((ringe, k) => baender[k]!.push(...ringe));
     }
-  });
+  }
   // Die Wände über den Flächen der Ebene, je Farbe und Band ein Pfad.
   for (const [farbeWand, baender] of waende) {
     baender.forEach((ringe, k) => {

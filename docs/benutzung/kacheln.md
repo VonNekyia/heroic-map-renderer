@@ -151,7 +151,8 @@ heissen, auch mit `--cinematic`, steht in [map.json](map-json.md), „Liste
 der Bäume“, die Höhen unter „Höhen“. In einem Baum liegen die Kacheln als
 `<z>/<x>/<y>.webp`; x und y dürfen negativ sein, weil der Blockursprung
 mitten in der Welt liegt. Neben `map.json` liegt der Stand für Updates,
-`stand.bin`, siehe [Updates](updates.md), „Der Stand“, die Hashes der
+`stand.bin` mit den Regionen in `stand/`, siehe [Updates](updates.md), „Der
+Stand“, die Hashes der
 Pixel unter `pixel/`, siehe [Updates](updates.md), „Gleiche Pixel“, und mit
 `--manifest` das Manifest mit Grösse und ETag jeder Kachel, `manifest`,
 siehe [Plugin](../plugin.md), „Manifest“. Jede Kachel, jede
@@ -258,8 +259,9 @@ bestehenden Baum, etwa mit einem neuen Binär, jede Kachel ein neues ETag.
 - **Die Ausgabe** nennt, was liegen blieb:
   `Kacheln:    0 geschrieben, 17820 gleich geblieben, 344 leer, …`.
 - **Was:** Kacheln jeder Stufe, die Basis, die nativen Stufen und die
-  Pyramide, dazu die Höhen. `map.json`, `stand.bin` und `trees.json`
-  schreibt der Renderer immer neu.
+  Pyramide, dazu die Höhen. `map.json` und `trees.json` schreibt der
+  Renderer immer neu, vom Stand die Regionen, die sich geändert haben, und
+  den Kopf, siehe [Updates](updates.md), „Der Stand“.
 - **Mit vorgegebener Zeit,** wie `--pyramid` seine Kacheln stempelt
   ([0017](../entscheidungen/0017-pyramide-vergleicht-zeiten.md)), bekommt
   eine gleiche Datei nur diese Zeit, ihre Bytes bleiben.

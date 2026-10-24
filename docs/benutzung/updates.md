@@ -62,23 +62,38 @@ sie ganz neu und sagt es mit `Verkleinern:`, siehe
 
 ## Der Stand
 
-Jeder Baum hat seinen Stand in `stand.bin` neben `map.json`. Ihn schreibt
-nur ein voller Lauf über die ganze Welt oder ein Update, und zwar ganz am
-Ende, nach `map.json`; getauscht wie jede Datei, siehe
-[0018](../entscheidungen/0018-dateien-tauschen-statt-ueberschreiben.md).
-Ein Ausschnitt schreibt keinen.
+Jeder Baum hat seinen Stand neben `map.json`: den Kopf `stand.bin` und je
+Region eine Datei in `stand/`, Fassung 2 aus
+[0126](../entscheidungen/0126-stand-je-region.md). Ihn schreibt nur ein
+voller Lauf über die ganze Welt oder ein Update, und zwar ganz am Ende,
+nach `map.json`. Ein Ausschnitt schreibt keinen.
 
+- **Nur, was anders ist:** Ein Lauf schreibt die Regionen, deren Einträge
+  anders sind als auf der Platte, jede getauscht wie in
+  [0018](../entscheidungen/0018-dateien-tauschen-statt-ueberschreiben.md),
+  danach den Kopf. Zuletzt fallen die Regionen weg, die der Kopf nicht mehr
+  nennt (`lege_stand_ab` in
+  [`renderer/src/cli.rs`](../../renderer/src/cli.rs)).
+- **Abbruch dazwischen:** Dann gilt der alte Kopf, und einige Regionen
+  tragen schon den neuen Stand. Der Stand entsteht erst nach den Kacheln,
+  eine neue Region nennt also nie mehr, als die Kacheln zeigen. Das nächste
+  Update zeichnet höchstens mehr und gleicht danach einem vollen Lauf, auch
+  mit `--resume` (`stand_je_region_nach_abbruch`).
 - **Ohne Änderung:** Findet ein Update dieselben Stempel und Inhalte wie im
   alten Stand, schreibt es ihn nicht neu: `Stand:      unverändert ->
   …/stand.bin`. Der alte gilt weiter, mit Bytes und Zeit. Was ein
-  abgebrochener Lauf hinterliess, `stand-neu.bin`, `stand-neu-liegen.bin`
-  und `gebiet-offen.bin`, räumt es trotzdem weg (`entferne_angefangene` in
-  [`renderer/src/cli.rs`](../../renderer/src/cli.rs)). So schreibt das Update
-  den Stand nicht noch einmal auf die Platte, an der Testwelt 7,5 MB und
-  0,08 s je Update.
+  abgebrochener Lauf hinterliess, `stand-neu.bin` samt `stand-neu/`,
+  `stand-neu-liegen.bin` und `gebiet-offen.bin`, räumt es trotzdem weg
+  (`entferne_angefangene`). In Fassung 1 sparte das an der Testwelt 7,5 MB
+  und 0,08 s je Update.
 - **Neue Stempel ohne neuen Inhalt** sind keine Änderung zum Zeichnen,
-  aber eine am Stand: Den schreibt das Update dann, sonst läse das nächste
-  dieselben Chunks wieder.
+  aber eine am Stand: Deren Regionen schreibt das Update dann, sonst läse
+  das nächste dieselben Chunks wieder.
+- **Fassung 1,** alles in `stand.bin`, liest der Renderer weiter. Sie gilt
+  in jeder Region als geändert: Der erste fertige Lauf schreibt alle in
+  Fassung 2, auch ein Update ohne Änderung
+  (`stand_der_fassung_1_gilt_weiter`). Ein älterer Renderer liest Fassung 2
+  nicht; wer zurückgeht, braucht einen vollen Lauf.
 - **Geprüft** in `update_ohne_aenderung_schreibt_den_stand_nicht` in
   `renderer/tests/cli.rs`.
 
@@ -88,7 +103,7 @@ Update keine davon übersieht, hält jeder Lauf vor der ersten Kachel fest,
 was er zeichnen kann:
 
 - **Ein Update und ein Ausschnitt** legen ihr Gebiet ab, siehe „Das offene
-  Gebiet“. `stand.bin` bleibt dabei, wie es ist.
+  Gebiet“. Der Stand bleibt dabei, wie er ist.
 - **Ein voller Lauf** liest ohnehin alles. Er macht im alten Stand jeden
   Chunk unbekannt, den der Stand kennt oder der jetzt in der Welt steht
   (`Stand::unbekannt_wo`). Bricht er ab, zeichnet das nächste Update also
@@ -100,21 +115,39 @@ der Lauf am Ende die Köpfe noch einmal: Jeder Chunk mit anderem Stempel
 steht als unbekannt im Stand und gilt beim nächsten Update als geändert,
 über die volle Höhe.
 
-Vor der ersten Kachel legt der Lauf den angefangenen Stand als
-`stand-neu.bin` ab, wie `map.json`, und daneben das Protokoll der Kacheln,
-die er liegen lässt, siehe [Pyramide und Fortsetzen](pyramide-und-resume.md),
-„Fortsetzen: `--resume`“. Beides braucht nur `--resume`, siehe unten;
-am Ende fällt beides weg.
+Vor der ersten Kachel legt der Lauf den angefangenen Stand ab: den Kopf
+`stand-neu.bin` und in `stand-neu/` nur die Regionen, die anders sind als
+in `stand.bin`; die anderen liest `--resume` aus `stand/`. Einen älteren
+angefangenen Stand räumt er vorher weg. Daneben liegt das Protokoll der
+Kacheln, die er liegen lässt, siehe
+[Pyramide und Fortsetzen](pyramide-und-resume.md), „Fortsetzen:
+`--resume`“. Das alles braucht nur `--resume`, siehe unten; am Ende fällt
+es weg.
+
+Der Kopf, `stand.bin` und `stand-neu.bin`:
 
 | Teil | Bytes |
 |---|---|
-| Kopf: `HMRSTAND`, Fassung 1, Art (voller Lauf oder Update), Fingerabdruck des Renderers und der Assets, Zahl der Regionen | 33 |
+| `HMRSTAND`, Fassung 2, Art (voller Lauf oder Update), Fingerabdruck des Renderers und der Assets, Zahl der Regionen | 33 |
 | je Region: x, z | 8 |
-| je Chunk, 1024 je Region: Art des Inhalts mit einem Bit für den Stempel, Zeit, Eintrag der Tabelle, Fingerabdruck, höchster Block | 19 |
 
-Eine Region kostet 19 464 Byte, eine Welt mit 2,5 Millionen Chunks also
-mindestens rund 47 MB je Baum. Alles in Little Endian, `Stand::als_bytes` in
-[`renderer/src/render/stand.rs`](../../renderer/src/render/stand.rs).
+Eine Region, `stand/<x>.<z>.bin`:
+
+| Teil | Bytes |
+|---|---|
+| `HMRREGIO`, Fassung 2 | 12 |
+| je Chunk, 1024, nach z, dann x: Art des Inhalts mit einem Bit für den Stempel, Zeit, Eintrag der Tabelle, Fingerabdruck, höchster Block | 19 |
+| dazu je Chunk für die Grenze nach unten K als i8, ohne Tiefe `0x80`, und H als u64, ohne 0; siehe „Die Grenze nach unten“ | 9 |
+
+- **Grösse:** Eine Region kostet 28 684 Byte, eine Welt mit 2,5 Millionen
+  Chunks also mindestens rund 70 MB je Baum. Im Speicher hält der Stand je
+  Chunk die 28 Bytes.
+- **Fassung 1** hatte alles in `stand.bin`: hinter jeder Lage einer Region
+  ihre Chunks zu 19 Bytes, 47 MB für dieselbe Welt.
+- **Was das Plugin liest,** steht in [Plugin](../plugin.md), „Was das
+  Plugin vom Renderer nutzt“.
+- Alles in Little Endian, `Stand::kopf_bytes` und `Stand::region_bytes` in
+  [`renderer/src/render/stand.rs`](../../renderer/src/render/stand.rs).
 
 ## Das offene Gebiet
 
@@ -227,7 +260,9 @@ Um jeden geänderten Chunk ein Gebiet, `gebiet_der_aenderungen` in
   höchsten Block der 3 × 3 Chunks um ihn: für ihn selbst der höhere aus
   altem und neuem Stand, für die Nachbarn der neue; über einen Chunk, von
   dem der Stand nichts weiss, die Oberkante. Nach unten bleibt es die volle
-  Höhe, denn Himmelslicht fällt in einer Spalte beliebig tief. Nach oben
+  Höhe, denn Himmelslicht fällt in einer Spalte beliebig tief, ausser auf
+  der Karte unter dem tiefsten ersten dichten Block, siehe „Die Grenze nach
+  unten“. Nach oben
   reicht der höhere der beiden Stände, sonst bliebe die Spitze eines
   abgerissenen Turms stehen, und die Nachbarn zählen mit: Wird ein Chunk
   fertig, fällt er weg oder wechselt er sein Biom, ändern sich an einem
@@ -264,6 +299,40 @@ berührt. Kacheln, in die ein Chunk früher reichte, der noch da ist, zeichnet
 der Lauf neu; leer verschwinden sie. Kacheln eines Chunks, der ganz fehlt,
 bleiben ohne `--prune` stehen, siehe [Kacheln exportieren](kacheln.md),
 „Leer gewordene Kacheln“ (`update_laesst_kacheln_fehlender_chunks_stehen`).
+
+## Die Grenze nach unten
+
+Auf der Karte ohne Cinematic und ohne Relief beginnt das Gebiet eines
+geänderten Chunks erst bei `min(16·K_alt, E_neu) − 16`, wenn seine
+Sections unter K gleich geblieben sind. Entschieden in
+[0127](../entscheidungen/0127-grenze-nach-unten.md), dort auch, warum es
+reicht.
+
+- **E** ist das tiefste y, an dem in einer Spalte des Chunks von oben der
+  erste dichte Block steht, einer, der das Licht ganz aufhält
+  (`Chunk::erster_dichter` in
+  [`renderer/src/world/chunk.rs`](../../renderer/src/world/chunk.rs)). Hat
+  eine Spalte keinen, gibt es kein E und keine Grenze.
+- **K** ist die Section von E, **H** der Abdruck der Sections unter K
+  (`Chunk::abdruck_unter`). Beide stehen im Stand, siehe „Der Stand“.
+- **Die Bedingung** prüft `grenze_nach_unten` in `stand.rs`: Der alte Stand
+  kennt K und H, der Chunk hat jetzt ein E, und seine Sections unter dem
+  alten K haben wieder H. Ein Update liest dafür jeden Chunk mit dem alten
+  K.
+- **Ohne Tiefe** bleibt die volle Höhe: für einen Chunk, den der Server
+  während des Laufs schrieb, und für einen aus einem Stand der Fassung 1,
+  bis ein Lauf ihn wieder liest.
+- **Wie viel:** An der Testwelt hat ein Update mit 16 Änderungen 1144
+  statt 1968 Kacheln im Gebiet und braucht 10,4 statt 13,4 s; es schreibt
+  dieselben 13 Kacheln. Der Vorlauf des vollen Laufs braucht 3,1 s mehr.
+  Gemessen in
+  [2026-10-24, Grenze nach unten](../messungen/2026-10-24-grenze-nach-unten.md).
+- **Geprüft** in `grenze_nach_unten_gleicht_einem_vollen_lauf` in
+  `renderer/tests/cli.rs`: ein Berg aus Stein mit einem Schacht in die Halle
+  des Chunks daneben, der Reihe nach ein Block oben, Glas, Wasser und Laub
+  über E und weg, Leuchtstein unter K, der Schacht auf und zu und eine
+  Spalte ohne dichten Block; nach jedem Schritt gleicht das Update einem
+  vollen Lauf.
 
 ## Gleiche Pixel
 
@@ -492,7 +561,9 @@ An der Testwelt bei scale 8, gemessen in
   zeichnet das erste dessen Gebiet noch einmal, siehe „Das offene Gebiet“.
 - **Ein Gebiet** kostet, was ein Ausschnitt dieser Grösse kostet, dazu rund
   2 s für Assets und Sprites.
-- **`stand.bin`** hat rund 24 Bytes je Chunk, an der Testwelt 7,5 MB.
+- **Der Stand** hat 28 Bytes je Chunk, an der Testwelt gerechnet rund
+  11 MB. Ein Update schreibt davon nur die Regionen, die sich geändert
+  haben, siehe „Der Stand“.
 - **Mit einem Thread,** wie das Plugin es startet, brauchte das Update mit
   16 gelöschten Chunks 14,3 s. Mit den Hashes der Pixel waren es 13,9 s;
   198 von 388 Kacheln im Gebiet kodierte es nicht. Die Hashes haben rund

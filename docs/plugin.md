@@ -69,12 +69,15 @@ dem Plugin-Programmierer ab.
   - Steigt `ZEICHENSTAND_RELIEF`, nennen die Notizen des Release die Bäume
     mit `--relief`, siehe unten.
 - **Den Ordner eines Baums,** `baum_name` in `cli.rs`. Das Plugin rechnet ihn
-  nach, um `stand.bin` und `stand-neu.bin` zu finden; daneben liegt
-  `stand-neu-liegen.bin`, das nur `--resume` liest. Siehe
-  [map.json](benutzung/map-json.md), „Liste der Bäume“.
-- **Den Kopf von `stand-neu.bin`:** Magie, Fassung und Art aus
-  `Stand::als_bytes` in
-  [`renderer/src/render/stand.rs`](../renderer/src/render/stand.rs). Aus der
+  nach, um `stand.bin` und `stand-neu.bin` zu finden; daneben liegen die
+  Regionen in `stand/` und `stand-neu/` und `stand-neu-liegen.bin`, das nur
+  `--resume` liest. Siehe [map.json](benutzung/map-json.md), „Liste der
+  Bäume“.
+- **Den Kopf von `stand-neu.bin`:** die ersten 13 Bytes, Magie, Fassung und
+  Art aus `Stand::kopf_bytes` in
+  [`renderer/src/render/stand.rs`](../renderer/src/render/stand.rs). Die
+  Fassung ist 2 seit
+  [0126](entscheidungen/0126-stand-je-region.md). Aus der
   Art entscheidet das Plugin, ob es mit `--resume` fortsetzt, siehe
   [Updates](benutzung/updates.md), „Der Stand“. Ob er zum Renderer passt,
   prüft der Renderer: Stammt der Stand eines vollen Laufs von einem mit

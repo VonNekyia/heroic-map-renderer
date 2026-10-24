@@ -538,7 +538,8 @@ test('ein Banner bis 32 × 64 steht Pixel auf Pixel, der Fuss bei ⌊Breite / 2�
       return g && png(...g);
     },
   }));
-  await page.goto(DEMO);
+  // Beide ganz im Fenster, für den Screenshot.
+  await page.goto(`${DEMO}&at=25,5,-25`);
   await expect(page.locator('.nadel-icon')).toHaveCount(2);
   for (const [name, [b, h], [x, z]] of [
     ['Gross', [32, 64], [20.5, -30.5]],
@@ -948,7 +949,8 @@ for (const [dpr, k] of [
       // Jedes Pixel des Geräts ganz im Bild trägt genau eine Farbe der Quelle, die nächste: kein Glätten, auch bei 1,25 und 1,5.
       const { fehler, geprueft } = await pixelAufPixel(page, bild, k);
       expect(fehler).toEqual([]);
-      expect(geprueft).toBeGreaterThanOrEqual(19 * 38);
+      // Am Rand kann der Browser je eine Spalte und Zeile anschneiden; das Innere zählt.
+      expect(geprueft).toBeGreaterThanOrEqual((21 - 3) * (40 - 3));
     });
   });
 }

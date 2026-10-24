@@ -568,13 +568,13 @@ test('Ebenen liegen nach order übereinander, in einer Ebene die spätere oben, 
     const [x, y] = await fuss(page, name);
     return page.evaluate(([x, y]) => document.elementFromPoint(x!, y! - 12)?.closest('.nadel-icon')?.getAttribute('title'), [x, y]);
   };
-  // Die Ebene mit der höheren order liegt oben, obwohl die andere tiefer steht.
-  expect(await oberste('O')).toBe('O');
+  // Die Ebene mit der höheren order liegt oben, obwohl die andere tiefer steht. Gewartet, bis Lage und Reihe stehen.
+  await expect.poll(() => oberste('O')).toBe('O');
   liste = [STAEDTE];
   await page.reload();
   await expect(page.locator('.nadel-icon')).toHaveCount(2);
   // In der Ebene liegt B, die spätere, oben, obwohl A tiefer steht.
-  expect(await oberste('B')).toBe('B');
+  await expect.poll(() => oberste('B')).toBe('B');
 });
 
 test('wird eine Ebene ausgeschaltet, während sie lädt, zeigt sie danach nichts', async ({ page }) => {

@@ -45,7 +45,8 @@ aussehende Übergänge. Plan des Frontends, freigegeben vom Reviewer am
 - **Die Stufen aus 0116:** Die Halbierung springt, und die Banner werden
   kleiner. Das ist der Befund des Users.
 - **Ein neues Icon je Zoom:** Damit kostete jeder Zoom Leinwände und
-  Elemente. Hier ändern sich nur zwei CSS-Variablen am Container.
+  Elemente. Hier ändern sich nur zwei CSS-Variablen an den Panes der
+  Nadeln.
 - **Namen ausblenden, die sich überlappen:** aus demselben Grund verworfen
   wie in 0116.
 

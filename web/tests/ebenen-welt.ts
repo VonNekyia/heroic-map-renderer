@@ -148,6 +148,6 @@ export const fuss = (page: Page, name: string) =>
 /** Wo ein Punkt der feinsten Stufe auf dem Schirm liegt: Die Kachel 2/0/0 beginnt bei (0, 0), auf Stufe 2 deckt ein Pixel einen. */
 export const aufDemSchirm = (page: Page, px: number, py: number) =>
   page.evaluate(([px, py]: [number, number]) => {
-    const kachel = document.querySelector('img[src$="/2/0/0.webp"]')!.getBoundingClientRect();
+    const kachel = document.querySelector('.kacheln img[src$="/2/0/0.webp"]')!.getBoundingClientRect();
     return [kachel.left + px, kachel.top + py];
   }, [px, py] as [number, number]);

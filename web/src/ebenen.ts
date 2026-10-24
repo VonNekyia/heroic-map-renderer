@@ -297,6 +297,8 @@ const NAME = { s: 16, sperrung: 0.125 * 16, tief: 0.75 * 16, oeffnung: (2 * Math
  */
 const NAMEN = { grenze: 1 / 16, voll: 8, weg: 5 };
 let bogenNummer = 0;
+/** Ein Kontext nur zum Messen der Namen, für alle Banner. */
+let messen: CanvasRenderingContext2D | undefined;
 
 /**
  * Ein SVG mit dem Ursprung am Fuss: der Name auf einem Kreisbogen darunter,
@@ -305,7 +307,7 @@ let bogenNummer = 0;
  */
 function nameImBogen(name: string, h: number, winkel: number): SVGSVGElement {
   const { s, sperrung, tief, oeffnung } = NAME;
-  const ctx = document.createElement('canvas').getContext('2d')!;
+  const ctx = (messen ??= document.createElement('canvas').getContext('2d')!);
   ctx.font = `${s}px Kartenschrift, serif`;
   const l = ctx.measureText(name).width + sperrung * ([...name].length - 1);
   const r = Math.max(2 * h, l / oeffnung);
@@ -1005,19 +1007,31 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     });
   };
 
+  /** Wie gross und wie deckend die Namen jetzt sind; vor dem ersten Zoom noch ohne Wert. */
+  let namen: { teil: number; deck: number } | undefined;
   /**
-   * Setzt am Container, wie gross und wie deckend die Namen auf Stufe `zoom`
-   * sind, `--name-teil` und `--name-deck`; CSS geht in 250 ms dorthin, so
+   * Setzt `--name-teil` und `--name-deck` an ein Pane der Nadeln, nicht an
+   * den Container: Sonst rechnete der Browser bei jedem Bild eines Pinch den
+   * Stil aller Nachkommen neu, auch der Kacheln.
+   */
+  const namenAn = (el: HTMLElement): void => {
+    if (!namen) return;
+    el.style.setProperty('--name-teil', String(namen.teil));
+    el.style.setProperty('--name-deck', String(namen.deck));
+    // Ein unsichtbarer Name ist kein Ziel für den Zeiger.
+    el.classList.toggle('namen-weg', namen.deck === 0);
+  };
+  /**
+   * Wie gross und wie deckend die Namen auf Stufe `zoom` sind, an den Panes
+   * der Nadeln und nur, wenn es sich ändert; CSS geht in 250 ms dorthin, so
    * lange wie die Animation des Zooms. Siehe `NAMEN`.
    */
   const namenNachZoom = (zoom: number): void => {
     const teil = Math.min(1, (blockBreite(blick) * 2 ** (zoom - maxZoom)) / NAMEN.grenze);
     const deck = Math.min(1, Math.max(0, (NAME.s * teil - NAMEN.weg) / (NAMEN.voll - NAMEN.weg)));
-    const container = map.getContainer();
-    container.style.setProperty('--name-teil', String(teil));
-    container.style.setProperty('--name-deck', String(deck));
-    // Ein unsichtbarer Name ist kein Ziel für den Zeiger.
-    container.classList.toggle('namen-weg', deck === 0);
+    if (namen?.teil === teil && namen.deck === deck) return;
+    namen = { teil, deck };
+    for (const { nadeln } of panes.values()) namenAn(map.getPane(nadeln)!);
   };
 
   /**
@@ -1177,7 +1191,7 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     let eintrag = panes.get(id);
     if (!eintrag) {
       const name = `ebene-${panes.size}`;
-      map.createPane(name);
+      namenAn(map.createPane(name));
       map.createPane(`${name}-formen`);
       eintrag = { nadeln: name, formen: `${name}-formen`, renderer: L.svg({ pane: `${name}-formen` }) };
       panes.set(id, eintrag);

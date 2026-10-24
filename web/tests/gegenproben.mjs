@@ -143,7 +143,7 @@ export default [
   { name: 'namen-nie-weg', datei: 'src/ebenen.ts', alt: 'const deck = Math.min(1, Math.max(0, (NAME.s * teil - NAMEN.weg) / (NAMEN.voll - NAMEN.weg)));', neu: 'const deck = Math.min(1, NAME.s * teil);', spec: 'tests/ebenen.spec.ts', titel: 'nach 0119 bleiben Nadeln' },
   { name: 'weg-ohne-uebergang', datei: 'src/style.css', alt: '    opacity 0.25s cubic-bezier(0, 0, 0.25, 1),\n', neu: '', spec: 'tests/ebenen.spec.ts', titel: 'nach 0119 bleiben Nadeln' },
   { name: 'unsichtbar-sofort', datei: 'src/style.css', alt: ',\n    visibility 0.25s;', neu: ';', spec: 'tests/ebenen.spec.ts', titel: 'nach 0119 bleiben Nadeln' },
-  { name: 'weg-bleibt-ziel', datei: 'src/ebenen.ts', alt: "container.classList.toggle('namen-weg', deck === 0);", neu: "container.classList.toggle('namen-weg', deck < 0);", spec: 'tests/ebenen.spec.ts', titel: 'nach 0119 bleiben Nadeln' },
+  { name: 'weg-bleibt-ziel', datei: 'src/ebenen.ts', alt: "el.classList.toggle('namen-weg', namen.deck === 0);", neu: "el.classList.toggle('namen-weg', namen.deck < 0);", spec: 'tests/ebenen.spec.ts', titel: 'nach 0119 bleiben Nadeln' },
   // Köpfe in Ebenen, 0118.
   { name: 'kopf-nie-an-der-nadel', datei: 'src/ebenen.ts', alt: '    if (gesicht) return', neu: "    if (gesicht && n.size === 'small') return", spec: 'tests/ebenen.spec.ts', titel: 'nach 0118 zeigt eine Nadel mit head' },
   { name: 'kopf-ein-pixel-je-pixel', datei: 'src/ebenen.ts', alt: 'ortIcon(gesicht, 2 * KOPF.seite, 2 * KOPF.seite,', neu: 'ortIcon(gesicht, KOPF.seite, KOPF.seite,', spec: 'tests/ebenen.spec.ts', titel: 'nach 0118 zeigt eine Nadel mit head' },
@@ -155,4 +155,10 @@ export default [
   { name: 'hoch-ohne-oberseite', datei: 'src/gelaende.ts', alt: 'gemerkt.set(s, (h += 1));', neu: 'gemerkt.set(s, (h += 0));', spec: 'tests/gelaende.spec.ts', titel: 'verdeckt überspringt Blöcke' },
   { name: 'ganz-nie-neu', datei: 'src/ebenen.ts', alt: 'const GANZ = { fenster: 9,', neu: 'const GANZ = { fenster: 0,', spec: 'tests/formen.spec.ts', titel: 'nach 0111: ein grosser Kreis' },
   { name: 'gemerkt-ohne-rahmen', datei: 'src/ebenen.ts', alt: 'if (e.g !== g || !(e.ansicht.ganz || imRahmen(e.ansicht.schirm))) return undefined;', neu: 'if (e.g !== g) return undefined;', spec: 'tests/formen.spec.ts', titel: 'nach 0111: eine Fläche, die aus dem Ausschnitt fällt' },
+  { name: 'leaflet-glaettet-strich', datei: 'src/formen.ts', alt: '    smoothFactor: 0,\n  };', neu: '    smoothFactor: 1,\n  };', spec: 'tests/formen.spec.ts', titel: 'nach 0111 vereinfacht Leaflet einen Strich nicht noch einmal' },
+  { name: 'namen-am-container', datei: 'src/ebenen.ts', alt: '    for (const { nadeln } of panes.values()) namenAn(map.getPane(nadeln)!);', neu: '    namenAn(map.getContainer());', spec: 'tests/ebenen.spec.ts', titel: 'nach 0119 bleiben Nadeln' },
+  // Grundschicht, D1.
+  { name: 'grund-zwei-stufen', datei: 'src/main.ts', alt: 'const GRUND = { stufen: 3 };', neu: 'const GRUND = { stufen: 2 };', spec: 'tests/smoke.spec.ts', titel: 'die Grundschicht liegt drei Stufen gröber' },
+  { name: 'grund-nicht-groeber', datei: 'src/main.ts', alt: 'grob ? Math.round(zoom) - grob : zoom', neu: 'grob ? Math.round(zoom) - 0 * grob : zoom', spec: 'tests/smoke.spec.ts', titel: 'die Grundschicht liegt unter den Kacheln' },
+  { name: 'grund-oben', datei: 'src/main.ts', alt: "grob: GRUND.stufen, zIndex: 0, className: 'grund'", neu: "grob: GRUND.stufen, zIndex: 2, className: 'grund'", spec: 'tests/smoke.spec.ts', titel: 'die Grundschicht liegt unter den Kacheln' },
 ];

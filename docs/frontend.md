@@ -123,6 +123,28 @@ Kacheln anzufragen, die es nicht gibt. Innerhalb der Grenzen sind einzelne
 404 möglich: der Vorlauf kennt nur die Hüllkästen der Blockspalten. Leaflet
 lässt solche Kacheln leer.
 
+## Grundschicht
+
+Unter den Kacheln liegt eine zweite Ebene derselben Kacheln, drei Stufen
+gröber (`GRUND` in [`main.ts`](../web/src/main.ts)), nur für das Fenster.
+Sie steht da, solange die feinen Kacheln nach dem Ziehen oder Zoomen noch
+laden; statt des Grunds der Karte sieht man dort die Gegend unscharf.
+
+- **Wie:** dieselbe Unterklasse `Kacheln` mit `grob`: `_clampZoom` nimmt
+  die Stufe `round(zoom) − 3` statt `round(zoom)`, sonst wie Leaflet, auch
+  `minNativeZoom` und `maxNativeZoom`.
+- **Übereinander:** die Grundschicht mit `zIndex` 0 und der Klasse
+  `grund`, die feinen Kacheln mit `zIndex` 1 und `kacheln`, beide im
+  `tilePane`. Tests greifen die feinen über `.kacheln`.
+- **Kosten und Gewinn**, gemessen in
+  [Grundschicht](messungen/2026-10-24-grundschicht.md): eine grobe Kachel
+  deckt 8 × 8 feine. Für +3–15 % Bytes fällt das Schwarz beim
+  Hineinzoomen weg, beim Ziehen sinkt es von 8–9 % auf 2–5 % des Fensters,
+  und das volle Bild nach dem Laden kommt 37–45 % früher. Ein Ring von
+  einer Kachel nähme den Rest, kostete aber +26–53 %; das entscheidet die
+  Messung des Rands der feinen Kacheln. Wo die Pyramide endet, laden beide
+  dieselbe Stufe, und der Browser holt sie einmal.
+
 ## Koordinaten
 
 Unten links steht, welcher Block unter Maus oder Finger zu sehen ist,
@@ -419,11 +441,14 @@ Banner, feste Grösse und die Tafel beim Zeigen folgen
 nur der Name stufenlos kleiner und blendet aus, siehe
 [0119](entscheidungen/0119-namen-stufenlos-icons-fest.md)
 und [Ebenen](benutzung/ebenen.md), „Nadeln und Banner“. `namenNachZoom`
-setzt dafür `--name-teil` und `--name-deck` am Container, ab dem Start
-jedes Zooms (`zoomanim`) und bei jedem `zoom`; CSS geht in 250 ms dorthin,
-mit der Kurve von Leaflet. Ohne Deckung bekommt der Container `namen-weg`,
-die Namen werden `hidden`, erst nach dem Ausblenden. Kein Icon wird dabei
-neu gebaut.
+setzt dafür `--name-teil` und `--name-deck` an jedes Pane der Nadeln, ab
+dem Start jedes Zooms (`zoomanim`) und bei jedem `zoom`, aber nur, wenn
+sich ein Wert ändert; CSS geht in 250 ms dorthin, mit der Kurve von
+Leaflet. Am Container rechnete der Browser bei jedem Bild eines Pinch den
+Stil aller Nachkommen neu, auch der Kacheln. Ohne Deckung bekommt das Pane
+`namen-weg`, die Namen werden `hidden`, erst nach dem Ausblenden. Kein Icon
+wird dabei neu gebaut. Die Breite eines Namens im Bogen misst ein Kontext
+für alle Banner.
 
 ![Eine Ebene auf dem Ufer der Testwelt, links schräg in 2:1, rechts von oben](bilder/ebenen-testwelt.webp)
 
@@ -628,7 +653,8 @@ neu gebaut.
       Blöcken, die nicht bis zum Strahl reichen, mit demselben Ergebnis;
       dann auf dem Schirm vereinfacht, bis kein weggelassener Punkt
       mehr als ε = 0,5 px vom Zug liegt; jeder Wechsel von verdeckt oder
-      gestrichelt bleibt;
+      gestrichelt bleibt. Leaflet vereinfacht den Strich nicht noch einmal
+      (`smoothFactor` 0), sonst wüchse der Fehler bis 1,5 px;
     - ein Kreis hat so viele Seiten, dass die Pfeilhöhe jeder Seite auf dem
       Schirm unter ε bleibt, mindestens 12;
     - die Wand hat je Band mindestens 8 px, höchstens 12 Bänder, unter 1 px
@@ -908,8 +934,9 @@ liegen als `tiles/` daneben, oder `?tiles=` nennt ihren Pfad.
   `Kacheln` in [`web/src/main.ts`](../web/src/main.ts): Sie entfernt `src`,
   das bricht die Anfrage genauso ab und lädt nichts. `L.Util.emptyImageUrl`
   umzusetzen reicht nicht, Leaflet liest die Adresse aus einer Variable
-  seines Moduls. Die drei Methoden folgen Leaflet 1.9.4; ein neues Leaflet
-  braucht einen Blick darauf.
+  seines Moduls. Die drei Methoden folgen Leaflet 1.9.4, ebenso die der
+  Grundschicht, siehe „Grundschicht“; ein neues Leaflet braucht einen Blick
+  auf alle vier.
 - **Cache:** Ein neuer Lauf tauscht Kacheln unter derselben URL. Damit der
   Browser danach den neuen Stand zeigt:
   - **Betreiber** setzen für `tiles/` `Cache-Control: no-cache`, in nginx

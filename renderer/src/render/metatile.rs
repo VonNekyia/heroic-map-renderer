@@ -2654,23 +2654,42 @@ impl<'a> ChunkCache<'a> {
             own: [0; 256],
             any_own: false,
         });
+        // Die Ebenen einmal je Section, nicht je Spalte.
+        let (solid, floor, present, loose) = (
+            m.ebene(SOLID),
+            m.ebene(FLOOR),
+            m.ebene(PRESENT),
+            m.ebene(LOOSE),
+        );
+        let fluid = FLUIDS.map(|(enthaelt, _)| m.ebene(enthaelt));
+        let pure = FLUIDS.map(|(_, nur)| m.ebene(nur));
+        let floor_oben = above.map(|a| a.ebene(FLOOR));
+        let eigener_rand = |col: usize| -> Rand {
+            (
+                solid[col],
+                [fluid[0][col], fluid[1][col]],
+                [m.up[0][col], m.up[1][col]],
+            )
+        };
         for col in 0..256 {
             let (x, z) = (col & 15, col >> 4);
-            let (sx, fx, ux) = if x < 15 { rand(m, col + 1) } else { nx[z] };
-            let (sz, fz, uz) = if z < 15 { rand(m, col + 16) } else { nz[x] };
+            let (sx, fx, ux) = if x < 15 { eigener_rand(col + 1) } else { nx[z] };
+            let (sz, fz, uz) = if z < 15 {
+                eigener_rand(col + 16)
+            } else {
+                nz[x]
+            };
             let (sx, sz) = (sx | seite_x, sz | seite_z);
-            let top = above.map_or(0, |a| a.ebene(FLOOR)[col] & 1);
-            let floor_up = (m.ebene(FLOOR)[col] >> 1) | (top << 15);
+            let top = floor_oben.map_or(0, |f| f[col] & 1);
+            let floor_up = (floor[col] >> 1) | (top << 15);
             let hidden = sx & floor_up & sz;
             let mut fluid_hidden = 0;
-            for (f, &(_, pure)) in FLUIDS.iter().enumerate() {
-                fluid_hidden |= m.ebene(pure)[col]
-                    & m.up[f][col]
-                    & (sx | (fx[f] & ux[f]))
-                    & (sz | (fz[f] & uz[f]));
+            for f in 0..FLUIDS.len() {
+                fluid_hidden |=
+                    pure[f][col] & m.up[f][col] & (sx | (fx[f] & ux[f])) & (sz | (fz[f] & uz[f]));
             }
             let verdeckt = if verdecken { hidden | fluid_hidden } else { 0 };
-            ex.own[col] = m.ebene(PRESENT)[col] & (m.ebene(LOOSE)[col] | !verdeckt);
+            ex.own[col] = present[col] & (loose[col] | !verdeckt);
         }
         ex.any_own = ex.own.iter().any(|&o| o != 0);
         loaded.exposed[s] = Some(ex);
@@ -2854,9 +2873,10 @@ impl<'a> ChunkCache<'a> {
                     continue;
                 }
                 let sy = section.y as i32 * 16;
+                let (foreign, lose) = (m.ebene(FOREIGN), m.ebene(LOOSE));
                 for col in 0..256 {
                     let own = ex.own[col];
-                    let fo = m.ebene(FOREIGN)[col];
+                    let fo = foreign[col];
                     if own == 0 && fo == 0 {
                         continue;
                     }
@@ -2868,7 +2888,7 @@ impl<'a> ChunkCache<'a> {
                         let b = bits.trailing_zeros();
                         let y = sy + b as i32;
                         bits &= bits - 1;
-                        let loose = m.ebene(LOOSE)[col] >> b & 1 != 0;
+                        let loose = lose[col] >> b & 1 != 0;
                         let drin = if loose {
                             in_band(y, v, u)
                         } else {

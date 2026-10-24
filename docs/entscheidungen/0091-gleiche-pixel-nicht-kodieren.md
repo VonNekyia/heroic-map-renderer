@@ -15,6 +15,11 @@ Teilweise abgelöst durch
 [0098](0098-der-zeichenstand-statt-des-builds.md): Ein Hash gilt für
 denselben Kodierstand, nicht mehr nur für denselben Build.
 
+In der verworfenen Alternative „Eltern nur über unveränderte Kinder
+überspringen“ abgelöst durch
+[0124](0124-pyramide-nur-ueber-neuen-kindern.md): Ein Update baut Eltern nur
+über Kindern ohne Treffer.
+
 ## Anlass
 
 #207, Teil A1: Ein Update zeichnet das ganze Gebiet der geänderten Chunks

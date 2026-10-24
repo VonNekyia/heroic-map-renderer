@@ -767,6 +767,9 @@ struct Ziel {
     /// Gehasht und nie neu unter demselben Namen: `/assets/` unter `--web`
     /// und die Köpfe unter `/tiles/koepfe/`.
     dauerhaft: bool,
+    /// Eine Kachel eines Baums, `.webp` unter seinem Ordner: Der Browser
+    /// darf sie [`KACHEL_CACHE`] lang behalten.
+    kachel: bool,
     /// Der Baum unter der Wurzel, den `trees.json` nennen muss; nur unter
     /// `/tiles/`.
     baum: Option<String>,
@@ -905,6 +908,7 @@ async fn ganz(z: Arc<Zustand>, anfrage: Request<Incoming>) -> Response<Full<Byte
     }
     let ziel = match pfad.strip_prefix(KACHELN) {
         Some(rest) => kachelpfad(&z.kacheln, rest).map(|(pfad, baum)| Ziel {
+            kachel: baum.is_some() && pfad.extension().is_some_and(|e| e == "webp"),
             pfad,
             index: false,
             dauerhaft: rest.starts_with("koepfe/"),
@@ -918,6 +922,7 @@ async fn ganz(z: Arc<Zustand>, anfrage: Request<Incoming>) -> Response<Full<Byte
                 pfad: datei,
                 index: true,
                 dauerhaft: pfad.starts_with("/assets/"),
+                kachel: false,
                 baum: None,
             }),
     };
@@ -971,6 +976,7 @@ async fn download(
         pfad,
         index: false,
         dauerhaft: false,
+        kachel: false,
         baum: None,
     };
     let bedingung = Bedingung::aus(felder);
@@ -1364,9 +1370,10 @@ fn lies(
         header::LAST_MODIFIED,
         HeaderValue::from_str(&geaendert).ok()?,
     );
-    let cache = match ziel.dauerhaft {
-        true => "public, max-age=31536000, immutable",
-        false => "no-cache",
+    let cache = match (ziel.dauerhaft, ziel.kachel) {
+        (true, _) => "public, max-age=31536000, immutable",
+        (false, true) => KACHEL_CACHE,
+        (false, false) => "no-cache",
     };
     h.insert(header::CACHE_CONTROL, HeaderValue::from_static(cache));
     if status == StatusCode::OK {
@@ -1375,6 +1382,11 @@ fn lies(
     }
     Some(antwort)
 }
+
+/// Wie lange der Browser eine Kachel ohne Nachfrage behält: eine Minute,
+/// kürzer als die Zeit zwischen zwei Updates des Plugins.
+/// Siehe docs/benutzung/server.md, „Header“.
+const KACHEL_CACHE: &str = "max-age=60";
 
 /// Eine Vorlage des Builds, gefüllt mit den Angaben, ausgeliefert als
 /// `name`. Ohne ETag: Derselbe Build gibt mit anderen Angaben eine andere

@@ -15,7 +15,7 @@ import { bereich, flaechenZiele, form, hatFlaeche, versetze, zeichneAnsicht, zue
 import { BLOCK, bildpunkt, blockBreite, blockHoch, oberflaeche as hoeheAuf, rechteck, schriftPfad, weltRechteck, zurKamera, type Blick, type Gelaende, type Rechteck, type Schirm } from './gelaende';
 import { FRISCH, HOEHEN_BYTES, LEER, regionBytes, type Hoehenkarten } from './hoehen';
 import { REGION } from './pick';
-import { abmelden, aktion, anmelden, ebene as spielerEbene, erkennen, ich, knoepfe as holeKnoepfeVomServer, nimmToken, objektSchluessel, sicht, type Knopf, type Spieler } from './konto';
+import { abmelden, aktion, anmelden, ebene as spielerEbene, erkennen, ich, knoepfe as holeKnoepfeVomServer, nimmToken, objektSchluessel, sicht, type Erkennung, type Knopf, type Spieler } from './konto';
 import { farbe, istObjekt, istText, istZahl, punkt } from './pruefen';
 import { KAPPE, ladeSchrift, Schrift, schriftzug, SVG, type Schriftzug } from './schrift';
 
@@ -91,6 +91,30 @@ export interface Umgebung {
   satz?: string;
   /** Das Anmelde-Token aus dem Fragment, schon aus der Adresse gelöscht. */
   token?: string;
+  /** Was beim Start schon vor `map.json` angestossen ist, siehe `ebenenVorab`. */
+  vorab?: Vorab;
+}
+
+/** Die Liste der Ebenen und, ohne Token, wer da ist; beides hängt nicht am Baum. */
+export interface Vorab {
+  liste: Promise<unknown[] | undefined>;
+  ich?: Promise<Erkennung>;
+}
+
+/** Die Ebenen aus `layers.json` neben `trees.json`, oder `undefined`, wenn sie fehlt oder kaputt ist. */
+async function ebenenListe(wurzel: string): Promise<unknown[] | undefined> {
+  const liste = await json(`${wurzel}/layers.json`, GRENZEN.liste).catch(() => undefined);
+  return istObjekt(liste) && Array.isArray(liste.layers) ? liste.layers : undefined;
+}
+
+/**
+ * Stösst beim Start an, was die Ebenen brauchen und nicht am Baum hängt: die
+ * Liste und, ohne Anmelde-Token, wer da ist. So wartet beides nicht auf
+ * `trees.json` und `map.json`. Mit Token fragt `ebenen` erst nach dem
+ * Anmelden. Siehe docs/frontend.md, „Laden“.
+ */
+export function ebenenVorab(wurzel: string, mitToken: boolean): Vorab {
+  return { liste: ebenenListe(wurzel), ich: mitToken ? undefined : ich() };
 }
 
 /**
@@ -671,13 +695,15 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     return hoeheAuf({ ...eben, zelle: (i, j) => karten.hoehe(i * c, j * c) }, x, z);
   };
   const oberflaechen = new Map<string, Promise<number>>();
+  /** So viele Punkte merkt sich `oberflaeche`; der am längsten nicht gefragte fällt zuerst. */
+  const OBERFLAECHEN = 4096;
   const oberflaeche = (x: number, z: number): Promise<number> => {
     const schluessel = `${x},${z}`;
     let wert = oberflaechen.get(schluessel);
-    if (!wert) {
-      wert = oberflaecheJetzt(x, z);
-      oberflaechen.set(schluessel, wert);
-    }
+    if (wert) oberflaechen.delete(schluessel);
+    else wert = oberflaecheJetzt(x, z);
+    oberflaechen.set(schluessel, wert);
+    if (oberflaechen.size > OBERFLAECHEN) oberflaechen.delete(oberflaechen.keys().next().value!);
     return wert;
   };
 
@@ -1107,7 +1133,10 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
         if (zuGross(daten.size)) return taugtNicht(`grösser als ${KOPF.bytes} Byte`);
         const b = await createImageBitmap(daten).catch(() => undefined);
         if (!b) return taugtNicht('kein Bild');
-        return b.width === KOPF.seite && b.height === KOPF.seite ? b : taugtNicht(`${b.width} × ${b.height} statt ${KOPF.seite} × ${KOPF.seite}`);
+        if (b.width === KOPF.seite && b.height === KOPF.seite) return b;
+        // Ein Bild in falscher Grösse braucht niemand mehr.
+        b.close();
+        return taugtNicht(`${b.width} × ${b.height} statt ${KOPF.seite} × ${KOPF.seite}`);
       })().catch(() => taugtNicht('nicht zu holen'));
       koepfe.set(kopf, bild);
     }
@@ -1724,6 +1753,7 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     void abgleichen(roh);
   };
 
+  let ichVorab = umgebung.vorab?.ich;
   /**
    * Fragt, wer angemeldet oder über die IP erkannt ist, und holt dann die
    * Knöpfe. Kommt die Seite über IPv6 und kennt der Server einen Namen nur
@@ -1731,7 +1761,9 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
    * lesende Sitzung. Siehe docs/benutzung/server.md, „Erkennen über IPv4“.
    */
   const pruefe = async (): Promise<void> => {
-    let antwort = await ich();
+    // Das erste Mal aus `vorab`, wenn es dort angestossen ist.
+    let antwort = await (ichVorab ?? ich());
+    ichVorab = undefined;
     if (antwort.art === 'gast' && antwort.erkennen) {
       const tausch = await erkennen(antwort.erkennen);
       if (tausch && (await anmelden(tausch)) === 204) antwort = await ich();
@@ -1911,11 +1943,7 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     );
   };
 
-  /** Die Ebenen aus `layers.json`, oder `undefined`, wenn sie fehlt oder kaputt ist. */
-  const holeListe = async (): Promise<unknown[] | undefined> => {
-    const liste = await json(`${wurzel}/layers.json`, GRENZEN.liste).catch(() => undefined);
-    return istObjekt(liste) && Array.isArray(liste.layers) ? liste.layers : undefined;
-  };
+  const holeListe = (): Promise<unknown[] | undefined> => ebenenListe(wurzel);
   const nachfragen = async (): Promise<void> => {
     const liste = await holeListe();
     // Erst die Knöpfe, dann die Ebenen: So zeichnet eine Ebene schon mit ihnen.
@@ -1923,7 +1951,7 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     if (liste) await abgleichen(liste);
   };
 
-  const erste = await holeListe();
+  const erste = await (umgebung.vorab?.liste ?? holeListe());
   // Bei jedem Laden, auch ohne layers.json: Erkannt über die IP sieht man
   // Mitspieler; ein Gast bekommt 204, keinen Fehler in der Konsole.
   if (umgebung.token) await meldeAn(umgebung.token);

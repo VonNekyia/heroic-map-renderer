@@ -78,7 +78,8 @@ Server:     http://127.0.0.1:8080 mit ./tiles unter /tiles/ und ./web/dist unter
 
   Ein Baum heisst nur `a–z 0–9 -`, die Zahlen stehen, wie der Renderer sie
   schreibt, ohne `+` und führende Nullen. Alles andere gibt `404`, auch
-  `stand.bin`, die Hashes unter `pixel/`, die Marken des Manifests, der
+  `stand.bin` und die Regionen in `stand/` und `stand-neu/`, die Hashes
+  unter `pixel/`, die Marken des Manifests, der
   Stempel `.stempel` eines Satzes und halb geschriebene Dateien
   `<name>.<pid>.tmp`.
 - **Die Ebenen** liefert er mit ETag, `304` und `no-cache`, auch ihre

@@ -3692,7 +3692,8 @@ fn schreiben_tauscht_die_datei() {
     let region = baum.wurzel().join(heights::path_of(0, 0));
     let boden = baum.wurzel().join(heights::ground_path_of(0, 0));
     let liste = baum.wurzel().join("trees.json");
-    let stand = baum.path().join("stand.bin");
+    // Der Kopf bleibt gleich, eine Region bleibt die einzige.
+    let stand = baum.path().join("stand").join("0.0.bin");
     let manifest = baum.path().join("manifest");
     let bloecke: Vec<PathBuf> = std::fs::read_dir(
         baum.path()
@@ -3755,7 +3756,8 @@ fn schreiben_tauscht_die_datei() {
             let hoehen = (ordner.ends_with("heights") || ordner.ends_with("ground"))
                 && name.ends_with(".bin");
             let liste = ordner == baum.wurzel() && name == "trees.json";
-            let stand = ordner == baum.path() && (name == "stand.bin" || name == "manifest");
+            let stand = ordner == baum.path() && (name == "stand.bin" || name == "manifest")
+                || ordner == baum.path().join("stand") && name.ends_with(".bin");
             let hashes = ordner.starts_with(baum.path().join("pixel")) && name.ends_with(".bin");
             if eintrag.path().is_dir() {
                 stapel.push(eintrag.path());
@@ -6043,6 +6045,218 @@ fn update_baut_die_eltern_entfernter_kinder() {
                 && vorher.get(pfad) != Some(bytes)),
         "keine Elternkachel geändert"
     );
+}
+
+/// Chunks in vier Regionen, zwei davon an der Grenze zwischen (0, 0) und
+/// (1, 0).
+const VIER_REGIONEN: [(i32, i32); 5] = [(-1, -1), (0, 0), (31, 0), (32, 0), (0, 32)];
+
+/// Die Chunks aus [`VIER_REGIONEN`], die sich ändern, in drei Regionen.
+const DREI_GEAENDERT: [(i32, i32); 3] = [(0, 0), (32, 0), (0, 32)];
+
+/// Das Gelände mit je einem Turm bis y = 39 in den Chunks aus
+/// [`DREI_GEAENDERT`].
+fn mit_drei_tuermen(x: i32, y: i32, z: i32) -> &'static str {
+    let chunk = (x.div_euclid(16), z.div_euclid(16));
+    if DREI_GEAENDERT.contains(&chunk) && x.rem_euclid(16) == 8 && z.rem_euclid(16) == 8 && y < 40 {
+        "minecraft:einfarbig"
+    } else {
+        gelaende(x, y, z)
+    }
+}
+
+/// Schreibt die Chunks aus [`VIER_REGIONEN`] mit diesen Blöcken, Region für
+/// Region.
+fn baue_vier_regionen(welt: &Path, block: fn(i32, i32, i32) -> &'static str) {
+    for region in [(-1, -1), (0, 0), (1, 0), (0, 1)] {
+        let chunks: Vec<(i32, i32)> = VIER_REGIONEN
+            .into_iter()
+            .filter(|&(cx, cz)| (cx >> 5, cz >> 5) == region)
+            .collect();
+        common::write_world_sections(welt, &chunks, 0..=7, block, |_, _| None);
+    }
+}
+
+/// Die Namen der Dateien in einem Ordner, sortiert; leer ohne den Ordner.
+fn namen_in(ordner: &Path) -> Vec<String> {
+    let mut namen: Vec<String> = std::fs::read_dir(ordner)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.file_name().into_string().unwrap())
+        .collect();
+    namen.sort();
+    namen
+}
+
+/// Der Stand liegt je Region in `stand/`: Ein Update schreibt nur die
+/// Regionen, die sich geändert haben, und der angefangene Stand hat in
+/// `stand-neu/` nur sie. Bricht das Schreiben nach der Hälfte der Regionen
+/// ab, vor dem Kopf, gleicht danach ein Update einem vollen Lauf, auch mit
+/// `--resume`, das die übrigen Regionen aus `stand/` liest. Eine Region,
+/// die weg ist, fällt aus `stand/`.
+/// Siehe docs/benutzung/updates.md, „Der Stand“.
+#[test]
+fn stand_je_region_nach_abbruch() {
+    for resume in [false, true] {
+        let welt = tempdir();
+        baue_vier_regionen(welt.path(), gelaende);
+        let baum = neuer_baum("2x1-se");
+        let extra = ["--scale", "16"];
+        gelungen(&export(welt.path(), baum.path(), &extra));
+        let stand = baum.path().join("stand");
+        let alle = ["-1.-1.bin", "0.0.bin", "0.1.bin", "1.0.bin"];
+        assert_eq!(namen_in(&stand), alle);
+        let damals = SystemTime::now() - Duration::from_secs(3600);
+        for name in alle {
+            setze_zeit(&stand.join(name), damals);
+        }
+        let kopf = std::fs::read(baum.path().join("stand.bin")).unwrap();
+        assert_eq!(&kopf[..13], b"HMRSTAND\x02\x00\x00\x00\x00");
+
+        baue_vier_regionen(welt.path(), mit_drei_tuermen);
+        for (cx, cz) in DREI_GEAENDERT {
+            common::setze_stempel(welt.path(), cx, cz, 2);
+        }
+        let update = ["--scale", "16", "--update"];
+        let abbruch = update_mit_abbruch(welt.path(), baum.path(), &update, "stand-haelfte");
+        let fehler = String::from_utf8_lossy(&abbruch.stderr);
+        assert!(
+            !abbruch.status.success() && fehler.contains("Hälfte der Regionen"),
+            "{fehler}"
+        );
+        let geaendert = ["0.0.bin", "0.1.bin", "1.0.bin"];
+        assert_eq!(namen_in(&baum.path().join("stand-neu")), geaendert);
+        let neu: Vec<&str> = alle
+            .into_iter()
+            .filter(|name| zeit_von(&stand.join(name)) != damals)
+            .collect();
+        assert_eq!(neu, ["0.0.bin"], "die erste Hälfte der drei");
+        assert_eq!(
+            std::fs::read(baum.path().join("stand.bin")).unwrap(),
+            kopf,
+            "der alte Kopf"
+        );
+
+        let mut weiter = update.to_vec();
+        if resume {
+            weiter.push("--resume");
+        } else {
+            // Ein neuer Lauf räumt `stand-neu/` vorher: (0, 0) gleicht jetzt
+            // schon `stand/`.
+            let abbruch = update_mit_abbruch(welt.path(), baum.path(), &update, "vor-pyramide");
+            assert!(!abbruch.status.success());
+            assert_eq!(
+                namen_in(&baum.path().join("stand-neu")),
+                ["0.1.bin", "1.0.bin"]
+            );
+        }
+        gelungen(&export(welt.path(), baum.path(), &weiter));
+        let voll = neuer_baum("2x1-se");
+        gelungen(&export(welt.path(), voll.path(), &extra));
+        gleiche_baeume(baum.path(), voll.path(), &format!("--resume {resume}"));
+        assert_eq!(namen_in(&stand), alle);
+        assert_eq!(zeit_von(&stand.join("-1.-1.bin")), damals, "unverändert");
+        for name in geaendert {
+            assert_ne!(zeit_von(&stand.join(name)), damals, "{name}");
+        }
+        assert!(!baum.path().join("stand-neu.bin").exists());
+        assert!(!baum.path().join("stand-neu").exists());
+        // Nach dem Update nennt der Stand dieselben Chunks wie der volle Lauf.
+        for name in alle {
+            let (ist, soll) = (
+                std::fs::read(stand.join(name)).unwrap(),
+                std::fs::read(voll.path().join("stand").join(name)).unwrap(),
+            );
+            assert!(ist == soll, "--resume {resume}: {name}");
+        }
+    }
+
+    let welt = tempdir();
+    baue_vier_regionen(welt.path(), gelaende);
+    let baum = neuer_baum("2x1-se");
+    gelungen(&export(welt.path(), baum.path(), &["--scale", "16"]));
+    std::fs::remove_file(welt.path().join("region").join("r.0.1.mca")).unwrap();
+    gelungen(&export(
+        welt.path(),
+        baum.path(),
+        &["--scale", "16", "--update"],
+    ));
+    assert_eq!(
+        namen_in(&baum.path().join("stand")),
+        ["-1.-1.bin", "0.0.bin", "1.0.bin"]
+    );
+}
+
+/// Ein Stand der Fassung 1, alles in `stand.bin`, gilt weiter: Ein Update
+/// ohne Änderung zeichnet nichts und schreibt ihn in Fassung 2, jede Region
+/// in ihre Datei. Das nächste lässt ihn, wie er ist.
+/// Siehe docs/benutzung/updates.md, „Der Stand“.
+#[test]
+fn stand_der_fassung_1_gilt_weiter() {
+    let welt = tempdir();
+    baue_vier_regionen(welt.path(), gelaende);
+    let baum = neuer_baum("2x1-se");
+    gelungen(&export(welt.path(), baum.path(), &["--scale", "16"]));
+    let kopf_pfad = baum.path().join("stand.bin");
+    let kopf = std::fs::read(&kopf_pfad).unwrap();
+    let ordner = baum.path().join("stand");
+    let zwei = schnappschuss_des_stands(baum.path());
+
+    // Fassung 1: der Kopf mit Fassung 1, dahinter je Region ihre Lage und je
+    // Chunk die ersten 19 der 28 Bytes.
+    let mut alt = kopf[..33].to_vec();
+    alt[8..12].copy_from_slice(&1u32.to_le_bytes());
+    for lage in kopf[33..].chunks(8) {
+        alt.extend_from_slice(lage);
+        let rx = i32::from_le_bytes(lage[..4].try_into().unwrap());
+        let rz = i32::from_le_bytes(lage[4..].try_into().unwrap());
+        let region = std::fs::read(ordner.join(format!("{rx}.{rz}.bin"))).unwrap();
+        for eintrag in region[12..].chunks(28) {
+            alt.extend_from_slice(&eintrag[..19]);
+        }
+    }
+    std::fs::write(&kopf_pfad, &alt).unwrap();
+    for name in namen_in(&ordner) {
+        std::fs::remove_file(ordner.join(name)).unwrap();
+    }
+    std::fs::remove_dir(&ordner).unwrap();
+
+    let update = ["--scale", "16", "--update"];
+    let log = String::from_utf8_lossy(&gelungen(&export(welt.path(), baum.path(), &update)).stdout)
+        .into_owned();
+    assert!(log.contains("Update:     nichts zu zeichnen"), "{log}");
+    assert!(log.contains("Stand:      "), "{log}");
+    assert!(!log.contains("Stand:      unverändert"), "{log}");
+    let mut erwartet = zwei.clone();
+    // Der Kopf nennt jetzt ein Update.
+    erwartet.get_mut("stand.bin").unwrap()[12] = 1;
+    assert!(
+        schnappschuss_des_stands(baum.path()) == erwartet,
+        "Fassung 2"
+    );
+
+    let log = String::from_utf8_lossy(&gelungen(&export(welt.path(), baum.path(), &update)).stdout)
+        .into_owned();
+    assert!(log.contains("Stand:      unverändert"), "{log}");
+}
+
+/// `stand.bin` und die Dateien in `stand/`, je mit Inhalt.
+fn schnappschuss_des_stands(baum: &Path) -> BTreeMap<String, Vec<u8>> {
+    let ordner = baum.join("stand");
+    namen_in(&ordner)
+        .into_iter()
+        .map(|name| {
+            (
+                format!("stand/{name}"),
+                std::fs::read(ordner.join(&name)).unwrap(),
+            )
+        })
+        .chain([(
+            "stand.bin".to_string(),
+            std::fs::read(baum.join("stand.bin")).unwrap(),
+        )])
+        .collect()
 }
 
 /// Boden aus einer Lage, für die Tests des Reliefs.

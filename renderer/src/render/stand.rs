@@ -4,7 +4,7 @@
 //! geändert hat.
 //! Siehe docs/benutzung/updates.md.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Result, bail, ensure};
@@ -18,10 +18,22 @@ const JE_REGION: usize = (REGION * REGION) as usize;
 
 /// Kopf der Datei, mit der Fassung des Formats dahinter.
 const MAGIE: &[u8; 8] = b"HMRSTAND";
-const FASSUNG: u32 = 1;
+/// Fassung 2: Der Kopf nennt die Regionen, ihre Einträge liegen je Region in
+/// einer Datei. Fassung 1 hatte alles in einer Datei; sie gilt weiter.
+/// Siehe docs/benutzung/updates.md, „Der Stand“.
+const FASSUNG: u32 = 2;
+const FASSUNG_1: u32 = 1;
 
-/// Bytes je Chunk: Art, Zeit, Ort, Fingerabdruck, höchster Block.
-const EINTRAG: usize = 1 + 4 + 4 + 8 + 2;
+/// Kopf der Datei einer Region, mit der Fassung dahinter.
+const REGION_MAGIE: &[u8; 8] = b"HMRREGIO";
+
+/// Bytes je Chunk in Fassung 1: Art, Zeit, Ort, Fingerabdruck, höchster
+/// Block.
+const EINTRAG_1: usize = 1 + 4 + 4 + 8 + 2;
+/// Bytes je Chunk in Fassung 2: wie in Fassung 1, dazu die Section des
+/// tiefsten ersten dichten Blocks und ein Abdruck der Sections darunter,
+/// für die Grenze nach unten; noch leer, `0x80` und 0.
+const EINTRAG: usize = EINTRAG_1 + 1 + 8;
 
 /// Was ein Lauf aus einem Chunk gezeichnet hat.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -59,6 +71,13 @@ pub struct Eintrag {
     pub inhalt: Inhalt,
 }
 
+/// Ein [`Eintrag`], wie der Stand ihn hält: die [`EINTRAG_1`] Bytes der
+/// Datei statt 32 Bytes.
+type Gepackt = [u8; EINTRAG_1];
+
+/// Die Einträge einer Region, gelesen aus ihrer Datei, [`Stand::aus_region`].
+pub struct Region(Vec<Gepackt>);
+
 /// Wie ein Lauf zu seinem Stand kam: ein voller Lauf über die ganze Welt
 /// oder ein Update. Ein Fortsetzen mit `--resume` nimmt nur den Stand
 /// eines Laufs derselben Art.
@@ -69,7 +88,7 @@ pub enum Art {
 }
 
 /// Der Stand eines Baums, siehe das Modul.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug)]
 pub struct Stand {
     pub art: Art,
     /// Der Fingerabdruck des Renderers, der ihn schrieb.
@@ -77,7 +96,32 @@ pub struct Stand {
     /// Der Fingerabdruck der Assets und Daten des Laufs.
     pub assets: u64,
     /// Je Region ihre Chunks, nach z, dann x geordnet.
-    pub regionen: BTreeMap<(i32, i32), Vec<Eintrag>>,
+    regionen: BTreeMap<(i32, i32), Vec<Gepackt>>,
+    /// Die Regionen, deren Einträge anders sind als in `stand.bin` auf der
+    /// Platte, auch weggefallene; `None`, wenn das für jede gelten kann. Nur
+    /// sie schreibt die nächste Ablage.
+    geaendert: Option<BTreeSet<(i32, i32)>>,
+}
+
+/// Gleich heisst: gleiche Art, Abdrücke und Einträge. Was sich gegen die
+/// Platte geändert hat, zählt nicht mit.
+impl PartialEq for Stand {
+    fn eq(&self, andere: &Stand) -> bool {
+        (self.art, self.renderer, self.assets) == (andere.art, andere.renderer, andere.assets)
+            && self.regionen == andere.regionen
+    }
+}
+
+impl Eq for Stand {}
+
+/// Was im Kopf eines Stands steht, [`Stand::aus_kopf`].
+pub enum Gelesen {
+    /// Fassung 1: der ganze Stand in einer Datei. Er gilt in jeder Region
+    /// als geändert; die nächste Ablage schreibt sie alle.
+    Ganz(Stand),
+    /// Fassung 2: der Stand ohne Einträge und die Regionen, deren Dateien
+    /// dazugehören.
+    Kopf(Stand, Vec<(i32, i32)>),
 }
 
 /// Wo ein Update zeichnet: ein Chunk, der sich geändert hat, und bis zu
@@ -99,7 +143,47 @@ impl Stand {
             renderer,
             assets,
             regionen: BTreeMap::new(),
+            geaendert: None,
         }
+    }
+
+    /// Die Regionen, deren Einträge anders sind als auf der Platte; `None`,
+    /// wenn es jede sein kann.
+    pub fn geaendert(&self) -> Option<&BTreeSet<(i32, i32)>> {
+        self.geaendert.as_ref()
+    }
+
+    /// Hält fest, welche Regionen anders sind als auf der Platte: nach dem
+    /// Lesen keine, nach dem Lesen eines Deltas die aus seinem Ordner.
+    pub fn mit_geaendert(mut self, regionen: BTreeSet<(i32, i32)>) -> Stand {
+        self.geaendert = Some(regionen);
+        self
+    }
+
+    fn markiere(&mut self, region: (i32, i32)) {
+        if let Some(geaendert) = &mut self.geaendert {
+            geaendert.insert(region);
+        }
+    }
+
+    /// Die Regionen, die die nächste Ablage schreibt: die geänderten, die
+    /// es noch gibt, oder alle.
+    pub fn zu_schreiben(&self) -> Vec<(i32, i32)> {
+        self.regionen
+            .keys()
+            .filter(|r| self.geaendert.as_ref().is_none_or(|g| g.contains(r)))
+            .copied()
+            .collect()
+    }
+
+    /// Ob es die Region im Stand gibt.
+    pub fn hat_region(&self, region: (i32, i32)) -> bool {
+        self.regionen.contains_key(&region)
+    }
+
+    /// Alle Einträge, Region für Region.
+    pub fn eintraege(&self) -> impl Iterator<Item = Eintrag> + '_ {
+        self.regionen.values().flatten().map(entpacke)
     }
 
     /// Der Eintrag eines Chunks, ohne Region einer ohne Chunk.
@@ -107,28 +191,39 @@ impl Stand {
         let (rx, rz) = (cx.div_euclid(REGION), cz.div_euclid(REGION));
         self.regionen
             .get(&(rx, rz))
-            .map_or(Eintrag::default(), |chunks| chunks[index(cx, cz)])
+            .map_or(Eintrag::default(), |chunks| {
+                entpacke(&chunks[index(cx, cz)])
+            })
     }
 
     /// Setzt den Eintrag eines Chunks.
     pub fn setze(&mut self, cx: i32, cz: i32, eintrag: Eintrag) {
         let (rx, rz) = (cx.div_euclid(REGION), cz.div_euclid(REGION));
+        self.markiere((rx, rz));
         self.regionen
             .entry((rx, rz))
-            .or_insert_with(|| vec![Eintrag::default(); JE_REGION])[index(cx, cz)] = eintrag;
+            .or_insert_with(|| vec![packe(&Eintrag::default()); JE_REGION])[index(cx, cz)] =
+            packe(&eintrag);
     }
 
     /// Der Stand mit den Stempeln vom Ende eines Laufs: Jeder Chunk, dessen
     /// Stempel sich seit dem Beginn geändert hat, wird unbekannt.
     pub fn am_ende(mut self, stempel: &Stempelkarte) -> Stand {
         let leer = vec![None; JE_REGION];
+        let mut anders = Vec::new();
         for (region, chunks) in &mut self.regionen {
             let jetzt = stempel.get(region).unwrap_or(&leer);
-            for (eintrag, jetzt) in chunks.iter_mut().zip(jetzt) {
-                if eintrag.stempel != *jetzt {
+            for (gepackt, jetzt) in chunks.iter_mut().zip(jetzt) {
+                let mut eintrag = entpacke(gepackt);
+                if eintrag.stempel != *jetzt && eintrag.inhalt != Inhalt::Unbekannt {
                     eintrag.inhalt = Inhalt::Unbekannt;
+                    *gepackt = packe(&eintrag);
+                    anders.push(*region);
                 }
             }
+        }
+        for region in anders {
+            self.markiere(region);
         }
         // Eine Region, die erst während des Laufs entstand.
         for (&(rx, rz), chunks) in stempel {
@@ -221,7 +316,7 @@ impl Stand {
         regionen.sort_unstable();
         regionen.dedup();
         // Je Region ihre neuen Einträge und Änderungen.
-        type JeRegion = ((i32, i32), Vec<Eintrag>, Vec<Aenderung>);
+        type JeRegion = ((i32, i32), Vec<Gepackt>, Vec<Aenderung>);
         let je_region: Vec<JeRegion> = regionen
             .par_iter()
             .map(|&(rx, rz)| -> Result<_> {
@@ -264,12 +359,12 @@ impl Stand {
                         Some((_, inhalt)) => inhalt,
                         None if jetzt.is_none() => Inhalt::Keiner,
                         None => {
-                            chunks.push(alt);
+                            chunks.push(packe(&alt));
                             continue;
                         }
                     };
                     if alt.stempel == jetzt && alt.inhalt == neu && neu != Inhalt::Unbekannt {
-                        chunks.push(alt);
+                        chunks.push(packe(&alt));
                         continue;
                     }
                     if let Some(oben) = geaendert(alt.inhalt, neu, y_max) {
@@ -279,21 +374,31 @@ impl Stand {
                             bleibt: zeichnet(neu),
                         });
                     }
-                    chunks.push(Eintrag {
+                    chunks.push(packe(&Eintrag {
                         stempel: jetzt,
                         inhalt: neu,
-                    });
+                    }));
                 }
                 Ok(((rx, rz), chunks, aenderungen))
             })
             .collect::<Result<_>>()?;
         let mut neu = Stand::neu(self.art, self.renderer, self.assets);
+        let mut geaendert = self.geaendert.clone().unwrap_or_default();
+        let alles = self.geaendert.is_none();
         let mut aenderungen = Vec::new();
         for (region, chunks, hier) in je_region {
             if stempel.contains_key(&region) {
+                if self.regionen.get(&region) != Some(&chunks) {
+                    geaendert.insert(region);
+                }
                 neu.regionen.insert(region, chunks);
+            } else if self.regionen.contains_key(&region) {
+                geaendert.insert(region);
             }
             aenderungen.extend(hier);
+        }
+        if !alles {
+            neu.geaendert = Some(geaendert);
         }
         Ok((neu.mit_nachbarn(aenderungen, y_max), neu))
     }
@@ -347,9 +452,12 @@ impl Stand {
         aenderungen
     }
 
-    /// Die Bytes der Datei, siehe docs/benutzung/updates.md, „Der Stand“.
-    pub fn als_bytes(&self) -> Vec<u8> {
-        let mut out = Vec::with_capacity(36 + self.regionen.len() * (8 + JE_REGION * EINTRAG));
+    /// Der Kopf in Fassung 2: `HMRSTAND`, Fassung, Art, die Fingerabdrücke
+    /// von Renderer und Assets und die Liste der Regionen. Ihre Einträge
+    /// stehen je Region in einer eigenen Datei, [`Stand::region_bytes`].
+    /// Siehe docs/benutzung/updates.md, „Der Stand“.
+    pub fn kopf_bytes(&self) -> Vec<u8> {
+        let mut out = Vec::with_capacity(33 + 8 * self.regionen.len());
         out.extend_from_slice(MAGIE);
         out.extend_from_slice(&FASSUNG.to_le_bytes());
         out.push(match self.art {
@@ -359,32 +467,32 @@ impl Stand {
         out.extend_from_slice(&self.renderer.to_le_bytes());
         out.extend_from_slice(&self.assets.to_le_bytes());
         out.extend_from_slice(&(self.regionen.len() as u32).to_le_bytes());
-        for (&(rx, rz), chunks) in &self.regionen {
+        for &(rx, rz) in self.regionen.keys() {
             out.extend_from_slice(&rx.to_le_bytes());
             out.extend_from_slice(&rz.to_le_bytes());
-            for eintrag in chunks {
-                let (art, hash, oben) = match eintrag.inhalt {
-                    Inhalt::Keiner => (0, 0, None),
-                    Inhalt::Unfertig => (1, 0, None),
-                    Inhalt::Fertig(a) => (2, a.hash, a.oben),
-                    Inhalt::Unbekannt => (3, 0, None),
-                };
-                let stempel = eintrag.stempel.unwrap_or(Stempel { zeit: 0, ort: 0 });
-                out.push(art | if eintrag.stempel.is_some() { 0x80 } else { 0 });
-                out.extend_from_slice(&stempel.zeit.to_le_bytes());
-                out.extend_from_slice(&stempel.ort.to_le_bytes());
-                out.extend_from_slice(&hash.to_le_bytes());
-                let oben = oben.map_or(i16::MIN, |y| {
-                    y.clamp(i32::from(i16::MIN) + 1, i16::MAX.into()) as i16
-                });
-                out.extend_from_slice(&oben.to_le_bytes());
-            }
         }
         out
     }
 
-    /// Liest die Bytes aus [`Stand::als_bytes`].
-    pub fn aus_bytes(daten: &[u8]) -> Result<Stand> {
+    /// Die Datei einer Region in Fassung 2: `HMRREGIO`, Fassung, dann je
+    /// Chunk [`EINTRAG`] Bytes; `None`, wenn es die Region nicht gibt.
+    pub fn region_bytes(&self, region: (i32, i32)) -> Option<Vec<u8>> {
+        let chunks = self.regionen.get(&region)?;
+        let mut out = Vec::with_capacity(12 + JE_REGION * EINTRAG);
+        out.extend_from_slice(REGION_MAGIE);
+        out.extend_from_slice(&FASSUNG.to_le_bytes());
+        for gepackt in chunks {
+            out.extend_from_slice(gepackt);
+            // Die Tiefe für die Grenze nach unten, noch leer.
+            out.push(0x80);
+            out.extend_from_slice(&0u64.to_le_bytes());
+        }
+        Some(out)
+    }
+
+    /// Liest einen Kopf aus [`Stand::kopf_bytes`] oder einen ganzen Stand der
+    /// Fassung 1.
+    pub fn aus_kopf(daten: &[u8]) -> Result<Gelesen> {
         let mut rest = daten;
         let mut nimm = |n: usize| -> Result<&[u8]> {
             ensure!(
@@ -399,8 +507,8 @@ impl Stand {
         ensure!(nimm(8)? == MAGIE, "kein Stand eines Kachelbaums");
         let fassung = u32::from_le_bytes(nimm(4)?.try_into()?);
         ensure!(
-            fassung == FASSUNG,
-            "Stand in Fassung {fassung}, dieser Renderer liest {FASSUNG}"
+            fassung == FASSUNG || fassung == FASSUNG_1,
+            "Stand in Fassung {fassung}, dieser Renderer liest {FASSUNG_1} und {FASSUNG}"
         );
         let art = match nimm(1)?[0] {
             0 => Art::Voll,
@@ -411,29 +519,20 @@ impl Stand {
         let assets = u64::from_le_bytes(nimm(8)?.try_into()?);
         let anzahl = u32::from_le_bytes(nimm(4)?.try_into()?);
         let mut stand = Stand::neu(art, renderer, assets);
+        let mut regionen = Vec::with_capacity(anzahl as usize);
         for _ in 0..anzahl {
             let rx = i32::from_le_bytes(nimm(4)?.try_into()?);
             let rz = i32::from_le_bytes(nimm(4)?.try_into()?);
+            if fassung == FASSUNG {
+                regionen.push((rx, rz));
+                continue;
+            }
             let mut chunks = Vec::with_capacity(JE_REGION);
             for _ in 0..JE_REGION {
-                let e = nimm(EINTRAG)?;
-                let stempel = (e[0] & 0x80 != 0).then(|| Stempel {
-                    zeit: u32::from_le_bytes(e[1..5].try_into().expect("4 Bytes")),
-                    ort: u32::from_le_bytes(e[5..9].try_into().expect("4 Bytes")),
-                });
-                let hash = u64::from_le_bytes(e[9..17].try_into().expect("8 Bytes"));
-                let oben = i16::from_le_bytes(e[17..19].try_into().expect("2 Bytes"));
-                let inhalt = match e[0] & 0x7f {
-                    0 => Inhalt::Keiner,
-                    1 => Inhalt::Unfertig,
-                    2 => Inhalt::Fertig(Abdruck {
-                        hash,
-                        oben: (oben != i16::MIN).then_some(i32::from(oben)),
-                    }),
-                    3 => Inhalt::Unbekannt,
-                    andere => bail!("Region ({rx}, {rz}): unbekannter Inhalt {andere}"),
-                };
-                chunks.push(Eintrag { stempel, inhalt });
+                let e = nimm(EINTRAG_1)?;
+                let eintrag =
+                    lies_eintrag(e).map_err(|e| e.context(format!("Region ({rx}, {rz})")))?;
+                chunks.push(packe(&eintrag));
             }
             ensure!(
                 stand.regionen.insert((rx, rz), chunks).is_none(),
@@ -441,7 +540,62 @@ impl Stand {
             );
         }
         ensure!(rest.is_empty(), "{} Bytes nach dem Ende", rest.len());
-        Ok(stand)
+        if fassung == FASSUNG_1 {
+            return Ok(Gelesen::Ganz(stand));
+        }
+        let mut sortiert = regionen.clone();
+        sortiert.sort_unstable();
+        sortiert.dedup();
+        ensure!(
+            sortiert.len() == regionen.len(),
+            "eine Region steht zweimal da"
+        );
+        Ok(Gelesen::Kopf(stand, regionen))
+    }
+
+    /// Liest die Datei einer Region aus [`Stand::region_bytes`].
+    pub fn aus_region(daten: &[u8]) -> Result<Region> {
+        ensure!(
+            daten.len() == 12 + JE_REGION * EINTRAG,
+            "{} statt {} Bytes",
+            daten.len(),
+            12 + JE_REGION * EINTRAG
+        );
+        ensure!(daten[..8] == REGION_MAGIE[..], "keine Region eines Stands");
+        let fassung = u32::from_le_bytes(daten[8..12].try_into()?);
+        ensure!(
+            fassung == FASSUNG,
+            "Region in Fassung {fassung}, dieser Renderer liest {FASSUNG}"
+        );
+        daten[12..]
+            .as_chunks::<EINTRAG>()
+            .0
+            .iter()
+            .map(|e| lies_eintrag(&e[..EINTRAG_1]).map(|e| packe(&e)))
+            .collect::<Result<_>>()
+            .map(Region)
+    }
+
+    /// Setzt die Einträge einer Region, wie sie aus ihrer Datei kommen.
+    pub fn setze_region(&mut self, lage: (i32, i32), region: Region) {
+        self.regionen.insert(lage, region.0);
+    }
+
+    /// Der Stand in Fassung 1, alles in einer Datei: nur noch für Tests, die
+    /// einen Baum aus der Zeit davor nachstellen.
+    #[cfg(test)]
+    fn als_bytes_fassung_1(&self) -> Vec<u8> {
+        let mut out = self.kopf_bytes();
+        out[8..12].copy_from_slice(&FASSUNG_1.to_le_bytes());
+        out.truncate(33);
+        for (&(rx, rz), chunks) in &self.regionen {
+            out.extend_from_slice(&rx.to_le_bytes());
+            out.extend_from_slice(&rz.to_le_bytes());
+            for gepackt in chunks {
+                out.extend_from_slice(gepackt);
+            }
+        }
+        out
     }
 }
 
@@ -648,6 +802,53 @@ fn sammle(pfad: &Path, name: &str, out: &mut Vec<(String, u64, u128)>) {
     }
 }
 
+/// Die [`EINTRAG_1`] Bytes eines Chunks, gleich in beiden Fassungen.
+fn packe(eintrag: &Eintrag) -> Gepackt {
+    let (art, hash, oben) = match eintrag.inhalt {
+        Inhalt::Keiner => (0, 0, None),
+        Inhalt::Unfertig => (1, 0, None),
+        Inhalt::Fertig(a) => (2, a.hash, a.oben),
+        Inhalt::Unbekannt => (3, 0, None),
+    };
+    let stempel = eintrag.stempel.unwrap_or(Stempel { zeit: 0, ort: 0 });
+    let oben = oben.map_or(i16::MIN, |y| {
+        y.clamp(i32::from(i16::MIN) + 1, i16::MAX.into()) as i16
+    });
+    let mut out = [0; EINTRAG_1];
+    out[0] = art | if eintrag.stempel.is_some() { 0x80 } else { 0 };
+    out[1..5].copy_from_slice(&stempel.zeit.to_le_bytes());
+    out[5..9].copy_from_slice(&stempel.ort.to_le_bytes());
+    out[9..17].copy_from_slice(&hash.to_le_bytes());
+    out[17..19].copy_from_slice(&oben.to_le_bytes());
+    out
+}
+
+/// Ein Eintrag aus dem Speicher des Stands, der aus [`packe`] stammt.
+fn entpacke(gepackt: &Gepackt) -> Eintrag {
+    lies_eintrag(gepackt).expect("aus packe")
+}
+
+/// Liest die [`EINTRAG_1`] Bytes aus [`packe`].
+fn lies_eintrag(e: &[u8]) -> Result<Eintrag> {
+    let stempel = (e[0] & 0x80 != 0).then(|| Stempel {
+        zeit: u32::from_le_bytes(e[1..5].try_into().expect("4 Bytes")),
+        ort: u32::from_le_bytes(e[5..9].try_into().expect("4 Bytes")),
+    });
+    let hash = u64::from_le_bytes(e[9..17].try_into().expect("8 Bytes"));
+    let oben = i16::from_le_bytes(e[17..19].try_into().expect("2 Bytes"));
+    let inhalt = match e[0] & 0x7f {
+        0 => Inhalt::Keiner,
+        1 => Inhalt::Unfertig,
+        2 => Inhalt::Fertig(Abdruck {
+            hash,
+            oben: (oben != i16::MIN).then_some(i32::from(oben)),
+        }),
+        3 => Inhalt::Unbekannt,
+        andere => bail!("unbekannter Inhalt {andere}"),
+    };
+    Ok(Eintrag { stempel, inhalt })
+}
+
 /// Lage eines Chunks in seiner Region, nach z, dann x.
 fn index(cx: i32, cz: i32) -> usize {
     (cz.rem_euclid(REGION) * REGION + cx.rem_euclid(REGION)) as usize
@@ -716,8 +917,23 @@ mod tests {
         })
     }
 
+    /// Schreibt den Stand als Kopf und Regionen und liest ihn wieder.
+    fn hin_und_zurueck(stand: &Stand) -> Stand {
+        let Gelesen::Kopf(mut gelesen, regionen) = Stand::aus_kopf(&stand.kopf_bytes()).unwrap()
+        else {
+            panic!("Fassung 2 erwartet");
+        };
+        for lage in regionen {
+            let daten = stand.region_bytes(lage).unwrap();
+            gelesen.setze_region(lage, Stand::aus_region(&daten).unwrap());
+        }
+        gelesen
+    }
+
     /// Hin und zurück bleibt alles, auch negative Regionen, Chunks ohne
-    /// Stempel und jede Art Inhalt; eine kaputte Datei ist ein Fehler.
+    /// Stempel und jede Art Inhalt, in Fassung 2 wie in Fassung 1; eine
+    /// kaputte Datei ist ein Fehler. Die ersten 13 Bytes des Kopfs liest das
+    /// Plugin.
     #[test]
     fn stand_hin_und_zurueck() {
         let mut stand = Stand::neu(Art::Update, 7, 9);
@@ -753,22 +969,67 @@ mod tests {
                 inhalt: Inhalt::Unfertig,
             },
         );
-        let bytes = stand.als_bytes();
-        assert_eq!(bytes.len(), 33 + 3 * (8 + 1024 * EINTRAG));
-        let gelesen = Stand::aus_bytes(&bytes).unwrap();
+        let kopf = stand.kopf_bytes();
+        assert_eq!(kopf.len(), 33 + 3 * 8);
+        assert_eq!(&kopf[..13], b"HMRSTAND\x02\x00\x00\x00\x01");
+        let gelesen = hin_und_zurueck(&stand);
         assert_eq!(gelesen, stand);
         assert_eq!(gelesen.eintrag(-33, 70).inhalt, fertig(42, Some(-64)));
         assert_eq!(gelesen.eintrag(5, 5), Eintrag::default(), "ohne Eintrag");
+
+        // Je Chunk 28 Bytes, die letzten 9 noch leer.
+        let region = stand.region_bytes((-2, 2)).unwrap();
+        assert_eq!(region.len(), 12 + 1024 * EINTRAG);
+        assert_eq!(&region[..12], b"HMRREGIO\x02\x00\x00\x00");
+        let i = 12 + index(-33, 70) * EINTRAG;
+        let mut erwartet = vec![0x82, 5, 0, 0, 0, 1, 2, 0, 0, 42, 0, 0, 0, 0, 0, 0, 0];
+        erwartet.extend_from_slice(&(-64i16).to_le_bytes());
+        erwartet.push(0x80);
+        erwartet.extend_from_slice(&[0; 8]);
+        assert_eq!(&region[i..i + EINTRAG], &erwartet[..]);
+        assert!(stand.region_bytes((9, 9)).is_none());
+
+        for (kaputt, was) in [
+            (region[..region.len() - 1].to_vec(), "gekürzt"),
+            ([&region[..], &[0u8][..]].concat(), "zu lang"),
+            (
+                [&b"HMRREGIO\x03\x00\x00\x00"[..], &region[12..]].concat(),
+                "andere Fassung",
+            ),
+            (
+                [&b"HMRSTAND\x02\x00\x00\x00"[..], &region[12..]].concat(),
+                "kein Kopf einer Region",
+            ),
+        ] {
+            assert!(Stand::aus_region(&kaputt).is_err(), "Region {was}");
+        }
+        let mut doppelt = [&kopf[..], &kopf[33..41]].concat();
+        doppelt[29..33].copy_from_slice(&4u32.to_le_bytes());
         assert!(
-            Stand::aus_bytes(&bytes[..bytes.len() - 1]).is_err(),
-            "gekürzt"
+            Stand::aus_kopf(&doppelt[..doppelt.len() - 8]).is_err(),
+            "zu kurz"
         );
-        let mut laenger = bytes.clone();
-        laenger.push(0);
-        assert!(Stand::aus_bytes(&laenger).is_err(), "zu lang");
-        let mut fremd = bytes;
-        fremd[8] = 2;
-        assert!(Stand::aus_bytes(&fremd).is_err(), "andere Fassung");
+        for (kaputt, was) in [
+            (kopf[..kopf.len() - 1].to_vec(), "gekürzt"),
+            ([&kopf[..], &[0u8][..]].concat(), "zu lang"),
+            (
+                [&b"HMRSTAND\x03\x00\x00\x00"[..], &kopf[12..]].concat(),
+                "andere Fassung",
+            ),
+            (doppelt, "Region zweimal"),
+        ] {
+            assert!(Stand::aus_kopf(&kaputt).is_err(), "Kopf {was}");
+        }
+
+        // Fassung 1 liest er ganz.
+        let alt = stand.als_bytes_fassung_1();
+        assert_eq!(alt.len(), 33 + 3 * (8 + 1024 * EINTRAG_1));
+        let Gelesen::Ganz(gelesen) = Stand::aus_kopf(&alt).unwrap() else {
+            panic!("Fassung 1 erwartet");
+        };
+        assert_eq!(gelesen, stand);
+        assert_eq!(gelesen.geaendert(), None, "jede Region gilt als geändert");
+        assert!(Stand::aus_kopf(&alt[..alt.len() - 1]).is_err(), "gekürzt");
     }
 
     /// Eine Änderung reicht bis zum höchsten Block ihrer acht Nachbarn, ein
@@ -909,7 +1170,22 @@ mod tests {
                 inhalt: fertig(13, Some(90)),
             },
         );
+        alt.setze(
+            64,
+            0,
+            Eintrag {
+                stempel: stempel(1),
+                inhalt: fertig(14, Some(70)),
+            },
+        );
+        // Wie gerade von der Platte gelesen.
+        let alt = alt.mit_geaendert(BTreeSet::new());
         let mut jetzt = BTreeMap::new();
+        jetzt.insert((2, 0), {
+            let mut r = vec![None; JE_REGION];
+            r[0] = stempel(1);
+            r
+        });
         let mut region = vec![None; JE_REGION];
         region[0] = stempel(1);
         region[1] = stempel(2);
@@ -965,6 +1241,19 @@ mod tests {
         );
         assert_eq!(neu.eintrag(3, 0).inhalt, Inhalt::Unfertig);
         assert!(!neu.regionen.contains_key(&(1, 0)), "Region weg");
+        assert_eq!(
+            neu.geaendert(),
+            Some(&BTreeSet::from([(0, 0), (1, 0)])),
+            "nur die Region mit neuen Einträgen und die weggefallene"
+        );
+        assert_eq!(neu.zu_schreiben(), vec![(0, 0)]);
+        let (_, ohne) = Stand::neu(Art::Voll, 1, 1)
+            .vergleiche(&jetzt, 319, |_, lagen| {
+                Ok(vec![Inhalt::Unfertig; lagen.len()])
+            })
+            .unwrap();
+        assert_eq!(ohne.geaendert(), None, "ohne Stand auf der Platte jede");
+        assert_eq!(ohne.zu_schreiben(), vec![(0, 0), (2, 0)]);
 
         let mut ende = jetzt.clone();
         ende.get_mut(&(0, 0)).unwrap()[2] = stempel(3);
@@ -985,6 +1274,11 @@ mod tests {
             am_ende.eintrag(5 * 32 + 7, 5 * 32).inhalt,
             Inhalt::Unbekannt,
             "neue Region"
+        );
+        assert_eq!(
+            am_ende.geaendert(),
+            Some(&BTreeSet::from([(0, 0), (1, 0), (5, 5)])),
+            "Region (2, 0) unverändert"
         );
     }
 
@@ -1187,13 +1481,10 @@ mod tests {
     #[test]
     fn stand_alter_builds_gilt_als_zeichenstand_1() {
         for &alt in ALTE_BUILDS {
-            let bytes = Stand::neu(Art::Voll, alt, 9).als_bytes();
-            assert_eq!(Stand::aus_bytes(&bytes).unwrap().renderer, ZEICHENSTAND_1);
+            let stand = Stand::neu(Art::Voll, alt, 9);
+            assert_eq!(hin_und_zurueck(&stand).renderer, ZEICHENSTAND_1);
         }
-        let fremd = Stand::neu(Art::Voll, ZEICHENSTAND_1 ^ 1, 9).als_bytes();
-        assert_eq!(
-            Stand::aus_bytes(&fremd).unwrap().renderer,
-            ZEICHENSTAND_1 ^ 1
-        );
+        let fremd = Stand::neu(Art::Voll, ZEICHENSTAND_1 ^ 1, 9);
+        assert_eq!(hin_und_zurueck(&fremd).renderer, ZEICHENSTAND_1 ^ 1);
     }
 }

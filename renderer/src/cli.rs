@@ -18,7 +18,8 @@ use heroic_map_renderer::render::heights::{self, Heights, RegionHeights};
 use heroic_map_renderer::render::look::{LOOK, Look};
 use heroic_map_renderer::render::pyramid;
 use heroic_map_renderer::render::stand::{
-    Aenderung, Art, Eintrag, Inhalt, Stand, fingerabdruck_der_dateien, fingerabdruck_des_renderers,
+    Aenderung, Art, Eintrag, Gelesen, Inhalt, Stand, fingerabdruck_der_dateien,
+    fingerabdruck_des_renderers,
 };
 use heroic_map_renderer::render::{
     BLEND_DEFAULT, BLEND_MAX, BiomeTable, ChunkCache, Flaeche, Gebiet, Gpu, Kamera, MapInfo,
@@ -1983,7 +1984,7 @@ fn write_tiles(
             let (aenderungen, neu) = alt.vergleiche(&stempel, Y_RANGE.1, |(rx, rz), lagen| {
                 lies_inhalte(world, rx, rz, lagen)
             })?;
-            unveraendert = !resume && neu.regionen == alt.regionen;
+            unveraendert = !resume && neu.geaendert().is_some_and(BTreeSet::is_empty);
             let gebiet = gebiet_der_aenderungen(
                 projection,
                 stufen,
@@ -2010,9 +2011,10 @@ fn write_tiles(
             );
             (
                 Some(gebiet),
-                Some(Stand {
-                    art: Art::Update,
-                    ..neu
+                Some({
+                    let mut neu = neu;
+                    neu.art = Art::Update;
+                    neu
                 }),
                 Some(aenderungen),
                 Some(Gebiet::aus(stufen, offen)),
@@ -2126,7 +2128,7 @@ fn write_tiles(
     // Ein voller Lauf über einen Baum mit Stand weiss wie ein Update, welche
     // Chunks sich geändert haben, auch mit --resume.
     let aenderungen = match (aenderungen, &stand) {
-        (None, Some(neu)) if matches!(bereich, Bereich::Welt) => lies_stand(&dir.join(STAND))
+        (None, Some(neu)) if matches!(bereich, Bereich::Welt) => lies_stand(dir, STAND)
             .ok()
             .flatten()
             .map(|alt| neu.aenderungen_seit(&alt, Y_RANGE.1)),
@@ -2298,7 +2300,7 @@ fn write_tiles(
     // Update und ein Ausschnitt legen ihr Gebiet ab, das nächste Update
     // zeichnet es noch einmal.
     // Siehe docs/benutzung/updates.md, „Das offene Gebiet“.
-    if let Some(alt) = lies_stand(&dir.join(STAND)).ok().flatten() {
+    if let Some(alt) = lies_stand(dir, STAND).ok().flatten() {
         match &gebiet {
             None => {
                 let alt = alt.unbekannt_wo(
@@ -2306,7 +2308,7 @@ fn write_tiles(
                     |cx, cz| reach.liest(cx, cz),
                     |rx, rz| reach.region(rx, rz),
                 );
-                lege_stand_ab(&dir.join(STAND), &alt)?;
+                lege_stand_ab(dir, STAND, &alt)?;
             }
             Some(gebiet) => {
                 let mut offen = lies_offen(dir, stufen)?;
@@ -2321,7 +2323,7 @@ fn write_tiles(
     if let Some(stand) = &stand
         && !resume
     {
-        lege_stand_ab(&dir.join(STAND_NEU), stand)?;
+        lege_stand_ab(dir, STAND_NEU, stand)?;
     }
     // Daneben, was liegen bleibt: Dessen Zeit sagt es nicht.
     let liegen = stand
@@ -2654,7 +2656,8 @@ enum Bereich {
 }
 
 /// Der Stand eines Baums nach seinem letzten vollen Lauf oder Update, und
-/// der eines Laufs, der noch nicht fertig ist.
+/// der eines Laufs, der noch nicht fertig ist: je ein Kopf, die Regionen im
+/// Ordner daneben, `stand/` und `stand-neu/`.
 /// Siehe docs/benutzung/updates.md, „Der Stand“.
 const STAND: &str = "stand.bin";
 const STAND_NEU: &str = "stand-neu.bin";
@@ -2783,22 +2786,118 @@ fn lies_liegen(pfad: &Path) -> Result<BTreeSet<TileId>> {
         .collect())
 }
 
-/// Legt den Stand ab wie `map.json`, ganz auf der Platte vor dem Tausch.
-fn lege_stand_ab(pfad: &Path, stand: &Stand) -> Result<()> {
-    tausche(pfad, &stand.als_bytes(), None, true)
-        .with_context(|| format!("{} schreiben", pfad.display()))
+/// Legt den Stand `name` ab, [`STAND`] oder [`STAND_NEU`], jede Datei ganz
+/// auf der Platte vor dem Tausch: erst die Regionen, die anders sind als in
+/// `stand.bin`, in den Ordner neben dem Kopf, dann den Kopf. Zuletzt fallen
+/// die Regionen weg, die der Kopf nicht mehr nennt. Der angefangene Stand
+/// hat in seinem Ordner nur, was anders ist; die anderen Regionen liest er
+/// aus `stand/`.
+/// Siehe docs/benutzung/updates.md, „Der Stand“.
+fn lege_stand_ab(dir: &Path, name: &str, stand: &Stand) -> Result<()> {
+    let kopf = dir.join(name);
+    let ordner = kopf.with_extension("");
+    let angefangen = name == STAND_NEU;
+    if angefangen {
+        // Sonst mischte sich ein älterer angefangener Stand hinein.
+        entferne(&kopf)?;
+        entferne_regionen(&ordner, |_| false)?;
+    }
+    std::fs::create_dir_all(&ordner).with_context(|| format!("{} anlegen", ordner.display()))?;
+    let regionen = stand.zu_schreiben();
+    // Testhaken: bricht nach der Hälfte der Regionen ab, vor dem Kopf.
+    let haelfte = !angefangen && abbruch().as_deref() == Some("stand-haelfte");
+    let regionen = &regionen[..if haelfte {
+        regionen.len() / 2
+    } else {
+        regionen.len()
+    }];
+    regionen.par_iter().try_for_each(|&lage| {
+        let pfad = ordner.join(datei_der_region(lage));
+        let daten = stand.region_bytes(lage).expect("eine Region des Stands");
+        tausche(&pfad, &daten, None, true).with_context(|| format!("{} schreiben", pfad.display()))
+    })?;
+    if haelfte {
+        bail!("Abbruch nach der Hälfte der Regionen des Stands (HEROIC_ABBRUCH)");
+    }
+    tausche(&kopf, &stand.kopf_bytes(), None, true)
+        .with_context(|| format!("{} schreiben", kopf.display()))?;
+    entferne_regionen(&ordner, |lage| stand.hat_region(lage))
 }
 
-/// Liest einen Stand, `None`, wenn es die Datei nicht gibt.
-fn lies_stand(pfad: &Path) -> Result<Option<Stand>> {
-    match std::fs::read(pfad) {
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+/// Liest den Stand `name`, `None`, wenn es den Kopf nicht gibt. Einen
+/// angefangenen ergänzt `stand/` um die Regionen, die er nicht hat; nur
+/// die aus seinem Ordner sind dann anders als in `stand.bin`.
+fn lies_stand(dir: &Path, name: &str) -> Result<Option<Stand>> {
+    let kopf = dir.join(name);
+    let gelesen = match std::fs::read(&kopf) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         gelesen => gelesen
             .map_err(anyhow::Error::from)
-            .and_then(|daten| Stand::aus_bytes(&daten))
-            .with_context(|| format!("{} lesen", pfad.display()))
-            .map(Some),
+            .and_then(|daten| Stand::aus_kopf(&daten))
+            .with_context(|| format!("{} lesen", kopf.display()))?,
+    };
+    let (mut stand, regionen) = match gelesen {
+        Gelesen::Ganz(stand) => return Ok(Some(stand)),
+        Gelesen::Kopf(stand, regionen) => (stand, regionen),
+    };
+    let ordner = kopf.with_extension("");
+    let rueckfall = (name == STAND_NEU).then(|| dir.join(STAND).with_extension(""));
+    let gelesen = regionen
+        .par_iter()
+        .map(|&lage| -> Result<_> {
+            let mut pfad = ordner.join(datei_der_region(lage));
+            let mut daten = std::fs::read(&pfad);
+            let mut anders = rueckfall.is_some();
+            if let (Err(e), Some(rueckfall)) = (&daten, &rueckfall)
+                && e.kind() == std::io::ErrorKind::NotFound
+            {
+                pfad = rueckfall.join(datei_der_region(lage));
+                daten = std::fs::read(&pfad);
+                anders = false;
+            }
+            let region = daten
+                .map_err(anyhow::Error::from)
+                .and_then(|daten| Stand::aus_region(&daten))
+                .with_context(|| format!("{} lesen", pfad.display()))?;
+            Ok((lage, region, anders))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    let mut geaendert = BTreeSet::new();
+    for (lage, region, anders) in gelesen {
+        if anders {
+            geaendert.insert(lage);
+        }
+        stand.setze_region(lage, region);
     }
+    Ok(Some(stand.mit_geaendert(geaendert)))
+}
+
+/// Die Datei einer Region im Ordner eines Stands.
+fn datei_der_region((rx, rz): (i32, i32)) -> String {
+    format!("{rx}.{rz}.bin")
+}
+
+/// Entfernt im Ordner eines Stands die Regionen, für die `bleibt` nicht
+/// gilt. Einen Ordner, den es nicht gibt, lässt es.
+fn entferne_regionen(ordner: &Path, bleibt: impl Fn((i32, i32)) -> bool) -> Result<()> {
+    let eintraege = match std::fs::read_dir(ordner) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        eintraege => eintraege.with_context(|| format!("{} lesen", ordner.display()))?,
+    };
+    for eintrag in eintraege {
+        let name = eintrag?.file_name();
+        let lage = name.to_str().and_then(|name| {
+            let (rx, rz) = name.strip_suffix(".bin")?.split_once('.')?;
+            let lage = (rx.parse().ok()?, rz.parse().ok()?);
+            (datei_der_region(lage) == name).then_some(lage)
+        });
+        if let Some(lage) = lage
+            && !bleibt(lage)
+        {
+            entferne(&ordner.join(name))?;
+        }
+    }
+    Ok(())
 }
 
 /// Der Stand, mit dem ein Update vergleicht. Er muss von einem Renderer
@@ -2807,7 +2906,7 @@ fn lies_stand(pfad: &Path) -> Result<Option<Stand>> {
 /// Siehe docs/benutzung/updates.md, „Anderer Renderer, andere Assets“.
 fn stand_fuer_update(dir: &Path, abdruecke: (u64, u64)) -> Result<Stand> {
     let pfad = dir.join(STAND);
-    let stand = lies_stand(&pfad)?.with_context(|| {
+    let stand = lies_stand(dir, STAND)?.with_context(|| {
         format!(
             "{} fehlt. --update braucht den Stand, den ein voller Lauf über die ganze Welt schreibt.",
             pfad.display()
@@ -2844,7 +2943,7 @@ enum Angefangen {
 /// (`abdruecke`) stammt.
 fn fortzusetzen(dir: &Path, art: Art, abdruecke: (u64, u64)) -> Result<Angefangen> {
     let pfad = dir.join(STAND_NEU);
-    let Some(stand) = lies_stand(&pfad)? else {
+    let Some(stand) = lies_stand(dir, STAND_NEU)? else {
         return Ok(Angefangen::Keiner);
     };
     if (stand.renderer, stand.assets) != abdruecke {
@@ -2882,28 +2981,31 @@ fn lies_inhalte(world: &World, rx: i32, rz: i32, lagen: &[[i32; 2]]) -> Result<V
         .collect()
 }
 
-/// Schreibt den Stand am Ende eines Laufs: Was der Server seit dem Beginn
-/// schrieb, ist darin unbekannt. Der angefangene Stand fällt weg, ebenso das
-/// offene Gebiet: Dieser Lauf hat es gezeichnet.
-/// Was ein abgebrochener Lauf für den nächsten hinterlässt: Nach einem
-/// fertigen Lauf gilt `stand.bin`.
+/// Entfernt, was ein abgebrochener Lauf für den nächsten hinterlässt: Nach
+/// einem fertigen Lauf gilt `stand.bin`.
 fn entferne_angefangene(dir: &Path) -> Result<()> {
-    entferne(&dir.join(STAND_NEU))?;
+    let kopf = dir.join(STAND_NEU);
+    entferne(&kopf)?;
+    entferne_regionen(&kopf.with_extension(""), |_| false)?;
+    // Leer fällt der Ordner weg; liegt sonst etwas darin, bleibt er.
+    let _ = std::fs::remove_dir(kopf.with_extension(""));
     entferne(&dir.join(LIEGEN_NEU))?;
     entferne(&dir.join(OFFEN))
 }
 
+/// Schreibt den Stand am Ende eines Laufs: Was der Server seit dem Beginn
+/// schrieb, ist darin unbekannt. Der angefangene Stand fällt weg, ebenso das
+/// offene Gebiet: Dieser Lauf hat es gezeichnet.
 fn schreibe_stand(dir: &Path, world: &World, stand: Stand) -> Result<()> {
     let stand = stand.am_ende(&world.stempel()?);
-    let eintraege = stand.regionen.values().flatten();
-    let (chunks, unbekannt) = eintraege.fold((0, 0), |(n, u), e| {
+    let (chunks, unbekannt) = stand.eintraege().fold((0, 0), |(n, u), e| {
         (
             n + usize::from(e.stempel.is_some()),
             u + usize::from(e.inhalt == Inhalt::Unbekannt),
         )
     });
     let pfad = dir.join(STAND);
-    lege_stand_ab(&pfad, &stand)?;
+    lege_stand_ab(dir, STAND, &stand)?;
     entferne_angefangene(dir)?;
     let waehrend = match unbekannt {
         0 => String::new(),

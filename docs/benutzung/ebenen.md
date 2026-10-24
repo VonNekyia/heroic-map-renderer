@@ -109,7 +109,7 @@ sichtbar ist.
 Die Wahl des Betrachters, welche Ebene an ist, merkt sich jede Ansicht
 selbst, die Webkarte im Browser.
 
-- **`designs`** schreibt das Plugin genau dann, wenn `designs` im Kopf der
+- **`designs`** schreibt das Plugin ab 0.19.0 genau dann, wenn `designs` im Kopf der
   Datei nicht leer ist. Fehlt das Feld, etwa in einer älteren Liste, lädt
   eine Ansicht wie bisher: erst die Datei, dann bei Bedarf `satz.json`. Ein
   `true` ohne Entwürfe kostet eine Anfrage zu viel und schadet sonst nicht.

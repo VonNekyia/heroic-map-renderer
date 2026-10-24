@@ -19,8 +19,9 @@ const WIEDER = !process.env.CI && EIGENER === undefined;
 export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
-  reporter: process.env.CI ? 'list' : 'html',
-  use: { baseURL: `http://${HOST}:${PORT}` },
+  // In der CI dazu der HTML-Bericht: Nur bei einem Fehler lädt ci.yml ihn hoch, mit der ganzen Meldung und der Spur der Wiederholung.
+  reporter: process.env.CI ? [['list'], ['html', { open: 'never' }]] : 'html',
+  use: { baseURL: `http://${HOST}:${PORT}`, trace: 'on-first-retry' },
   projects: [
     // Ohne Skin: die Grundkarte.
     { name: 'grund', testDir: './tests', use: devices['Desktop Chrome'] },

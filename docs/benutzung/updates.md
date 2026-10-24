@@ -411,6 +411,8 @@ liegen“. Entschieden in
   leer heisst lauter Nullen. Eine Tabelle brauchte rund 48 Bytes je Kachel,
   gemessen in
   [2026-10-24, Speicher im ersten Render](../messungen/2026-10-24-speicher-im-ersten-render.md).
+  An der Spitze im ersten Render der Testwelt ändert das nichts Messbares,
+  siehe [2026-10-25, Pixel-Hashes als Feld](../messungen/2026-10-25-pixel-hashes-als-feld.md).
 - **Die Pyramide eines Updates** baut die Eltern von der Platte nur über
   Kindern ohne Treffer im Hash: über neuen Pixeln, über entfernten Kindern,
   über Kindern, die ein abgebrochener Lauf schrieb oder `--resume` liegen

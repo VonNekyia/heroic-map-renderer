@@ -109,9 +109,26 @@ export function zurKamera({ p, k }: Blick): { wx: number; wz: number; steigung: 
  */
 export function oberflaeche(g: Gelaende, x: number, z: number): number {
   const { c } = g;
-  const zelle = (i: number, j: number): number => {
-    const eigen = g.zelle(i, j);
-    if (eigen !== undefined) return eigen;
+  const [fx, fz] = [x / c - 0.5, z / c - 0.5];
+  const [i, j] = [Math.floor(fx), Math.floor(fz)];
+  const [tx, tz] = [fx - i, fz - j];
+  const oben = zelleOderErsatz(g, i, j) * (1 - tx) + zelleOderErsatz(g, i + 1, j) * tx;
+  const unten = zelleOderErsatz(g, i, j + 1) * (1 - tx) + zelleOderErsatz(g, i + 1, j + 1) * tx;
+  return oben * (1 - tz) + unten * tz + 1;
+}
+
+/** Je Gelände der Ersatz leerer Zellen, einmal gerechnet; er fällt mit dem Gelände weg. */
+const ersatzJe = new WeakMap<Gelaende, Map<number, number>>();
+
+/** Der Wert der Zelle, leer der Mittelwert der Nachbarn mit Wert im Umkreis von zwei, sonst `grund`; für `oberflaeche`. */
+function zelleOderErsatz(g: Gelaende, i: number, j: number): number {
+  const eigen = g.zelle(i, j);
+  if (eigen !== undefined) return eigen;
+  let ersatz = ersatzJe.get(g);
+  if (!ersatz) ersatzJe.set(g, (ersatz = new Map<number, number>()));
+  const s = (i + 2 ** 20) * 2 ** 21 + (j + 2 ** 20);
+  let wert = ersatz.get(s);
+  if (wert === undefined) {
     let summe = 0;
     let anzahl = 0;
     for (let di = -2; di <= 2; di++) {
@@ -123,14 +140,9 @@ export function oberflaeche(g: Gelaende, x: number, z: number): number {
         }
       }
     }
-    return anzahl ? summe / anzahl : g.grund;
-  };
-  const [fx, fz] = [x / c - 0.5, z / c - 0.5];
-  const [i, j] = [Math.floor(fx), Math.floor(fz)];
-  const [tx, tz] = [fx - i, fz - j];
-  const oben = zelle(i, j) * (1 - tx) + zelle(i + 1, j) * tx;
-  const unten = zelle(i, j + 1) * (1 - tx) + zelle(i + 1, j + 1) * tx;
-  return oben * (1 - tz) + unten * tz + 1;
+    ersatz.set(s, (wert = anzahl ? summe / anzahl : g.grund));
+  }
+  return wert;
 }
 
 /**

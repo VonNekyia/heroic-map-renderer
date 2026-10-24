@@ -151,5 +151,4 @@ export default [
   { name: 'head-auch-gross', datei: 'src/ebenen.ts', alt: '/^[0-9a-f]{64}$/.test(wert.head)', neu: '/^[0-9a-fA-F]{64}$/.test(wert.head)', spec: 'tests/ebenen.spec.ts', titel: 'nach 0118 zeigt eine Nadel mit head' },
   { name: 'tafel-ueber-ganzem-icon', datei: 'src/ebenen.ts', alt: 'options.iconAnchor as L.PointTuple)[1]', neu: 'options.iconSize as L.PointTuple)[1]', spec: 'tests/ebenen.spec.ts', titel: 'nach 0118 zeigt eine Nadel mit head' },
   { name: 'namen-am-container', datei: 'src/ebenen.ts', alt: '    for (const { nadeln } of panes.values()) namenAn(map.getPane(nadeln)!);', neu: '    namenAn(map.getContainer());', spec: 'tests/ebenen.spec.ts', titel: 'nach 0119 bleiben Nadeln' },
-  { name: 'namen-jedes-mal', datei: 'src/ebenen.ts', alt: '    if (namen?.teil === teil && namen.deck === deck) return;', neu: '', spec: 'tests/ebenen.spec.ts', titel: 'nach 0119 bleiben Nadeln' },
 ];

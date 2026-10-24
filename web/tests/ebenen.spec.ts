@@ -356,8 +356,11 @@ test('nach 0119 bleiben Nadeln, Köpfe und Banner auf jeder Stufe gleich gross; 
     // Erst nach dem Übergang von CSS messen.
     await page.waitForTimeout(300);
     const stil = await namen.evaluateAll((l) => l.map((e) => [getComputedStyle(e).transform, Number(getComputedStyle(e).opacity), getComputedStyle(e).visibility]));
-    for (const [transform, opacity, sichtbar] of stil) {
-      expect(transform, `Zoom ${zoom}`).toMatch(new RegExp(`^matrix\\(${teil}, 0, 0, ${teil}, `));
+    const anzeige = await namen.evaluateAll((l) => l.map((e) => getComputedStyle(e).display));
+    for (const [i, [transform, opacity, sichtbar]] of stil.entries()) {
+      // Ganz ausgeblendet sind die Namen aus dem Layout und haben kein transform mehr; ihre Grösse steht dann nur am Pane.
+      if (deck > 0) expect(transform, `Zoom ${zoom}`).toMatch(new RegExp(`^matrix\\(${teil}, 0, 0, ${teil}, `));
+      else expect(anzeige[i], `Zoom ${zoom}`).toBe('none');
       expect(opacity, `Zoom ${zoom}`).toBe(deck);
       expect(sichtbar, `Zoom ${zoom}`).toBe(deck > 0 ? 'visible' : 'hidden');
     }
@@ -1421,4 +1424,60 @@ test('nach 0131 schliesst eine offene Tafel, wenn ihre Ebene beim Hinauszoomen �
   await stufe(page, 'out');
   await expect(page.locator('.leaflet-popup')).toHaveCount(0);
   await expect(page.locator('.nadel-icon')).toHaveCount(0);
+});
+
+test('nach dem Ausblenden aus 0119 sind die Namen ganz aus dem Layout, erst nach der Dauer; schnell zurück bleibt es aus, und hinein blenden sie wieder ein', async ({ page }) => {
+  const dorf = { ...HAFEN, id: 'dorf', name: 'Dorf', size: 'small', at: [30.5, -20.5], panel: undefined };
+  // Von oben 4 Pixel je Block: Zoom −7 ist der Name ganz da, auf −8 ausgeblendet.
+  const vonOben = { camera: 'top-north', scale: 4, projection: { azimuth: 'north', u: 4, v: 4, y: 0 }, minZoom: -10 };
+  await welt(page, staedte([dorf], { mehr: vonOben }));
+  await page.goto(`${DEMO}&at=35,0,-15&zoom=-7`);
+  await expect(page.locator('.nadel-name')).toHaveText('Dorf');
+  await page.waitForTimeout(300);
+  // Je Bild: ob das Pane `namen-aus` trägt, `display` und `opacity` des Namens; `zurueck` klickt nach so vielen ms wieder hinein.
+  const verlauf = (zurueck?: number) =>
+    page.evaluate(async (zurueck) => {
+      const name = document.querySelector('.nadel-name')!;
+      const pane = name.closest('.leaflet-pane')!;
+      (document.querySelector('.leaflet-control-zoom-out') as HTMLElement).click();
+      const start = performance.now();
+      const werte: { t: number; aus: boolean; display: string; opacity: number }[] = [];
+      let geklickt = false;
+      while (performance.now() < start + (zurueck === undefined ? 600 : 1600)) {
+        await new Promise(requestAnimationFrame);
+        const t = performance.now() - start;
+        if (zurueck !== undefined && !geklickt && t >= zurueck) {
+          (document.querySelector('.leaflet-control-zoom-in') as HTMLElement).click();
+          geklickt = true;
+        }
+        werte.push({ t, aus: pane.classList.contains('namen-aus'), display: getComputedStyle(name).display, opacity: Number(getComputedStyle(name).opacity) });
+      }
+      return werte;
+    }, zurueck);
+  // Hinaus: während des Ausblendens angezeigt, danach `display: none`.
+  const hinaus = await verlauf();
+  expect(hinaus.filter((w) => w.t < 200).every((w) => !w.aus && w.display !== 'none'), JSON.stringify(hinaus)).toBe(true);
+  expect(hinaus.at(-1)!.aus).toBe(true);
+  expect(hinaus.at(-1)!.display).toBe('none');
+  // Hinein: sofort wieder im Layout und weich eingeblendet, nicht aufgesprungen.
+  const hinein = await page.evaluate(async () => {
+    const name = document.querySelector('.nadel-name')!;
+    (document.querySelector('.leaflet-control-zoom-in') as HTMLElement).click();
+    const werte: number[] = [];
+    const ende = performance.now() + 450;
+    while (performance.now() < ende) {
+      await new Promise(requestAnimationFrame);
+      if (getComputedStyle(name).display !== 'none') werte.push(Number(getComputedStyle(name).opacity));
+    }
+    return werte;
+  });
+  expect(hinein.some((o) => o > 0.05 && o < 0.95), JSON.stringify(hinein)).toBe(true);
+  expect(hinein.at(-1)).toBe(1);
+  await page.waitForTimeout(300);
+  // Zurück, bevor der Zeitgeber feuert: Während der Animation des Zooms schluckt Leaflet einen Klick, darum hier eine
+  // Dauer von 1000 ms, gesetzt per CSSOM, und zurück nach 400 ms; `namen-aus` darf nicht hinterher kommen.
+  await page.evaluate(() => document.documentElement.style.setProperty('--namen-dauer', '1000ms'));
+  const kurz = await verlauf(400);
+  expect(kurz.some((w) => w.aus), JSON.stringify(kurz)).toBe(false);
+  expect(kurz.at(-1)!.display).not.toBe('none');
 });

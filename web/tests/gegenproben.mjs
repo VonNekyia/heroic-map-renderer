@@ -165,4 +165,11 @@ export default [
   { name: 'ebenen-erst-nach-karte', datei: 'src/main.ts', alt: 'satz: satz ?? undefined, token, vorab }).catch(', neu: 'satz: satz ?? undefined, token, vorab: void vorab }).catch(', spec: 'tests/smoke.spec.ts', titel: 'beim Start gehen layers.json und api/ich los' },
   { name: 'baum-ohne-pruefung', datei: 'src/main.ts', alt: 'gewuenscht && BAUM_NAME.test(gewuenscht) ?', neu: 'gewuenscht && (BAUM_NAME.test(gewuenscht) || true) ?', spec: 'tests/smoke.spec.ts', titel: '?tree= ohne den Namen eines Baums' },
   { name: 'vorab-baum-ungenutzt', datei: 'src/main.ts', alt: '(baum?.path === gewuenscht ? await vorabBaum : undefined) ??', neu: '(baum?.path === gewuenscht && !vorabBaum ? await vorabBaum : undefined) ??', spec: 'tests/smoke.spec.ts', titel: 'mit ?tree= geht map.json dieses Baums mit trees.json los' },
+  // Marker nur im Ausschnitt, 0128.
+  { name: 'alle-orte-im-dom', datei: 'src/ebenen.ts', alt: '(rahmen.contains(ll) ? [i] : [])', neu: '(rahmen.contains(ll) || true ? [i] : [])', spec: 'tests/ebenen.spec.ts', titel: 'nach 0128 hat ein Ort nur im Fenster mit Rand' },
+  { name: 'orte-nie-ausgehaengt', datei: 'src/ebenen.ts', alt: 'if (!rahmen.contains((l as L.Marker).getLatLng()) && !fest(l as L.Marker)) gruppe.removeLayer(l);', neu: 'if (!rahmen && !fest(l as L.Marker)) gruppe.removeLayer(l);', spec: 'tests/ebenen.spec.ts', titel: 'nach 0128 hat ein Ort nur im Fenster mit Rand' },
+  { name: 'orte-ohne-rand', datei: 'src/ebenen.ts', alt: 'const rahmen = fenster.pad(ORT_RAND);', neu: 'const rahmen = fenster.pad(0);', spec: 'tests/ebenen.spec.ts', titel: 'nach 0128 hat ein Ort nur im Fenster mit Rand' },
+  { name: 'orte-erst-beim-loslassen', datei: 'src/ebenen.ts', alt: "  map.on('move', orteBeimZiehen);", neu: "  map.on('move', () => void orteBeimZiehen);", spec: 'tests/ebenen.spec.ts', titel: 'nach 0128 kommt ein Ort schon beim Ziehen' },
+  { name: 'tafel-nicht-fest', datei: 'src/ebenen.ts', alt: ' || (offen !== undefined && offen.element() === element && map.hasLayer(offen.popup));', neu: ';', spec: 'tests/ebenen.spec.ts', titel: 'nach 0128 bleibt ein Marker mit offener Tafel' },
+  { name: 'fokus-nicht-fest', datei: 'src/ebenen.ts', alt: 'return element.contains(document.activeElement) ||', neu: 'return false ||', spec: 'tests/ebenen.spec.ts', titel: 'nach 0128 bleibt ein Marker mit offener Tafel' },
 ];

@@ -57,8 +57,8 @@ const GRENZEN = { punkte: 10_000, loecher: 100, radius: 100_000 };
  */
 const WAND = { hoehe: 6, unten: 0.6, baender: 12 };
 
-/** So viele ms rechnet `zeichneAnsicht` am Stück, dann gibt sie den Hauptfaden frei. */
-const STUECK_MS = 8;
+/** So viele ms rechnet `zeichneAnsicht` am Stück, dann gibt sie den Hauptfaden frei; ebenso das Einhängen der Orte. */
+export const STUECK_MS = 8;
 
 /** Wie hoch die Wand auf der feinsten Stufe ist, in Pixeln. */
 export const wandHoehe = (blick: Blick): number => WAND.hoehe * blick.p.y;

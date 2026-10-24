@@ -946,11 +946,17 @@ liegen als `tiles/` daneben, oder `?tiles=` nennt ihren Pfad.
   Grundschicht, siehe „Grundschicht“; ein neues Leaflet braucht einen Blick
   auf alle vier.
 - **Cache:** Ein neuer Lauf tauscht Kacheln unter derselben URL. Damit der
-  Browser danach den neuen Stand zeigt:
-  - **Betreiber** setzen für `tiles/` `Cache-Control: no-cache`, in nginx
-    etwa `location /tiles/ { add_header Cache-Control no-cache; }`. Der
-    Browser fragt dann je Kachel mit `ETag` oder `Last-Modified` nach, und
-    für eine unveränderte kommt ein kurzes 304.
+  Browser danach bald den neuen Stand zeigt, ohne je Besuch jede Kachel neu
+  zu erfragen, nach [0125](entscheidungen/0125-kacheln-eine-minute-im-cache.md):
+  - **Kacheln** (`*.webp` eines Baums): `Cache-Control: max-age=60` mit
+    `ETag` oder `Last-Modified`. Eine Minute nimmt der Browser sie ohne
+    Nachfrage aus dem Cache, danach fragt er nach, und für eine unveränderte
+    kommt ein kurzes 304. So setzt es `--serve`; in nginx etwa
+    `location ~ ^/tiles/(?!layers/).*\.webp$ { add_header Cache-Control "max-age=60"; }`, ohne die Bilder der Ebenen unter `layers/`.
+    Mit `no-cache` kostete jede Kachel bei jedem Besuch einen Umlauf.
+  - **Alles andere unter `tiles/`**, `map.json`, `trees.json`,
+    `layers.json`, die Ebenen samt ihren Bildern und die Höhen, bleibt bei
+    `Cache-Control: no-cache`.
   - **Ohne den Header** schätzt der Browser die Frische selbst, üblich 10 %
     der Zeit seit `Last-Modified` (RFC 9111, 4.2.2). Eine Kachel, die 30
     Tage unverändert war, zeigt er nach einem neuen Lauf bis etwa 3 Tage

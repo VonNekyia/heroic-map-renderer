@@ -1393,13 +1393,13 @@ test('nach 0131 holt die Karte eine Ebene jenseits ihrer Zoomgrenze nicht, genau
 });
 
 test('nach 0131 gilt die Zoomgrenze in Blöcken, nicht in Stufen: im iso mit scale 16 dieselbe Grenze an anderer Stufe', async ({ page }) => {
-  // 2:1 mit scale 16: Ein Block ist auf der feinsten Stufe √(16² + 8²) ≈ 17,9 Pixel breit; Zoom −4 sind 0,89 Blöcke je Pixel, −5 sind 1,79.
+  // 2:1 mit scale 16: Ein Block ist auf der feinsten Stufe √(8² + 4²) ≈ 8,9 Pixel breit; Zoom −3 sind 0,89 Blöcke je Pixel, −4 sind 1,79.
   const anfragen = await welt(page, mitGrenze([{ ...NAH, at: [35.5, -14.5] }], 1, { bounds: [-65536, -65536, 65536, 65536] }));
-  await page.goto(`${DEMO}&at=35,0,-15&zoom=-4`);
+  await page.goto(`${DEMO}&at=35,0,-15&zoom=-3`);
   await expect(page.locator('.nadel-icon[title="Nah"]')).toHaveCount(1);
   await stufe(page, 'out');
   await expect(page.locator('.nadel-icon')).toHaveCount(0);
-  await page.goto(`${DEMO}&at=35,0,-15&zoom=-5`);
+  await page.goto(`${DEMO}&at=35,0,-15&zoom=-4`);
   await expect(page.locator('.ebenen-zeile.ausser-bereich')).toHaveCount(1);
   await page.waitForTimeout(500);
   expect(datei(anfragen)).toBe(1);

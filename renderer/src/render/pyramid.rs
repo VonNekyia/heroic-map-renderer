@@ -365,6 +365,11 @@ pub struct MapInfo {
     /// fehlt ohne.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub relief: Option<String>,
+    /// Pfadmuster der Schicht des Reliefs, relativ zum Baum; steht mit
+    /// `relief`. Fehlt es, hat der Baum keine Schicht.
+    /// Siehe docs/renderer/relief.md, „Die Schicht“.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relief_tiles: Option<String>,
     /// Der Wasserspiegel der Dimension in Blöcken, `sea_level` des Spiels:
     /// Wasser füllt die Blöcke unter ihm. `null`, wenn der Lauf ihn nicht
     /// kennt. Fehlt das Feld, stammt der Baum aus einem älteren Stand.
@@ -453,6 +458,7 @@ impl MapInfo {
             look: None,
             look_hash: None,
             relief: None,
+            relief_tiles: None,
             sea_level: None,
             area: None,
             area_fixed: None,

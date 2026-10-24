@@ -141,9 +141,17 @@ laden; statt des Grunds der Karte sieht man dort die Gegend unscharf.
   deckt 8 × 8 feine. Für +3–15 % Bytes fällt das Schwarz beim
   Hineinzoomen weg, beim Ziehen sinkt es von 8–9 % auf 2–5 % des Fensters,
   und das volle Bild nach dem Laden kommt 37–45 % früher. Ein Ring von
-  einer Kachel nähme den Rest, kostete aber +26–53 %; das entscheidet die
-  Messung des Rands der feinen Kacheln. Wo die Pyramide endet, laden beide
-  dieselbe Stufe, und der Browser holt sie einmal.
+  einer Kachel nähme den Rest, kostete aber +26–53 %. Wo die Pyramide
+  endet, laden beide dieselbe Stufe, und der Browser holt sie einmal.
+- **Kein Rand:** Weder die Grundschicht noch die feinen Kacheln laden über
+  das Fenster hinaus. Ein Rand der feinen Kacheln ist gemessen und
+  verworfen: Bei 10 Mbit/s nimmt er den sichtbaren die Bandbreite, und er
+  kostet +60 % Bytes; siehe [Rand der feinen Kacheln](versuche/rand-feiner-kacheln.md).
+- **Keine eigene Warteschlange:** Die Kacheln fragt Leaflet an wie immer.
+  Eine Warteschlange mit Vorrang der Grundschicht ist gemessen und
+  verworfen: Über HTTP/1.1 hält Chromium die Anfragen selbst zurück, und
+  eine eigene kostet Bytes oder Verbindungen; siehe
+  [Warteschlange der Kacheln](versuche/warteschlange-der-kacheln.md).
 
 ## Koordinaten
 

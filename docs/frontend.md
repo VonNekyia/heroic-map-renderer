@@ -599,8 +599,12 @@ für alle Banner.
     liegen ihre Formen mit Meldung auf `heights`. Reicht es auch dafür
     nicht, bei 4 mehr als 1024 Regionen, etwa ohne `area` weit
     herausgezoomt über einem riesigen gefüllten Kreis, liegt die Ebene in
-    dieser Ansicht mit Meldung auf `seaLevel`, auch ihre kleinen Formen. Der Cache für `ground` hält 8 Regionen, der für
-    `heights` 64. Die Grenze gilt nur für die Webkarte;
+    dieser Ansicht mit Meldung auf `seaLevel`, auch ihre kleinen Formen. Die
+    Caches für `ground` und `heights` halten je ebenso viel, `HOEHEN_BYTES`
+    in `hoehen.ts`, und verdrängen die am längsten nicht gefragte Karte;
+    so verdrängt eine Ansicht ihre eigenen Karten nicht, nach
+    [0123](entscheidungen/0123-formen-im-iso-gemerkt-je-stufe.md). Je geladener Karte merkt die Karte ihr Höchstes und das
+    Höchste je Block von 16 Zellen. Die Grenze gilt nur für die Webkarte;
   - die Wand am Rand einer Fläche im iso, siehe [Ebenen](benutzung/ebenen.md),
     „Die Wand“; im iso füllt eine Fläche nicht, siehe „Flächen“;
   - **Flächen, Ränder, Linien, Kreise und Wand nach dem Fehler auf dem
@@ -609,10 +613,23 @@ für alle Banner.
       nach dem letzten `zoomend` oder `moveend`; bleibt der Zoom und liegt
       das Fenster im gerechneten Ausschnitt, bleibt alles, wie es ist. Die
       Höhen dafür nur aus den Regionen, die im Ausschnitt liegen können;
+    - nach [0123](entscheidungen/0123-formen-im-iso-gemerkt-je-stufe.md):
+      - **Ganze Ebene:** Liegt ihr Rahmen über alle Höhen in 9 Fenstern
+        und passen ihre Höhen ins Budget, rechnet die Karte sie ganz statt
+        im Ausschnitt (`ganzerRahmen`). Auf derselben Stufe rechnet dann
+        kein Verschieben neu.
+      - **Gemerkt:** Die letzte Rechnung bleibt je Ebene und Stufe, zusammen
+        höchstens 16 MB (`GANZ`), und gilt wieder, solange das Fenster in
+        ihrem Rahmen liegt.
+      - **In Stücken:** `zeichneAnsicht` rechnet je 8 ms (`STUECK_MS`) und
+        bricht ab, wenn eine neuere Ansicht gilt.
+      - Gemessen in [Regionen im iso schneller](messungen/2026-10-24-regionen-im-iso-schneller.md);
     - eine Form, die bei keiner Höhe im Ausschnitt liegen kann, gibt keinen
       Punkt; eine Strecke ausserhalb nur ihren Anfang;
     - im Ausschnitt an den Zellen abgetastet, geglättet und auf Verdeckung
-      geprüft, dann auf dem Schirm vereinfacht, bis kein weggelassener Punkt
+      geprüft; `verdeckt` überspringt mit `Gelaende.hoch` die Schritte über
+      Blöcken, die nicht bis zum Strahl reichen, mit demselben Ergebnis;
+      dann auf dem Schirm vereinfacht, bis kein weggelassener Punkt
       mehr als ε = 0,5 px vom Zug liegt; jeder Wechsel von verdeckt oder
       gestrichelt bleibt;
     - ein Kreis hat so viele Seiten, dass die Pfeilhöhe jeder Seite auf dem

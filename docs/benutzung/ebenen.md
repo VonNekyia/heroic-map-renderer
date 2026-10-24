@@ -130,9 +130,10 @@ genug ist, etwa Regionen nur, bis die Karte weit draussen ist.
   im iso.
 - **Genau auf der Grenze** ist die Ebene zu sehen: sichtbar, solange Blöcke
   je Pixel ≤ `maxBlocksPerPixel`.
-- **Nicht geladen:** Liegt eine angehakte Ebene jenseits der Grenze, holt
-  eine Ansicht ihre Datei nicht, erst wenn die Grenze erreicht ist. Darum
-  steht das Feld in der Liste und nicht im Kopf der Datei.
+- **Nicht geladen, auf der Webkarte:** Liegt eine angehakte Ebene jenseits
+  der Grenze, holt die Webkarte ihre Datei nicht, erst wenn die Grenze
+  erreicht ist. Darum steht das Feld in der Liste und nicht im Kopf der
+  Datei. Der Mod lädt nicht auf Anfrage, siehe unten.
 - **Gilt für jede Ebene,** auch für Aktionsebenen.
 - **Fehlt das Feld** oder ist es 0, gibt es keine Grenze, wie in einer
   älteren Liste. Ansichten, die das Feld nicht kennen, zeigen die Ebene
@@ -144,6 +145,19 @@ genug ist, etwa Regionen nur, bis die Karte weit draussen ist.
 - **Webkarte:** wie sie aus- und einhängt, was mit Tafel und Fokus
   geschieht, steht in
   [0131](../entscheidungen/0131-zoomgrenze-je-ebene.md).
+- **Im Mod,** ab 0.2.70, Angaben von Mod Code Map, vom Reviewer
+  freigegeben:
+  - **Einheit:** 1 Einheit des GUI sind 1,6 px der Webkarte, wie bei den
+    Namen in
+    [mod 0035](https://github.com/VonNekyia/heroic-map-renderer-mod/blob/main/docs/entscheidungen/0035-namen-weit-draussen-kleiner.md).
+    Blöcke je Pixel = 0,625 / Länge eines Blocks in Einheiten des GUI;
+    genau auf der Grenze sichtbar wie oben.
+  - **Geladen wird trotzdem:** Der Mod empfängt die Teile, die das Plugin
+    schickt, auch jenseits der Grenze, und zeichnet sie nur nicht.
+  - **Angeheftete Objekte** auf der Minimap bleiben auch jenseits der
+    Grenze, so entschieden vom Reviewer; der User kann es ändern.
+- **Ändert sich die Grenze,** ändert sich die `version` der Ebene. Dann
+  kommen Liste und Datei neu, im Mod wie auf der Webkarte.
 
 ## Datei einer Ebene
 

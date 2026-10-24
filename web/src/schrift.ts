@@ -7,7 +7,7 @@
 import L from 'leaflet';
 import type { Punkt } from './gelaende';
 import { farbe, istObjekt, istText, istZahl, punkte } from './pruefen';
-import schriftDatei from './ebenen/schrift/IMFeENsc28P.ttf?url&no-inline';
+import schriftDatei from './ebenen/schrift/IMFeENsc28P.woff2?url&no-inline';
 
 /** Eine Kartenschrift, wie die Ansicht sie braucht. */
 export interface Schriftzug {

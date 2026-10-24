@@ -564,11 +564,19 @@ test('ein Banner bis 32 × 64 steht Pixel auf Pixel, der Fuss bei ⌊Breite / 2�
   expect(anfragen.filter((a) => a !== 'beispiel/staedte.json').sort()).toEqual(['beispiel/images/breit.png', 'beispiel/images/gross.png', 'beispiel/images/hoch.png', 'beispiel/images/schmal.png']);
 });
 
-test('eine Nadel mit Namen lädt die Kartenschrift, auch ohne Banner und Kartenschrift in der Ebene', async ({ page }) => {
+test('eine Nadel mit Namen lädt die Kartenschrift, auch ohne Banner und Kartenschrift in der Ebene; nach 0130 als WOFF2', async ({ page }) => {
+  const schriften: { url: string; typ: string | undefined }[] = [];
+  page.on('response', (r) => {
+    if (/\.(woff2|ttf|otf|woff)$/.test(new URL(r.url()).pathname)) schriften.push({ url: new URL(r.url()).pathname, typ: r.headers()['content-type'] });
+  });
   await welt(page, staedte([HAFEN]));
   await page.goto(DEMO);
   await expect(page.locator('.nadel-name')).toHaveText('Hafenstadt');
   await expect.poll(() => page.evaluate(() => [...document.fonts].some((f) => f.family === 'Kartenschrift' && f.status === 'loaded'))).toBe(true);
+  // Genau eine Schrift, die WOFF2 aus dem Build, mit ihrem Typ.
+  expect(schriften).toHaveLength(1);
+  expect(schriften[0]!.url).toMatch(/\/IMFeENsc28P-[^/]+\.woff2$/);
+  expect(schriften[0]!.typ).toBe('font/woff2');
 });
 
 test('Banner teilen sich ein Bild: die Karte holt es einmal', async ({ page }) => {

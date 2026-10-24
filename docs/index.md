@@ -74,6 +74,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [libwebp mit Patch](entwicklung/libwebp-mit-patch.md): warum `libwebp-sys` als Kopie mit einem Patch an libwebp für `--compact` im Repository liegt, was der Patch ändert und was bei einem neuen `libwebp-sys` zu tun ist.
 - [Eingabedaten](entwicklung/eingabedaten.md): was nicht im Repository liegt und was für Tests mitkommt.
 - [Erzeugte Tabellen](entwicklung/tabellen.md): die Tabellen aus dem Spiel unter `renderer/src/assets/`, was darin steht und wie man sie neu erzeugt.
+- [Kartenschrift als WOFF2](entwicklung/kartenschrift.md): Herkunft der TTF aus Google Fonts, Befehl und Versionen für die WOFF2, die Prüfung, dass nur komprimiert ist, und wie man die TTF wieder bekommt.
 
 ## Entscheidungen
 
@@ -205,6 +206,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [0127](entscheidungen/0127-grenze-nach-unten.md): Ein Update auf der Karte ohne Cinematic und Relief zeichnet einen geänderten Chunk erst ab `min(16·K_alt, E_neu) − 16`, wenn seine Sections unter K denselben Abdruck H haben; E der tiefste erste Block, der das Licht ganz aufhält; ergänzt 0062.
 - [0128](entscheidungen/0128-marker-nur-im-ausschnitt.md): Nadeln und Banner nur im Fenster mit einem Rand von einem Viertel je Seite im DOM, Icons erst beim ersten Sichtbarwerden in Stücken gebaut; offene Tafel und Fokus halten einen Marker; Tab erreicht nur Orte im Rahmen.
 - [0129](entscheidungen/0129-banner-als-bild.md): Ein Banner als `<img>` mit der Adresse seines Sprites, `pixelated`, alle mit demselben Bild teilen es; Nadeln und Köpfe bleiben Leinwand, ohne Änderung an der CSP; Pixel auf Pixel auf dem Schirm geprüft.
+- [0130](entscheidungen/0130-kartenschrift-als-woff2.md): Die Kartenschrift als WOFF2 statt TTF, −53 %; der reservierte Name bleibt, weil nach der FAQ zur OFL nur komprimiert ist und Metadaten fehlen; ergänzt 0096.
 - [0114](entscheidungen/0114-koepfe-der-mitspieler.md): Mitspieler als ihr Gesicht, 8 × 8 mit Hutschicht, öffentlich unter `koepfe/<sha256>.png` nach dem Hash des Bildes, `immutable`, `kopf` in `sicht.json`; kein Steve und kein Alex, Aufräumen über die Zeit der Datei; die Karte prüft 64 hex, 16 KiB, 8 × 8.
 
 ## Versuche

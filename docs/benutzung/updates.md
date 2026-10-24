@@ -68,6 +68,20 @@ Ende, nach `map.json`; getauscht wie jede Datei, siehe
 [0018](../entscheidungen/0018-dateien-tauschen-statt-ueberschreiben.md).
 Ein Ausschnitt schreibt keinen.
 
+- **Ohne Änderung:** Findet ein Update dieselben Stempel und Inhalte wie im
+  alten Stand, schreibt es ihn nicht neu: `Stand:      unverändert ->
+  …/stand.bin`. Der alte gilt weiter, mit Bytes und Zeit. Was ein
+  abgebrochener Lauf hinterliess, `stand-neu.bin`, `stand-neu-liegen.bin`
+  und `gebiet-offen.bin`, räumt es trotzdem weg (`entferne_angefangene` in
+  [`renderer/src/cli.rs`](../../renderer/src/cli.rs)). So schreibt das Update
+  den Stand nicht noch einmal auf die Platte, an der Testwelt 7,5 MB und
+  0,08 s je Update.
+- **Neue Stempel ohne neuen Inhalt** sind keine Änderung zum Zeichnen,
+  aber eine am Stand: Den schreibt das Update dann, sonst läse das nächste
+  dieselben Chunks wieder.
+- **Geprüft** in `update_ohne_aenderung_schreibt_den_stand_nicht` in
+  `renderer/tests/cli.rs`.
+
 Kacheln ohne neuen Stand zeichnen ein Ausschnitt, ein Lauf, der abbricht,
 und einer mit `--resume`, der keinen Stand schreibt. Damit das nächste
 Update keine davon übersieht, hält jeder Lauf vor der ersten Kachel fest,

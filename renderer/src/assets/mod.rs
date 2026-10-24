@@ -723,6 +723,29 @@ mod tests {
         assert!(!mit_wurzel.bodenpflanze(&state("einfarbig")).unwrap());
     }
 
+    /// Die Vorlagen der Bodenpflanzen samt den Stielen von Kürbis und Melone,
+    /// nur im Namensraum des Spiels.
+    #[test]
+    fn vorlagen_der_bodenpflanzen() {
+        for id in [
+            "minecraft:block/cross",
+            "block/crop",
+            "minecraft:block/stem_growth0",
+            "minecraft:block/stem_growth7",
+            "minecraft:block/stem_fruit",
+            "minecraft:block/flowerbed_2",
+        ] {
+            assert!(vorlage_der_bodenpflanzen(id), "{id}");
+        }
+        for id in [
+            "minecraft:block/cube_all",
+            "paket:block/cross",
+            "minecraft:block/stem",
+        ] {
+            assert!(!vorlage_der_bodenpflanzen(id), "{id}");
+        }
+    }
+
     /// Wie `InputStreamReader` und `JsonReader`: kaputtes UTF-8 wird zu
     /// U+FFFD, genau ein Byte-Order-Mark vorn fällt weg.
     #[test]

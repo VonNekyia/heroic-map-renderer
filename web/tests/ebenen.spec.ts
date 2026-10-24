@@ -493,6 +493,37 @@ test('mit design zeigt die Karte das Sprite ihres Satzes, mit capital das aus kr
   ]);
 });
 
+for (const designs of [true, false]) {
+  test(`mit designs: ${designs} in layers.json geht satz.json ${designs ? 'schon mit der Datei der Ebene los' : 'erst nach ihr los'}`, async ({ page }) => {
+    const stadt = { id: 'stadt', type: 'banner', at: [30.5, -20.5], design: 'nordreich', name: 'Hafenstadt' };
+    const anfragen = await welt(page, {
+      ...spriteWelt([stadt], { path: '2x1-se', camera: '2:1' }, '2x1-se', { 'nordreich.png': png(23, 51) }),
+      liste: () => [{ ...STAEDTE, ...(designs ? { designs: true } : {}) }],
+    });
+    // Die Datei der Ebene hängt, bis der Test sie freigibt; später angemeldet, geht vor.
+    let frei = () => {};
+    const gehalten = new Promise<void>((r) => (frei = r));
+    let angefragt = false;
+    await page.route('**/tiles-demo/layers/beispiel/staedte.json', async (route) => {
+      angefragt = true;
+      await gehalten;
+      await route.fallback();
+    });
+    const satz = () => anfragen.some((a) => a.startsWith('beispiel/banner/staedte/2x1-se/satz.json'));
+    await page.goto(`${DEMO}&tree=2x1-se&at=35,0,-15`);
+    await expect.poll(() => angefragt).toBe(true);
+    if (designs) await expect.poll(satz).toBe(true);
+    else {
+      await page.waitForTimeout(500);
+      expect(satz()).toBe(false);
+    }
+    frei();
+    // Danach wie immer: das Sprite des Satzes, satz.json genau einmal.
+    await expect(page.locator('.nadel-icon[title="Hafenstadt"] img')).toHaveJSProperty('naturalWidth', 23);
+    expect(anfragen.filter((a) => a.startsWith('beispiel/banner/staedte/2x1-se/satz.json'))).toHaveLength(1);
+  });
+}
+
 test('ein Baum von oben nimmt den Satz oben; fehlt das Sprite, zeigt die Karte image, ohne image übergeht sie das Banner mit Meldung', async ({ page }) => {
   const meldungen: string[] = [];
   page.on('console', (m) => meldungen.push(m.text()));

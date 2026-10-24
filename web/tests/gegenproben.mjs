@@ -175,4 +175,7 @@ export default [
   // Banner als Bild, 0129.
   { name: 'banner-als-leinwand', datei: 'src/ebenen.ts', alt: 'if (bild instanceof HTMLImageElement) {', neu: 'if (bild instanceof HTMLImageElement && bild.width < 0) {', spec: 'tests/ebenen.spec.ts', titel: 'Banner teilen sich ein Bild' },
   { name: 'bild-geglaettet', datei: 'src/style.css', alt: '.nadel canvas,\n.nadel img {', neu: '.nadel canvas {', spec: 'tests/ebenen.spec.ts', titel: 'nach 0129 ist ein Pixel des Banners' },
+  // satz.json mit der Datei, A3 Punkt 2.
+  { name: 'designs-ungelesen', datei: 'src/ebenen.ts', alt: '    designs: wert.designs === true,', neu: '    designs: wert.designs === 1,', spec: 'tests/ebenen.spec.ts', titel: 'mit designs: true in layers.json' },
+  { name: 'satz-vorab-ungenutzt', datei: 'src/ebenen.ts', alt: 'satzDaten(await (satzVorab ?? json(satzAdresse, 4096)))', neu: 'satzDaten(await (satzVorab && json(satzAdresse, 4096)))', spec: 'tests/ebenen.spec.ts', titel: 'mit designs: true in layers.json' },
 ];

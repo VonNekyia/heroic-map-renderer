@@ -28,6 +28,8 @@ interface Eintrag {
   version: string;
   /** Eine Aktionsebene: ihre Datei kommt je Spieler aus `api/`, nur angemeldet. */
   player: boolean;
+  /** Der Kopf der Datei nennt Entwürfe: `satz.json` geht mit der Datei los. Siehe docs/benutzung/ebenen.md, „Liste der Ebenen“. */
+  designs: boolean;
 }
 
 type Groesse = 'large' | 'medium' | 'small';
@@ -252,6 +254,7 @@ function eintrag(wert: unknown): Eintrag | undefined {
     order: Number.isInteger(wert.order) ? (wert.order as number) : 0,
     version: wert.version,
     player: wert.player === true,
+    designs: wert.designs === true,
   };
 }
 
@@ -1538,6 +1541,10 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
       stand = JSON.stringify(datei) ?? '';
       if (!erzwingen && geladen.get(e.id)?.stand === stand) return;
     }
+    // Mit `designs` geht der Satz der Sprites gleich mit der Datei los statt nach ihr; ohne Entwurf in der Datei bleibt er ungenutzt.
+    const satzOrdner = `${ordner}/banner/${name}/${umgebung.satz}`;
+    const satzAdresse = `${satzOrdner}/satz.json?v=${encodeURIComponent(e.version)}`;
+    const satzVorab = umgebung.satz && e.designs ? json(satzAdresse, 4096).catch(() => undefined) : undefined;
     const nummer = (auftrag.get(e.id) ?? 0) + 1;
     auftrag.set(e.id, nummer);
     // Gilt, solange niemand umgeschaltet hat und die Ebene noch in der Liste steht und an ist.
@@ -1579,8 +1586,7 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     // Der Satz dieses Baums, einmal je Laden und nur, wenn ein Banner einen Entwurf nennt.
     let satz: Satz | undefined;
     if (umgebung.satz && orte.some((o) => 'design' in o && o.design)) {
-      const satzOrdner = `${ordner}/banner/${name}/${umgebung.satz}`;
-      const daten = satzDaten(await json(`${satzOrdner}/satz.json?v=${encodeURIComponent(e.version)}`, 4096));
+      const daten = satzDaten(await (satzVorab ?? json(satzAdresse, 4096)));
       if (daten) satz = { ordner: satzOrdner, ...daten };
       else console.warn(`${satzOrdner}/satz.json fehlt oder taugt nicht, Banner mit image`);
     }

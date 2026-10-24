@@ -5822,6 +5822,47 @@ fn update_gleicht_einem_vollen_lauf() {
     }
 }
 
+/// Ein Update ohne Änderung schreibt `stand.bin` nicht neu und öffnet keine
+/// Grafikkarte: Der Stand behält Bytes und Zeit, und das Log nennt keine
+/// Karte. Was ein abgebrochener Lauf hinterliess, räumt es trotzdem weg.
+/// Ein neuer Stempel ohne neuen Inhalt ist keine Änderung zum Zeichnen,
+/// aber eine am Stand: Den schreibt das Update dann.
+/// Siehe docs/benutzung/updates.md, „Der Stand“.
+#[test]
+fn update_ohne_aenderung_schreibt_den_stand_nicht() {
+    let welt = tempdir();
+    baue_gelaende(welt.path());
+    let baum = neuer_baum("2x1-se");
+    let extra = ["--scale", "16"];
+    let update = ["--scale", "16", "--update"];
+    let log = String::from_utf8_lossy(&gelungen(&export(welt.path(), baum.path(), &extra)).stdout)
+        .into_owned();
+    assert_eq!(log.matches("GPU:").count(), 1, "{log}");
+    let stand = baum.path().join("stand.bin");
+    let damals = SystemTime::now() - Duration::from_secs(3600);
+    setze_zeit(&stand, damals);
+    let bytes = std::fs::read(&stand).unwrap();
+    // Ein abgebrochenes Update liess seinen Stand liegen.
+    std::fs::copy(&stand, baum.path().join("stand-neu.bin")).unwrap();
+
+    let log = String::from_utf8_lossy(&gelungen(&export(welt.path(), baum.path(), &update)).stdout)
+        .into_owned();
+    assert!(log.contains("Update:     nichts zu zeichnen"), "{log}");
+    assert!(log.contains("Stand:      unverändert"), "{log}");
+    assert!(!log.contains("GPU:"), "{log}");
+    assert_eq!(zeit_von(&stand), damals);
+    assert_eq!(std::fs::read(&stand).unwrap(), bytes);
+    assert!(!baum.path().join("stand-neu.bin").exists());
+
+    common::setze_stempel(welt.path(), 0, 0, 7);
+    let log = String::from_utf8_lossy(&gelungen(&export(welt.path(), baum.path(), &update)).stdout)
+        .into_owned();
+    assert!(log.contains("Update:     nichts zu zeichnen"), "{log}");
+    assert!(log.contains("Stand:      4 Chunks ->"), "{log}");
+    assert_ne!(std::fs::read(&stand).unwrap(), bytes);
+    assert_ne!(zeit_von(&stand), damals);
+}
+
 /// Die Welt nach dem Gelände mit einem Leuchtstein mehr im Chunk (0, 0).
 fn mit_einem_block(x: i32, y: i32, z: i32) -> &'static str {
     match (x, y, z) {

@@ -97,9 +97,24 @@ Im Log steht je Stufe, wie viele Kacheln die Karte gezeichnet hat:
 Karte mitten im Lauf, etwa nach einem Treiber-Reset, oder antwortet sie
 eine Minute lang nicht, zeichnet die CPU den Rest, mit `auto` wie mit
 `on`, und das Log sagt einmal, warum. Das gilt auch für das Anlegen des
-Zeichners und das Öffnen der Karte. Die Karte öffnet der Lauf vor dem
-Vorlauf, damit `--gpu on` ohne Karte sofort abbricht und nicht erst nach
-Minuten.
+Zeichners und das Öffnen der Karte. Wann der Lauf die Karte öffnet, steht
+unten in „Wann die Karte aufgeht“.
+
+## Wann die Karte aufgeht
+
+`Gpuwahl` in [`renderer/src/cli.rs`](../../renderer/src/cli.rs):
+
+- **`--gpu on`:** vor dem Vorlauf. Ohne Karte bricht der Lauf sofort ab,
+  nicht erst nach Minuten.
+- **`--gpu auto`:** erst, wenn der Lauf etwas zu zeichnen hat, direkt vor
+  der Basis. Ein Update, das nichts zu zeichnen hat, öffnet keine Karte und
+  schreibt keine Zeile `GPU:`. An der Testwelt spart das unter Windows je
+  Update 0,08 s, beim ersten Lauf 0,22 s.
+- **`--gpu off`** und Looks, die immer die CPU zeichnen, schreiben ihre
+  Zeile `GPU:` ebenso erst dann.
+
+Geprüft in `update_ohne_aenderung_schreibt_den_stand_nicht` in
+`renderer/tests/cli.rs`.
 
 ## Was es bringt und kostet
 

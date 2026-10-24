@@ -675,6 +675,27 @@ struct Karte {
     aus: AtomicBool,
 }
 
+/// Die Karte eines Laufs mit `--tiles`, erst geöffnet, wenn er sie braucht:
+/// Ein Update, das nichts zu zeichnen hat, öffnet keine.
+/// Siehe docs/benutzung/grafikkarte.md, „Wann die Karte aufgeht“.
+struct Gpuwahl {
+    mode: GpuMode,
+    nur_cpu: Option<&'static str>,
+    software: bool,
+    karte: std::cell::OnceCell<Option<Karte>>,
+}
+
+impl Gpuwahl {
+    /// Die Karte, beim ersten Mal geöffnet; `None`, wenn die CPU zeichnet.
+    fn karte(&self) -> Result<Option<&Karte>> {
+        if self.karte.get().is_none() {
+            let karte = oeffne_gpu(self.mode, self.nur_cpu, self.software)?;
+            let _ = self.karte.set(karte);
+        }
+        Ok(self.karte.get().and_then(Option::as_ref))
+    }
+}
+
 pub fn run() -> Result<()> {
     std::panic::set_hook(still_beim_fangen(std::panic::take_hook()));
     // Ohne Argumente an einer Konsole unter Windows, etwa per Doppelklick:
@@ -1069,7 +1090,19 @@ pub fn run() -> Result<()> {
                 (false, true) => Some("die einfarbige Ansicht"),
                 (false, false) => None,
             };
-            let export = oeffne_gpu(args.gpu, nur_cpu, args.threads.is_none()).and_then(|karte| {
+            let gpu = Gpuwahl {
+                mode: args.gpu,
+                nur_cpu,
+                software: args.threads.is_none(),
+                karte: std::cell::OnceCell::new(),
+            };
+            // Mit --gpu on gleich: Ohne Karte scheitert der Lauf, bevor er die
+            // Welt liest.
+            let sofort = match args.gpu {
+                GpuMode::On => gpu.karte().map(|_| ()),
+                GpuMode::Auto | GpuMode::Off => Ok(()),
+            };
+            let export = sofort.and_then(|()| {
                 let bereich = match args.size {
                     _ if args.update => Bereich::Update,
                     Some(size) => Bereich::Ausschnitt(window(projection, center, size)),
@@ -1080,7 +1113,7 @@ pub fn run() -> Result<()> {
                     .chain(&daten_wurzeln)
                     .cloned()
                     .collect();
-                let export = write_tiles(
+                write_tiles(
                     world,
                     assets.as_mut().expect("oben geprüft"),
                     projection,
@@ -1090,24 +1123,22 @@ pub fn run() -> Result<()> {
                     args.native_levels,
                     args.prune,
                     args.resume,
-                    karte.as_ref(),
+                    &gpu,
                     args.biome_blend,
                     args.compact,
                     args.cinematic.then_some(LOOK),
                     args.relief,
                     args.manifest,
-                );
-                // Eine Karte, die versagt hat, hängt womöglich noch: wgpu
-                // wartete beim Abbau, bis ihre Queue leer ist, und der Lauf
-                // endete nie. Sie aufzuräumen bleibt dem System.
-                if karte
-                    .as_ref()
-                    .is_some_and(|karte| karte.aus.load(Ordering::Relaxed))
-                {
-                    std::mem::forget(karte);
-                }
-                export
+                )
             });
+            // Eine Karte, die versagt hat, hängt womöglich noch: wgpu wartete
+            // beim Abbau, bis ihre Queue leer ist, und der Lauf endete nie.
+            // Sie aufzuräumen bleibt dem System.
+            if let Some(Some(karte)) = gpu.karte.into_inner()
+                && karte.aus.load(Ordering::Relaxed)
+            {
+                std::mem::forget(karte);
+            }
             // Auch nach einem Fehler: Der Befehl vom Anfang steht nach
             // Stunden weit oben.
             if ausnahme {
@@ -1844,7 +1875,7 @@ fn write_tiles(
     native: Option<u32>,
     prune: bool,
     resume: bool,
-    karte: Option<&Karte>,
+    gpu: &Gpuwahl,
     blend: Option<u8>,
     kompakt: bool,
     look: Option<Look>,
@@ -1941,6 +1972,8 @@ fn write_tiles(
         Angefangen::Passend(stand, seit) => Some((stand, seit)),
         Angefangen::Keiner | Angefangen::Fremd => None,
     };
+    // Ob ein Update dieselben Stempel und Inhalte fand wie im alten Stand.
+    let mut unveraendert = false;
     let (gebiet, stand, aenderungen, offen) = match bereich {
         Bereich::Welt => (None, None, None, None),
         Bereich::Ausschnitt(rect) => (Some(Gebiet::rechteck(rect, stufen)), None, None, None),
@@ -1950,6 +1983,7 @@ fn write_tiles(
             let (aenderungen, neu) = alt.vergleiche(&stempel, Y_RANGE.1, |(rx, rz), lagen| {
                 lies_inhalte(world, rx, rz, lagen)
             })?;
+            unveraendert = !resume && neu.regionen == alt.regionen;
             let gebiet = gebiet_der_aenderungen(
                 projection,
                 stufen,
@@ -2016,12 +2050,21 @@ fn write_tiles(
             }
             0
         };
-        if let Some(stand) = stand {
-            schreibe_stand(dir, world, stand)?;
+        match stand {
+            // Der alte Stand gilt weiter; ihn neu zu schreiben kostete nur
+            // Zeit und Platte.
+            // Siehe docs/benutzung/updates.md, „Der Stand“.
+            Some(_) if unveraendert => {
+                entferne_angefangene(dir)?;
+                println!("Stand:      unverändert -> {}", dir.join(STAND).display());
+            }
+            Some(stand) => schreibe_stand(dir, world, stand)?,
+            None => {}
         }
         melde_json(serde_json::json!({"phase": "done", "tiles": neu, "s": sekunden(beginn)}));
         return Ok(());
     }
+    let karte = gpu.karte()?;
 
     if umstellen {
         melde_umstellen(dir);
@@ -2811,6 +2854,14 @@ fn lies_inhalte(world: &World, rx: i32, rz: i32, lagen: &[[i32; 2]]) -> Result<V
 /// Schreibt den Stand am Ende eines Laufs: Was der Server seit dem Beginn
 /// schrieb, ist darin unbekannt. Der angefangene Stand fällt weg, ebenso das
 /// offene Gebiet: Dieser Lauf hat es gezeichnet.
+/// Was ein abgebrochener Lauf für den nächsten hinterlässt: Nach einem
+/// fertigen Lauf gilt `stand.bin`.
+fn entferne_angefangene(dir: &Path) -> Result<()> {
+    entferne(&dir.join(STAND_NEU))?;
+    entferne(&dir.join(LIEGEN_NEU))?;
+    entferne(&dir.join(OFFEN))
+}
+
 fn schreibe_stand(dir: &Path, world: &World, stand: Stand) -> Result<()> {
     let stand = stand.am_ende(&world.stempel()?);
     let eintraege = stand.regionen.values().flatten();
@@ -2822,9 +2873,7 @@ fn schreibe_stand(dir: &Path, world: &World, stand: Stand) -> Result<()> {
     });
     let pfad = dir.join(STAND);
     lege_stand_ab(&pfad, &stand)?;
-    entferne(&dir.join(STAND_NEU))?;
-    entferne(&dir.join(LIEGEN_NEU))?;
-    entferne(&dir.join(OFFEN))?;
+    entferne_angefangene(dir)?;
     let waehrend = match unbekannt {
         0 => String::new(),
         n => format!(", {n} während des Laufs geschrieben"),

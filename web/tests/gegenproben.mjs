@@ -185,7 +185,7 @@ export default [
   { name: 'grenze-in-stufen', datei: 'src/ebenen.ts', alt: '1 / (blockBreite(blick) * 2 ** (map.getZoom() - maxZoom))', neu: '1 / (4 * 2 ** (map.getZoom() - maxZoom))', spec: 'tests/ebenen.spec.ts', titel: 'nach 0131 gilt die Zoomgrenze in Blöcken' },
   { name: 'hinein-neu-geladen', datei: 'src/ebenen.ts', alt: 'if (drin && (!g || g.version !== e.version)) void ladeEbene', neu: 'if (drin) void ladeEbene', spec: 'tests/ebenen.spec.ts', titel: 'nach 0131 holt die Karte' },
   // Namen ganz aus dem Layout, V4 aus dem Stresstest.
-  { name: 'namen-aus-sofort', datei: 'src/ebenen.ts', alt: "setTimeout(() => el.classList.add('namen-aus'), namenDauer)", neu: "setTimeout(() => el.classList.add('namen-aus'), 0)", spec: 'tests/ebenen.spec.ts', titel: 'nach dem Ausblenden aus 0119 sind die Namen' },
+  { name: 'namen-aus-sofort', datei: 'src/ebenen.ts', alt: "setTimeout(() => el.classList.add('namen-aus'), namenDauer())", neu: "setTimeout(() => el.classList.add('namen-aus'), 0 * namenDauer())", spec: 'tests/ebenen.spec.ts', titel: 'nach dem Ausblenden aus 0119 sind die Namen' },
   { name: 'namen-aus-zeitgeber-bleibt', datei: 'src/ebenen.ts', alt: '    clearTimeout(namenAus.get(el));\n', neu: '', spec: 'tests/ebenen.spec.ts', titel: 'nach dem Ausblenden aus 0119 sind die Namen' },
   { name: 'namen-springen-ein', datei: 'src/ebenen.ts', alt: '      void el.offsetWidth;\n', neu: '', spec: 'tests/ebenen.spec.ts', titel: 'nach dem Ausblenden aus 0119 sind die Namen' },
 ];

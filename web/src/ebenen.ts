@@ -1057,8 +1057,12 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
 
   /** Wie gross und wie deckend die Namen jetzt sind; vor dem ersten Zoom noch ohne Wert. */
   let namen: { teil: number; deck: number } | undefined;
-  /** Wie lange Namen ein- und ausblenden, in ms, aus `--namen-dauer` in style.css; danach setzt `namenAn` `namen-aus`. */
-  const namenDauer = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--namen-dauer')) || 0;
+  /**
+   * Wie lange Namen ein- und ausblenden, in ms, aus `--namen-dauer` in
+   * style.css; danach setzt `namenAn` `namen-aus`. Je Aufruf gelesen: Beim
+   * Start gilt das Stylesheet womöglich noch nicht.
+   */
+  const namenDauer = (): number => Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--namen-dauer')) || 0;
   /** Je Pane der Zeitgeber bis `namen-aus`. */
   const namenAus = new WeakMap<HTMLElement, ReturnType<typeof setTimeout>>();
   /**
@@ -1079,7 +1083,7 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     // Ein unsichtbarer Name ist kein Ziel für den Zeiger.
     el.classList.toggle('namen-weg', namen.deck === 0);
     // Ausgeblendet erst nach der Dauer ganz aus dem Layout; fällt `namen-weg` vorher, bleibt es aus.
-    if (namen.deck === 0) namenAus.set(el, setTimeout(() => el.classList.add('namen-aus'), namenDauer));
+    if (namen.deck === 0) namenAus.set(el, setTimeout(() => el.classList.add('namen-aus'), namenDauer()));
   };
   /**
    * Wie gross und wie deckend die Namen auf Stufe `zoom` sind, an den Panes

@@ -356,8 +356,11 @@ test('nach 0119 bleiben Nadeln, Köpfe und Banner auf jeder Stufe gleich gross; 
     // Erst nach dem Übergang von CSS messen.
     await page.waitForTimeout(300);
     const stil = await namen.evaluateAll((l) => l.map((e) => [getComputedStyle(e).transform, Number(getComputedStyle(e).opacity), getComputedStyle(e).visibility]));
-    for (const [transform, opacity, sichtbar] of stil) {
-      expect(transform, `Zoom ${zoom}`).toMatch(new RegExp(`^matrix\\(${teil}, 0, 0, ${teil}, `));
+    const anzeige = await namen.evaluateAll((l) => l.map((e) => getComputedStyle(e).display));
+    for (const [i, [transform, opacity, sichtbar]] of stil.entries()) {
+      // Ganz ausgeblendet sind die Namen aus dem Layout und haben kein transform mehr; ihre Grösse steht dann nur am Pane.
+      if (deck > 0) expect(transform, `Zoom ${zoom}`).toMatch(new RegExp(`^matrix\\(${teil}, 0, 0, ${teil}, `));
+      else expect(anzeige[i], `Zoom ${zoom}`).toBe('none');
       expect(opacity, `Zoom ${zoom}`).toBe(deck);
       expect(sichtbar, `Zoom ${zoom}`).toBe(deck > 0 ? 'visible' : 'hidden');
     }

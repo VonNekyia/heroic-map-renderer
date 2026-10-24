@@ -490,7 +490,8 @@ Ganz ausgeblendete Namen nimmt die Karte aus dem Layout: Eine Dauer nach
 `namen-weg` setzt `namenAn` am Pane `namen-aus`, und die Namen werden
 `display: none`. Die Dauer steht nur in `--namen-dauer` in
 [`style.css`](../web/src/style.css), auch für die Transition; `ebenen.ts`
-liest sie einmal. Fällt `namen-weg` vorher wieder, verwirft `namenAn` den
+liest sie bei jedem Wechsel, denn beim Start gilt das Stylesheet womöglich
+noch nicht. Fällt `namen-weg` vorher wieder, verwirft `namenAn` den
 Zeitgeber; geht es hinein, kommen die Namen erst ins Layout und blenden dann
 ein. Weit draussen zieht die Karte so mit 41 % weniger langen Aufgaben, das
 Rad hinein mit 61 % weniger; über die Schwelle hinaus kostet der Pinch 15 %

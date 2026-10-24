@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Result, bail, ensure};
 
+use super::Relief;
 use crate::world::chunk::Fnv;
 use crate::world::{Abdruck, Chunk, REGION, Stempel, Stempelkarte};
 
@@ -454,6 +455,11 @@ pub const ZEICHENSTAND_MAP: u32 = 4;
 pub const ZEICHENSTAND_CINEMATIC: u32 = 3;
 /// Ebenso für `look` `flat`, die einfarbige Ansicht.
 pub const ZEICHENSTAND_FLAT: u32 = 5;
+/// Wie der Renderer das Relief von oben zeichnet, `--relief`: Er geht nur in
+/// den Abdruck von Bäumen mit Relief ein, und eine Änderung am Relief hebt
+/// nur ihn.
+/// Siehe docs/entscheidungen/0122-relief-von-oben.md.
+pub const ZEICHENSTAND_RELIEF: u32 = 1;
 
 /// Die Looks, wie `look` in `map.json` sie nennt, mit ihrem Zeichenstand.
 pub const LOOKS: [(&str, u32); 3] = [
@@ -475,7 +481,7 @@ pub fn zeichenstand(look: &str) -> u32 {
 /// Zeichnung es zeigt; `jedes_goldbild_hat_einen_look` fällt bei einem
 /// Goldbild, das hier fehlt.
 #[cfg(test)]
-const GOLDBILDER_JE_LOOK: [(&str, &str); 13] = [
+const GOLDBILDER_JE_LOOK: [(&str, &str); 15] = [
     ("metatile", "map"),
     ("metatile-4x3", "map"),
     ("metatile-cinematic", "cinematic"),
@@ -484,6 +490,8 @@ const GOLDBILDER_JE_LOOK: [(&str, &str); 13] = [
     ("metatile-north-45", "map"),
     ("metatile-nw", "map"),
     ("metatile-pflanzen-top-north", "map"),
+    ("metatile-relief-shadows", "relief"),
+    ("metatile-relief-slope", "relief"),
     ("metatile-top", "map"),
     ("metatile-top-north", "map"),
     ("metatile-wurzeln", "map"),
@@ -491,13 +499,14 @@ const GOLDBILDER_JE_LOOK: [(&str, &str); 13] = [
     ("pyramide-top-north-2px", "map"),
 ];
 
-/// FNV-1a über die Goldbilder je Look, siehe
+/// FNV-1a über die Goldbilder je Look und die des Reliefs, siehe
 /// `zeichenstand_folgt_den_goldbildern`.
 #[cfg(test)]
-const GOLDBILDER: [(&str, u64); 3] = [
+const GOLDBILDER: [(&str, u64); 4] = [
     ("map", 0x44f0_fa44_6f7d_7b9b),
     ("cinematic", 0x8338_0150_d842_fd85),
     ("flat", 0x9da5_830a_c6ae_0047),
+    ("relief", 0x5b95_9d48_ea25_f298),
 ];
 
 /// Eine eingebaute Tabelle aus `src/assets`: ihr Name und ihr Inhalt aus
@@ -543,10 +552,20 @@ pub const ALTE_BUILDS: &[u64] = &[
 /// den Zeichenstand des Looks und die eingebauten Tabellen, je Tabelle ihr
 /// Name und ihre Zeilen ohne `\r`. Ein neuer Build, der diesen Look gleich
 /// zeichnet, hat denselben; den Look selbst nimmt er nicht auf, so gilt der
-/// Stand eines Baums von vor 0101 weiter.
+/// Stand eines Baums von vor 0101 weiter. Mit Relief geht es danach ein,
+/// mit seinem Namen und [`ZEICHENSTAND_RELIEF`]; ohne bleibt der Abdruck
+/// derselbe wie vor dem Relief.
 /// Siehe docs/benutzung/updates.md, „Anderer Renderer, andere Assets“.
-pub fn fingerabdruck_des_renderers(look: &str) -> u64 {
-    fingerabdruck(zeichenstand(look), &TABELLEN)
+pub fn fingerabdruck_des_renderers(look: &str, relief: Option<Relief>) -> u64 {
+    let abdruck = fingerabdruck(zeichenstand(look), &TABELLEN);
+    let Some(relief) = relief else {
+        return abdruck;
+    };
+    let mut fnv = Fnv(abdruck);
+    fnv.text("relief");
+    fnv.text(relief.name());
+    fnv.nimm(&ZEICHENSTAND_RELIEF.to_le_bytes());
+    fnv.0
 }
 
 fn fingerabdruck(zeichenstand: u32, tabellen: &[(&str, &str)]) -> u64 {
@@ -1050,8 +1069,17 @@ mod tests {
             sortiert, liste,
             "GOLDBILDER_JE_LOOK in renderer/src/render/stand.rs"
         );
-        for (_, look) in GOLDBILDER_JE_LOOK {
-            zeichenstand(look);
+        for (_, art) in GOLDBILDER_JE_LOOK {
+            stand_der_goldbilder(art);
+        }
+    }
+
+    /// Der Zeichenstand, den die Goldbilder einer Art schützen: eines Looks
+    /// oder des Reliefs.
+    fn stand_der_goldbilder(art: &str) -> u32 {
+        match art {
+            "relief" => ZEICHENSTAND_RELIEF,
+            look => zeichenstand(look),
         }
     }
 
@@ -1086,7 +1114,7 @@ mod tests {
                  eines Tests, bleibt er. In jedem Fall GOLDBILDER für {look} auf \
                  {:#x} setzen. Siehe skills/goldbild-erneuern/SKILL.md.",
                 look.to_uppercase(),
-                zeichenstand(look) + 1,
+                stand_der_goldbilder(look) + 1,
                 fnv.0
             );
         }
@@ -1099,9 +1127,24 @@ mod tests {
     #[test]
     fn abdruck_von_cinematic_wie_in_v0_7_0() {
         const V0_7_0: u64 = 0x2651_7df1_a999_85d2;
-        assert_eq!(fingerabdruck_des_renderers("cinematic"), V0_7_0);
-        assert_ne!(fingerabdruck_des_renderers("map"), V0_7_0);
-        assert_ne!(fingerabdruck_des_renderers("flat"), V0_7_0);
+        assert_eq!(fingerabdruck_des_renderers("cinematic", None), V0_7_0);
+        assert_ne!(fingerabdruck_des_renderers("map", None), V0_7_0);
+        assert_ne!(fingerabdruck_des_renderers("flat", None), V0_7_0);
+    }
+
+    /// Ohne Relief ist der Abdruck der Karte der von vor dem Relief, mit
+    /// einem anderen je Relief: Nur Bäume mit Relief rendern neu, wenn es
+    /// kommt, wechselt oder sein Zeichenstand steigt.
+    /// Siehe docs/entscheidungen/0122-relief-von-oben.md.
+    #[test]
+    fn relief_nur_im_abdruck_der_baeume_mit_relief() {
+        let ohne = fingerabdruck_des_renderers("map", None);
+        assert_eq!(ohne, fingerabdruck(ZEICHENSTAND_MAP, &TABELLEN));
+        let gefaelle = fingerabdruck_des_renderers("map", Some(Relief::Gefaelle));
+        let schatten = fingerabdruck_des_renderers("map", Some(Relief::Schatten));
+        assert_ne!(gefaelle, ohne);
+        assert_ne!(schatten, ohne);
+        assert_ne!(gefaelle, schatten);
     }
 
     /// Jede Tabelle unter `src/assets` geht in den Fingerabdruck ein.
@@ -1133,7 +1176,7 @@ mod tests {
             assert_ne!(anders, basis);
         }
         assert_ne!(
-            fingerabdruck_des_renderers("map"),
+            fingerabdruck_des_renderers("map", None),
             fingerabdruck(ZEICHENSTAND_MAP, &[])
         );
     }

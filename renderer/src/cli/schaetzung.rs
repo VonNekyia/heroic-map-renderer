@@ -488,6 +488,10 @@ fn probe_schalter(
     if args.flat {
         s.push("--flat".into());
     }
+    if let Some(relief) = args.relief {
+        s.push("--relief".into());
+        s.push(relief.name().into());
+    }
     if args.low_priority {
         s.push("--low-priority".into());
     }

@@ -361,6 +361,10 @@ pub struct MapInfo {
     /// [`super::look::Look::fingerabdruck`]; steht nur mit `"cinematic"`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub look_hash: Option<String>,
+    /// Das Relief von oben, `"slope"` oder `"shadows"`, mit `--relief`;
+    /// fehlt ohne.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relief: Option<String>,
     /// Der Wasserspiegel der Dimension in Blöcken, `sea_level` des Spiels:
     /// Wasser füllt die Blöcke unter ihm. `null`, wenn der Lauf ihn nicht
     /// kennt. Fehlt das Feld, stammt der Baum aus einem älteren Stand.
@@ -436,6 +440,7 @@ impl MapInfo {
             projection: None,
             look: None,
             look_hash: None,
+            relief: None,
             sea_level: None,
             area: None,
             area_fixed: None,

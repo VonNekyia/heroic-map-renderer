@@ -22,10 +22,10 @@ use heroic_map_renderer::render::stand::{
 };
 use heroic_map_renderer::render::{
     BLEND_DEFAULT, BLEND_MAX, BiomeTable, ChunkCache, Flaeche, Gebiet, Gpu, Kamera, MapInfo,
-    Packen, Projection, ProjectionInfo, Reach, Richtung, ScreenRect, SpriteSet, Survey, TILE,
-    TileId, Verkleinern, corner_tiles, decode_webp, draw_list, encode_webp, gebiet_der_aenderungen,
-    render, render_area, render_area_with, streifenbreite, survey, survey_in,
-    survey_mit_fortschritt, world_box,
+    Packen, Projection, ProjectionInfo, Reach, Relief, Richtung, ScreenRect, SpriteSet, Survey,
+    TILE, TileId, Verkleinern, corner_tiles, decode_webp, draw_list, encode_webp,
+    gebiet_der_aenderungen, mit_relief, render, render_area, render_area_with, streifenbreite,
+    survey, survey_in, survey_mit_fortschritt, world_box,
 };
 use heroic_map_renderer::world::biomzoom::{obfuscate_seed, zoom};
 use heroic_map_renderer::world::{BlockState, Blockdaten, Generator, REGION, World};
@@ -144,6 +144,15 @@ pub struct Args {
         "scale", "camera", "direction", "cinematic", "native_levels",
     ])]
     flat: bool,
+
+    /// Mit --render oder --tiles von oben ein Relief zeichnen: `slope` hellt
+    /// jede Spalte nach dem Gefälle zum Licht aus Nordwesten auf oder dunkelt
+    /// sie ab, `shadows` legt dazu Schatten bis 32 Blöcke weit. Nur mit
+    /// --camera top-north in Richtung s und ohne --cinematic; einen
+    /// bestehenden Baum stellt nur ein voller Lauf um
+    #[arg(long, value_name = "ART", requires = "bild", value_parser = Relief::parse,
+          conflicts_with_all = ["cinematic", "flat"])]
+    relief: Option<Relief>,
 
     /// Blockkoordinate, die in der Bildmitte landet: --center X Z
     #[arg(long, num_args = 2, allow_negative_numbers = true, value_names = ["X", "Z"], default_values_t = [0, 0])]
@@ -272,7 +281,7 @@ pub struct Args {
         "serve", "web", "listen", "max_connections", "header_timeout", "max_header_bytes", "max_headers",
         "write_timeout", "exit_with_stdin", "tls_cert", "tls_key", "secret_file", "player_dir", "trusted_proxy", "recognize_origin", "recognize_url", "site_url",
         "site_title", "site_description", "site_image", "download_client_jar", "client_version",
-        "cache_dir", "compact", "compact_tree", "flat", "banners", "out",
+        "cache_dir", "compact", "compact_tree", "flat", "relief", "banners", "out",
     ])]
     pyramid: Option<PathBuf>,
 
@@ -287,7 +296,7 @@ pub struct Args {
         "serve", "web", "listen", "max_connections", "header_timeout", "max_header_bytes", "max_headers",
         "write_timeout", "exit_with_stdin", "tls_cert", "tls_key", "secret_file", "player_dir", "trusted_proxy", "recognize_origin", "recognize_url", "site_url",
         "site_title", "site_description", "site_image", "download_client_jar", "client_version",
-        "cache_dir", "compact", "pyramid", "flat", "banners", "out",
+        "cache_dir", "compact", "pyramid", "flat", "relief", "banners", "out",
     ])]
     compact_tree: Option<PathBuf>,
 
@@ -307,7 +316,7 @@ pub struct Args {
         "world", "at", "block", "sprite", "scale", "camera", "direction", "biome_blend", "render",
         "cinematic", "center", "area", "size", "scan", "prune", "native_levels", "resume", "update",
         "gpu", "progress", "estimate", "defender_exclusion", "heights", "pyramid", "compact_tree",
-        "manifest", "serve", "compact", "flat",
+        "manifest", "serve", "compact", "flat", "relief",
     ])]
     banners: Option<Vec<PathBuf>>,
 
@@ -324,7 +333,7 @@ pub struct Args {
         "biome_blend", "render", "cinematic", "center", "area", "tiles", "size", "scan", "prune",
         "native_levels", "resume", "update", "gpu", "progress", "estimate", "defender_exclusion", "heights",
         "pyramid", "manifest", "download_client_jar", "client_version", "cache_dir", "compact",
-        "compact_tree", "flat", "banners", "out",
+        "compact_tree", "flat", "relief", "banners", "out",
     ])]
     serve: Option<PathBuf>,
 
@@ -737,6 +746,9 @@ pub fn run() -> Result<()> {
         Some(text) => Richtung::parse(text, kamera).map_err(|e| anyhow::anyhow!(e))?,
     };
     let projection = projektion(scale, kamera)?.aus(richtung);
+    if args.relief.is_some() && (kamera != Kamera::ObenNord || richtung.name(kamera) != "s") {
+        bail!("--relief gibt es nur mit --camera top-north in Richtung s");
+    }
 
     if args.world.is_none() && (args.at.is_some() || args.scan) {
         bail!("--at und --scan brauchen --world");
@@ -1043,6 +1055,7 @@ pub fn run() -> Result<()> {
                 path,
                 args.biome_blend.unwrap_or(BLEND_DEFAULT),
                 args.cinematic.then_some(LOOK),
+                args.relief,
             )?;
         }
         if let Some(dir) = &args.tiles
@@ -1081,6 +1094,7 @@ pub fn run() -> Result<()> {
                     args.biome_blend,
                     args.compact,
                     args.cinematic.then_some(LOOK),
+                    args.relief,
                     args.manifest,
                 );
                 // Eine Karte, die versagt hat, hängt womöglich noch: wgpu
@@ -1445,6 +1459,7 @@ fn auf_der_cpu(chunks: &mut ChunkCache, tiles: &[TileId]) -> Result<Vec<RgbaImag
 /// Die Sprite-Tabelle entsteht vorher aus den Blockstates, die in genau
 /// diesem Ausschnitt vorkommen. Danach greift der Renderpfad nur noch
 /// darauf zu.
+#[allow(clippy::too_many_arguments)]
 fn render_world(
     world: &World,
     assets: &mut Assets,
@@ -1453,6 +1468,7 @@ fn render_world(
     path: &Path,
     blend: u8,
     look: Option<Look>,
+    relief: Option<Relief>,
 ) -> Result<()> {
     let started = Instant::now();
     // Derselbe Vorlauf wie beim Kachelexport, nur über den Ausschnitt.
@@ -1464,6 +1480,7 @@ fn render_world(
     let unbekannt = sprites.add_entities(assets, &survey.entities)?;
     sprites.add_laub(assets, &survey.festes_laub, &survey.helles_laub)?;
     sprites.set_biomes(biomfarben(world, assets, blend)?);
+    sprites.set_relief(relief);
     warn_unknown_biomes(assets, &survey.biomes);
     melde_unbekannte_daten(&unbekannt);
     melde_fehlende_texturen(assets);
@@ -1831,6 +1848,7 @@ fn write_tiles(
     blend: Option<u8>,
     kompakt: bool,
     look: Option<Look>,
+    relief: Option<Relief>,
     mit_manifest: bool,
 ) -> Result<()> {
     let beginn = Instant::now();
@@ -1863,6 +1881,7 @@ fn write_tiles(
         kennung.as_deref().ok_or(warum.as_str()),
     )?;
     pruefe_look(dir, bestand.as_ref(), look.as_ref())?;
+    let wechsel = pruefe_relief(dir, bestand.as_ref(), relief, &bereich)?;
     pruefe_nachbarn(wurzel, dir, world)?;
     // Ein bestehender Baum behält seine Nummerierung, auch wenn die Welt
     // inzwischen gewachsen ist: dann bekommt Zoom 0 mehr Kacheln, und das
@@ -1894,7 +1913,7 @@ fn write_tiles(
         Bereich::Update => Some(Art::Update),
         Bereich::Ausschnitt(_) => None,
     };
-    let renderer = fingerabdruck_des_renderers(look_name(projection, look.is_some()));
+    let renderer = fingerabdruck_des_renderers(look_name(projection, look.is_some()), relief);
     let (stempel, abdruecke) = match art {
         Some(_) => (
             world.stempel()?,
@@ -1916,7 +1935,8 @@ fn write_tiles(
             "Stand:      dieser Lauf rendert alles wie ohne --resume und schreibt am Ende einen Stand"
         );
     }
-    let resume = resume && !frisch;
+    // Wer das Relief wechselt, zeichnet jede Kachel neu, wie ohne --resume.
+    let resume = resume && !frisch && !wechsel;
     let fortgesetzt = match angefangen {
         Angefangen::Passend(stand, seit) => Some((stand, seit)),
         Angefangen::Keiner | Angefangen::Fremd => None,
@@ -1930,8 +1950,14 @@ fn write_tiles(
             let (aenderungen, neu) = alt.vergleiche(&stempel, Y_RANGE.1, |(rx, rz), lagen| {
                 lies_inhalte(world, rx, rz, lagen)
             })?;
-            let gebiet =
-                gebiet_der_aenderungen(projection, stufen, Y_RANGE.0, &aenderungen, look.as_ref());
+            let gebiet = gebiet_der_aenderungen(
+                projection,
+                stufen,
+                Y_RANGE.0,
+                &aenderungen,
+                look.as_ref(),
+                relief,
+            );
             // Was Läufe ohne neuen Stand zeichneten, zeichnet es noch einmal.
             let offen = lies_offen(dir, stufen)?;
             let dazu = match offen.len() {
@@ -2100,8 +2126,22 @@ fn write_tiles(
     if let Some(aenderungen) = &aenderungen {
         let (bleiben, fehlen): (Vec<Aenderung>, Vec<Aenderung>) =
             aenderungen.iter().partition(|a| a.bleibt);
-        let da = gebiet_der_aenderungen(projection, stufen, Y_RANGE.0, &bleiben, look.as_ref());
-        let weg = gebiet_der_aenderungen(projection, stufen, Y_RANGE.0, &fehlen, look.as_ref());
+        let da = gebiet_der_aenderungen(
+            projection,
+            stufen,
+            Y_RANGE.0,
+            &bleiben,
+            look.as_ref(),
+            relief,
+        );
+        let weg = gebiet_der_aenderungen(
+            projection,
+            stufen,
+            Y_RANGE.0,
+            &fehlen,
+            look.as_ref(),
+            relief,
+        );
         let dazu: Vec<TileId> = bestehend
             .iter()
             .filter(|tile| {
@@ -2147,6 +2187,7 @@ fn write_tiles(
     let unbekannt = sprites.add_entities(assets, &survey.entities)?;
     sprites.add_laub(assets, &survey.festes_laub, &survey.helles_laub)?;
     sprites.set_biomes(biomes.clone());
+    sprites.set_relief(relief);
     println!(
         "            {} Sprites bei scale {}, davon {} Fassungen",
         sprites.len(),
@@ -2202,6 +2243,7 @@ fn write_tiles(
         ),
         kennung.as_deref(),
         look.as_ref(),
+        relief,
         &weltdaten,
         &basis,
     )?;
@@ -2449,6 +2491,7 @@ fn write_tiles(
         &mut weg,
         karte,
         look,
+        relief,
         &survey.festes_laub,
         &survey.helles_laub,
         ablage,
@@ -2509,6 +2552,7 @@ fn write_tiles(
         (packen, verkleinern),
         kennung.as_deref(),
         look.as_ref(),
+        relief,
         &weltdaten,
         &basis,
     )?;
@@ -3157,6 +3201,7 @@ fn rebuild_pyramid(
         projection: alt.projection,
         look: alt.look,
         look_hash: alt.look_hash,
+        relief: alt.relief,
         sea_level: alt.sea_level,
         area: alt.area,
         area_fixed: alt.area_fixed,
@@ -3406,6 +3451,7 @@ fn schreibe_map_json(
     (packen, verkleinern): (Packen, Verkleinern),
     kennung: Option<&str>,
     look: Option<&Look>,
+    relief: Option<Relief>,
     welt: &Weltdaten,
     basis: &BTreeSet<TileId>,
 ) -> Result<(MapInfo, usize, PathBuf)> {
@@ -3421,6 +3467,7 @@ fn schreibe_map_json(
         world: Some(kennung.map(str::to_string)),
         look: Some(look_name(projection, look.is_some()).to_string()),
         look_hash: look.map(Look::fingerabdruck),
+        relief: relief.map(|relief| relief.name().to_string()),
         ..mit_kamera(
             mit_hoehen(
                 MapInfo::new(projection.scale(), max_zoom, basis),
@@ -4335,6 +4382,43 @@ fn pruefe_look(dir: &Path, bestand: Option<&MapInfo>, look: Option<&Look>) -> Re
     Ok(())
 }
 
+/// Ob dieser Lauf das Relief des Baums aus `map.json` wechselt. Das darf
+/// nur ein voller Lauf, und er zeichnet dann jede Kachel neu, auch mit
+/// `--resume`. Ein Update und ein Ausschnitt brechen ab, bevor sie einen
+/// Chunk lesen; sie mischten sonst Kacheln mit und ohne Relief. Den Satz
+/// „Das Relief wechselt nur ein voller Lauf“ liest das Plugin.
+/// Siehe docs/benutzung/updates.md, „Relief wechseln“.
+fn pruefe_relief(
+    dir: &Path,
+    bestand: Option<&MapInfo>,
+    relief: Option<Relief>,
+    bereich: &Bereich,
+) -> Result<bool> {
+    let Some(alt) = bestand else {
+        return Ok(false);
+    };
+    let hier = relief.map(Relief::name);
+    if alt.relief.as_deref() == hier {
+        return Ok(false);
+    }
+    let text =
+        |name: Option<&str>| name.map_or("ohne Relief".to_string(), |n| format!("mit Relief {n}"));
+    let (dort, hier) = (text(alt.relief.as_deref()), text(hier));
+    let pfad = dir.join("map.json");
+    if !matches!(bereich, Bereich::Welt) {
+        bail!(
+            "{} gehört zu einem Baum {dort}, dieser Lauf zeichnet {hier}. Das Relief wechselt nur \
+             ein voller Lauf ohne --update und --size, er zeichnet den Baum ganz neu.",
+            pfad.display()
+        );
+    }
+    println!(
+        "Relief:     {} gehört zu einem Baum {dort}, dieser Lauf zeichnet {hier} und jede Kachel neu",
+        pfad.display()
+    );
+    Ok(true)
+}
+
 /// Rendert `stufen` gröbere Zoomstufen aus der Welt: so viele, wie
 /// `--native-levels` verlangt oder `map.json` des Baums nennt, siehe
 /// [`native_stufen`], höchstens [`native_levels`], denn ein Block
@@ -4381,6 +4465,7 @@ fn render_coarser(
     weg: &mut BTreeSet<(u32, TileId)>,
     karte: Option<&Karte>,
     look: Option<Look>,
+    relief: Option<Relief>,
     festes_laub: &BTreeSet<BlockState>,
     helles_laub: &BTreeSet<BlockState>,
     ablage: Ablage<'_>,
@@ -4407,6 +4492,7 @@ fn render_coarser(
         sprites.add_entities(assets, entities)?;
         sprites.add_laub(assets, festes_laub, helles_laub)?;
         sprites.set_biomes(biomes.clone());
+        sprites.set_relief(relief);
         kandidaten.extend(waisen.get(&(z + 1)).into_iter().flatten());
         kandidaten = pyramid::parents(&kandidaten);
         je_stufe.push((z, sprites, kandidaten.clone()));
@@ -4636,8 +4722,9 @@ fn rendere<T: Send>(
 }
 
 /// Die Bilder einer Gruppe von höchstens [`GPU_TILES`] Kacheln: auf der
-/// Karte, solange sie nicht versagt hat, sonst auf der CPU. Was die Karte
-/// zeichnete, zählt `auf_der_karte`.
+/// Karte, solange sie nicht versagt hat, sonst auf der CPU, auf beiden
+/// Wegen danach mit dem Relief ([`mit_relief`]). Was die Karte zeichnete,
+/// zählt `auf_der_karte`.
 fn zeichne<'k>(
     chunks: &mut ChunkCache,
     worker: &mut Option<Worker<'k>>,
@@ -4645,7 +4732,7 @@ fn zeichne<'k>(
     gruppe: &[TileId],
     auf_der_karte: &AtomicUsize,
 ) -> Result<Vec<RgbaImage>> {
-    match karte {
+    let mut bilder = match karte {
         Some(karte) if !karte.aus.load(Ordering::Relaxed) => {
             let listen = gruppe
                 .iter()
@@ -4668,7 +4755,11 @@ fn zeichne<'k>(
             *worker = None;
             auf_der_cpu(chunks, gruppe)
         }
+    }?;
+    for (bild, tile) in bilder.iter_mut().zip(gruppe) {
+        mit_relief(chunks, bild, tile.rect())?;
     }
+    Ok(bilder)
 }
 
 /// Verteilt `reihe` auf alle Threads, mit einem Zustand je Thread

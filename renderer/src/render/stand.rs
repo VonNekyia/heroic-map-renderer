@@ -349,13 +349,14 @@ impl Stand {
     /// Vergleicht den Stand mit der Welt: `stempel` sind die Stempel aller
     /// Regionen jetzt, `lies` liest in einer Region die Chunks, deren
     /// Stempel sich geändert hat, je mit dem K des alten Stands. Liefert die
-    /// Änderungen und den neuen
-    /// Stand mit diesen Stempeln. Ein Chunk mit neuem Stempel und gleichem
-    /// Inhalt ist keine Änderung; einer, der vorher und nachher nichts
-    /// zeichnet, auch nicht. `y_max` ist das oberste y der Dimension, für
-    /// einen Chunk, über dessen alten Inhalt der Stand nichts weiss.
+    /// Änderungen und den neuen Stand mit diesen Stempeln; der alte geht
+    /// darin auf, Region für Region, damit nicht beide ganz im Speicher
+    /// liegen. Ein Chunk mit neuem Stempel und gleichem Inhalt ist keine
+    /// Änderung; einer, der vorher und nachher nichts zeichnet, auch nicht.
+    /// `y_max` ist das oberste y der Dimension, für einen Chunk, über dessen
+    /// alten Inhalt der Stand nichts weiss.
     pub fn vergleiche(
-        &self,
+        mut self,
         stempel: &Stempelkarte,
         y_max: i32,
         lies: impl Fn((i32, i32), &[([i32; 2], Option<i8>)]) -> Result<Vec<Lesung>> + Sync,
@@ -370,11 +371,18 @@ impl Stand {
             .collect();
         regionen.sort_unstable();
         regionen.dedup();
-        // Je Region ihre neuen Einträge und Änderungen.
-        type JeRegion = ((i32, i32), Vec<Gepackt>, Vec<Aenderung>);
-        let je_region: Vec<JeRegion> = regionen
-            .par_iter()
-            .map(|&(rx, rz)| -> Result<_> {
+        // Je Region ihre alten Einträge, aus dem Stand genommen.
+        type Alt = ((i32, i32), Option<Vec<Gepackt>>);
+        let alte: Vec<Alt> = regionen
+            .into_iter()
+            .map(|region| (region, self.regionen.remove(&region)))
+            .collect();
+        // Je Region ihre neuen Einträge, ob es sie vorher gab, ob sie anders
+        // sind, und die Änderungen.
+        type JeRegion = ((i32, i32), Vec<Gepackt>, bool, bool, Vec<Aenderung>);
+        let je_region: Vec<JeRegion> = alte
+            .into_par_iter()
+            .map(|((rx, rz), alte)| -> Result<_> {
                 let jetzt = stempel.get(&(rx, rz)).unwrap_or(&leer);
                 let chunk = |i: usize| {
                     [
@@ -383,8 +391,8 @@ impl Stand {
                     ]
                 };
                 let alt = |i: usize| {
-                    let [cx, cz] = chunk(i);
-                    self.eintrag(cx, cz)
+                    alte.as_ref()
+                        .map_or(Eintrag::default(), |chunks| entpacke(&chunks[i]))
                 };
                 let neue: Vec<usize> = (0..JE_REGION)
                     .filter(|&i| {
@@ -440,20 +448,21 @@ impl Stand {
                         tiefe: lesung.tiefe,
                     }));
                 }
-                Ok(((rx, rz), chunks, aenderungen))
+                let anders = alte.as_ref() != Some(&chunks);
+                Ok(((rx, rz), chunks, alte.is_some(), anders, aenderungen))
             })
             .collect::<Result<_>>()?;
         let mut neu = Stand::neu(self.art, self.renderer, self.assets);
-        let mut geaendert = self.geaendert.clone().unwrap_or_default();
         let alles = self.geaendert.is_none();
+        let mut geaendert = self.geaendert.take().unwrap_or_default();
         let mut aenderungen = Vec::new();
-        for (region, chunks, hier) in je_region {
+        for (region, chunks, hatte, anders, hier) in je_region {
             if stempel.contains_key(&region) {
-                if self.regionen.get(&region) != Some(&chunks) {
+                if anders {
                     geaendert.insert(region);
                 }
                 neu.regionen.insert(region, chunks);
-            } else if self.regionen.contains_key(&region) {
+            } else if hatte {
                 geaendert.insert(region);
             }
             aenderungen.extend(hier);
@@ -1326,6 +1335,7 @@ mod tests {
         jetzt.insert((0, 0), region);
         let gelesen = std::sync::Mutex::new(Vec::new());
         let (aenderungen, neu) = alt
+            .clone()
             .vergleiche(&jetzt, 319, |region, lagen| {
                 assert_eq!(region, (0, 0));
                 Ok(lagen

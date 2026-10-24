@@ -1052,6 +1052,12 @@ npm run lint      # ESLint
 npm test          # Playwright, baut vorher und prüft den Build
 ```
 
+ESLint prüft dazu mit einer eigenen Regel in
+[`web/eslint.config.js`](../web/eslint.config.js), `eigen/jsdoc-doppelt`,
+dass nie zwei JSDoc-Blöcke ohne Leerzeile aufeinander folgen: Der erste hinge
+an nichts, etwa wenn eine Konstante zwischen ein JSDoc und seine Funktion
+rutscht.
+
 Die Tests: [Tests](entwicklung/tests.md). Lighthouse in der CI und lokal:
 [CI](entwicklung/ci.md), „Lighthouse“.
 

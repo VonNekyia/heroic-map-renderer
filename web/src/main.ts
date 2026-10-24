@@ -75,6 +75,12 @@ function point(x: number, y: number): L.LatLng {
 }
 
 /**
+ * Leaflets Typen führen `transformation` nicht auf, obwohl jede
+ * mitgelieferte CRS sie setzt und `latLngToPoint` sie benutzt.
+ */
+type Crs = L.CRS & { transformation: L.Transformation };
+
+/**
  * Das Koordinatensystem der Karte.
  *
  * Eine Karteneinheit ist ein Pixel der feinsten Stufe. Leaflets
@@ -82,12 +88,6 @@ function point(x: number, y: number): L.LatLng {
  * Stufe den Faktor 1 bekommen.
  * Siehe docs/frontend.md, „Das Koordinatensystem“.
  */
-/**
- * Leaflets Typen führen `transformation` nicht auf, obwohl jede
- * mitgelieferte CRS sie setzt und `latLngToPoint` sie benutzt.
- */
-type Crs = L.CRS & { transformation: L.Transformation };
-
 function crs(info: MapInfo): Crs {
   const simple = L.CRS.Simple as Crs;
   return {
@@ -476,10 +476,10 @@ function istBaum(value: unknown): value is Baum {
   return ['path', 'camera', 'direction', 'look'].every((feld) => typeof baum[feld] === 'string');
 }
 
-/** Die Bäume aus `trees.json`, oder `null` ohne sie: dann ist `wurzel` selbst ein Baum. */
 /** Der Name eines Baums, wie ihn `trees.json` nennt; nur so geht `map.json` aus `?tree=` vor der Liste los. */
 const BAUM_NAME = /^[a-z0-9-]{1,64}$/;
 
+/** Die Bäume aus `trees.json`, oder `null` ohne sie: dann ist `wurzel` selbst ein Baum. */
 async function ladeListe(wurzel: string): Promise<Baum[] | null> {
   const path = `${wurzel}/trees.json`;
   const response = await fetch(path, FRISCH);

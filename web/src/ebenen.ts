@@ -205,9 +205,9 @@ function hoechste(karte: Int16Array): number {
 const PANE_GRUND = 510;
 const FORM_GRUND = 410;
 
-/** Die Tafel als Popup, für Nadeln und Flächen gleich. */
 /** So breit ist der Inhalt der Tafel höchstens, in Pixeln; style.css verkleinert Bilder auf dasselbe Mass. */
 const TAFEL_BREITE = 320;
+/** Die Tafel als Popup, für Nadeln und Flächen gleich. */
 const TAFEL: L.PopupOptions = { className: 'tafel', maxWidth: TAFEL_BREITE, minWidth: 120, autoPanPadding: [8, 8] };
 
 /** Die Tafel beim Zeigen: erscheint nach so vielen ms Ruhe, schliesst so viele ms nach dem Verlassen. Siehe docs/benutzung/ebenen.md, „Infotafel“. */
@@ -686,7 +686,6 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
   /** Ohne Höhen: eben auf `grund`. */
   const eben: Gelaende = { c, grund, zelle: () => undefined, max: grund + 1 };
 
-  /** Die Oberseite des Geländes je Punkt, einmal gerechnet; siehe ebenen.md, „Die Oberfläche im iso“. */
   /** Die Oberseite des Geländes an einem Punkt, ohne Cache, etwa für Mitspieler, die laufen. */
   const oberflaecheJetzt = async (x: number, z: number): Promise<number> => {
     if (!iso || !karten || !heightsCell) return grund + 1;
@@ -694,6 +693,7 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     await karten.lade([-3 * c, 3 * c].flatMap((dx) => [-3 * c, 3 * c].map((dz) => [Math.floor(x + dx), 0, Math.floor(z + dz)] as [number, number, number])));
     return hoeheAuf({ ...eben, zelle: (i, j) => karten.hoehe(i * c, j * c) }, x, z);
   };
+  /** Die Oberseite des Geländes je Punkt, einmal gerechnet; siehe ebenen.md, „Die Oberfläche im iso“. */
   const oberflaechen = new Map<string, Promise<number>>();
   /** So viele Punkte merkt sich `oberflaeche`; der am längsten nicht gefragte fällt zuerst. */
   const OBERFLAECHEN = 4096;

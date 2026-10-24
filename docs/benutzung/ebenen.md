@@ -82,7 +82,8 @@ sichtbar ist.
       "name": { "de": "Städte", "en": "Towns" },
       "visible": true,
       "order": 100,
-      "version": "5f3a9c1e"
+      "version": "5f3a9c1e",
+      "designs": true
     },
     {
       "id": "beispiel:stadtinfos",
@@ -103,9 +104,17 @@ sichtbar ist.
 | `order` | ganze Zahl; höher liegt oben und steht in der Liste weiter vorn; bei Gleichstand nach `id`. Auf der Webkarte kann jeder die Reihe für sich umstellen, siehe [0113](../entscheidungen/0113-reihenfolge-der-ebenen-je-betrachter.md) | `0` |
 | `version` | ändert sich mit jeder Änderung der Datei der Ebene, etwa ein Hash ihres Inhalts | Pflicht |
 | `player` | `true`: eine Aktionsebene, ihre Datei kommt je Spieler vom Server, siehe „Aktionsebenen und Knöpfe“ | `false` |
+| `designs` | `true`: Der Kopf der Datei der Ebene nennt Entwürfe unter `designs`, siehe „Entwürfe“. Eine Ansicht kann dann den Satz der Sprites (`satz.json`, siehe „Sprites“) gleich mit der Datei holen, statt erst nach ihr | `false` |
 
 Die Wahl des Betrachters, welche Ebene an ist, merkt sich jede Ansicht
 selbst, die Webkarte im Browser.
+
+- **`designs`** schreibt das Plugin ab 0.19.0 genau dann, wenn `designs` im Kopf der
+  Datei nicht leer ist. Fehlt das Feld, etwa in einer älteren Liste, lädt
+  eine Ansicht wie bisher: erst die Datei, dann bei Bedarf `satz.json`. Ein
+  `true` ohne Entwürfe kostet eine Anfrage zu viel und schadet sonst nicht.
+- **Unbekannte Felder** übergeht jede Ansicht; so liest ein älterer Mod
+  oder eine ältere Webkarte eine neuere Liste.
 
 ## Datei einer Ebene
 

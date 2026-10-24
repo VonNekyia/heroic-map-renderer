@@ -372,7 +372,10 @@ liegen“. Entschieden in
   Ausgabe sagt es: `Pyramide:   … über N Kacheln mit gleichen Pixeln nicht
   neu gebaut`. Ein voller Lauf und ein Update, das umstellt, bauen jede
   Elternkachel. Entschieden in
-  [0124](../entscheidungen/0124-pyramide-nur-ueber-neuen-kindern.md).
+  [0124](../entscheidungen/0124-pyramide-nur-ueber-neuen-kindern.md). An
+  der Testwelt mit 16 Änderungen baut die Pyramide 560 statt 970 Kacheln,
+  in 0,6 statt 2,6 bis 3,0 s, gemessen in
+  [2026-10-24, Pyramide nur über neuen Kindern](../messungen/2026-10-24-pyramide-nur-ueber-neuen.md).
 - **Ein anderer Kodierstand** kodiert jede Kachel neu, die ein Lauf
   ablegt. Ein Block eines alten Builds, bis v0.5.0 mit dem Fingerabdruck
   der ausführbaren Datei im Kopf, gilt als Kodierstand 1.

@@ -155,4 +155,8 @@ export default [
   { name: 'hoch-ohne-oberseite', datei: 'src/gelaende.ts', alt: 'gemerkt.set(s, (h += 1));', neu: 'gemerkt.set(s, (h += 0));', spec: 'tests/gelaende.spec.ts', titel: 'verdeckt überspringt Blöcke' },
   { name: 'ganz-nie-neu', datei: 'src/ebenen.ts', alt: 'const GANZ = { fenster: 9,', neu: 'const GANZ = { fenster: 0,', spec: 'tests/formen.spec.ts', titel: 'nach 0111: ein grosser Kreis' },
   { name: 'gemerkt-ohne-rahmen', datei: 'src/ebenen.ts', alt: 'if (e.g !== g || !(e.ansicht.ganz || imRahmen(e.ansicht.schirm))) return undefined;', neu: 'if (e.g !== g) return undefined;', spec: 'tests/formen.spec.ts', titel: 'nach 0111: eine Fläche, die aus dem Ausschnitt fällt' },
+  // Grundschicht, D1.
+  { name: 'grund-nicht-groeber', datei: 'src/main.ts', alt: 'grob ? Math.round(zoom) - grob : zoom', neu: 'grob ? Math.round(zoom) - 0 * grob : zoom', spec: 'tests/smoke.spec.ts', titel: 'die Grundschicht liegt zwei Stufen gröber' },
+  { name: 'grund-oben', datei: 'src/main.ts', alt: "grob: GRUND.stufen, zIndex: 0, className: 'grund'", neu: "grob: GRUND.stufen, zIndex: 2, className: 'grund'", spec: 'tests/smoke.spec.ts', titel: 'die Grundschicht liegt zwei Stufen gröber' },
+  { name: 'grund-ohne-ring', datei: 'src/main.ts', alt: '    const rand = this.getTileSize();', neu: '    const rand = L.point(0, 0);', spec: 'tests/smoke.spec.ts', titel: 'die Grundschicht lädt eine Kachel um das Fenster' },
 ];

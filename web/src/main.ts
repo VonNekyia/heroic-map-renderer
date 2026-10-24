@@ -545,13 +545,36 @@ interface KachelInnen {
 }
 
 /**
+ * Die Grundschicht unter den Kacheln: `stufen` Stufen gröber, mit einem Ring
+ * von einer Kachel um das Fenster. Beim Ziehen und Zoomen steht sie da, bis
+ * die feinen kommen. Siehe docs/frontend.md, „Grundschicht“.
+ */
+const GRUND = { stufen: 2 };
+
+/** Die Optionen von `Kacheln`: `grob` macht sie zur Grundschicht, so viele Stufen gröber. */
+type KachelOptionen = L.TileLayerOptions & { grob?: number };
+
+/**
  * Kacheln wie `L.TileLayer`, nur bricht eine Kachel ab, indem sie ihr `src`
  * verliert. Leaflet setzt dafür ein GIF als `data:`, und das verletzt
  * `default-src 'self'`. `L.Util.emptyImageUrl` umzusetzen hilft nicht:
- * Leaflet liest die Adresse aus einer Variable seines Moduls. Die drei
- * Methoden folgen Leaflet 1.9.4. Siehe docs/frontend.md, „Ausliefern“.
+ * Leaflet liest die Adresse aus einer Variable seines Moduls. Mit `grob`
+ * eine Stufe aus `GRUND`. Die fünf Methoden folgen Leaflet 1.9.4. Siehe
+ * docs/frontend.md, „Ausliefern“.
  */
 const Kacheln = L.TileLayer.extend({
+  // Die Grundschicht nimmt die Stufe `grob` darunter, sonst wie Leaflet.
+  _clampZoom(this: KachelInnen & { options: KachelOptionen }, zoom: number) {
+    const { grob } = this.options;
+    return (L.TileLayer.prototype as unknown as { _clampZoom(this: unknown, z: number): number })._clampZoom.call(this, grob ? Math.round(zoom) - grob : zoom);
+  },
+  // Die Grundschicht lädt eine Kachel über das Fenster hinaus.
+  _getTiledPixelBounds(this: KachelInnen & { options: KachelOptionen; getTileSize(): L.Point }, mitte: L.LatLng) {
+    const b = (L.TileLayer.prototype as unknown as { _getTiledPixelBounds(this: unknown, m: L.LatLng): L.Bounds })._getTiledPixelBounds.call(this, mitte);
+    if (!this.options.grob) return b;
+    const rand = this.getTileSize();
+    return L.bounds(b.min!.subtract(rand), b.max!.add(rand));
+  },
   // Bricht die Kacheln ab, die noch für eine andere Stufe laden.
   _abortLoading(this: KachelInnen) {
     for (const [schluessel, kachel] of Object.entries(this._tiles)) {
@@ -577,7 +600,7 @@ const Kacheln = L.TileLayer.extend({
     if (!this._map || (el && !el.hasAttribute('src'))) return;
     (L.GridLayer.prototype as unknown as { _tileReady(this: KachelInnen, ...a: unknown[]): void })._tileReady.call(this, coords, fehler, el);
   },
-}) as unknown as new (url: string, options: L.TileLayerOptions) => L.TileLayer;
+}) as unknown as new (url: string, options: KachelOptionen) => L.TileLayer;
 
 /** Der Name eines Baums im Umschalter, etwa „2:1 aus Südost“. */
 function anzeigename({ camera, direction, look }: Baum): string {
@@ -730,7 +753,7 @@ async function start(): Promise<void> {
   map.setMinZoom(minZoom);
   ganzeKarte(map, einpassen);
 
-  new Kacheln(`${base}/${info.tiles}`, {
+  const kachelOptionen: KachelOptionen = {
     tileSize: info.tileSize,
     // Die Untergrenze setzt die Karte, und ein Skin senkt sie, wird das
     // Fenster kleiner. Die Ebene zeigt auf jeder Stufe Kacheln.
@@ -745,7 +768,10 @@ async function start(): Promise<void> {
     // Herumziehen reihenweise Kacheln an, die es nicht gibt.
     bounds,
     noWrap: true,
-  }).addTo(map);
+  };
+  // Erst die Grundschicht, darunter; sie zeigt, was fehlt, bis die feinen Kacheln da sind.
+  new Kacheln(`${base}/${info.tiles}`, { ...kachelOptionen, grob: GRUND.stufen, zIndex: 0, className: 'grund' }).addTo(map);
+  new Kacheln(`${base}/${info.tiles}`, { ...kachelOptionen, zIndex: 1, className: 'kacheln' }).addTo(map);
 
   if (typeof blick !== 'string') kompass(map, norden(blick.p, blick.k));
   lizenzenAnzeigen(map);

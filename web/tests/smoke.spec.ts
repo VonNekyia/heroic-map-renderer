@@ -1,7 +1,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { deflateSync } from 'node:zlib';
-import { zweiZuEins } from '../src/pick';
+import { projiziere, zweiZuEins } from '../src/pick';
 
 /** Ein kleiner Kachelbaum, der mit im Repository liegt. */
 const DEMO = '/?tiles=/tiles-demo';
@@ -36,14 +36,14 @@ async function welt(
  * einer des Bildschirms.
  */
 async function bildschirm(page: Page, u: number, v: number): Promise<[number, number]> {
-  const kachel = await page.locator('img[src$="/2/0/0.webp"]').boundingBox();
+  const kachel = await page.locator('.kacheln img[src$="/2/0/0.webp"]').boundingBox();
   if (!kachel) throw new Error('Kachel 2/0/0 nicht zu sehen');
   return [kachel.x + u + 0.5, kachel.y + v + 0.5];
 }
 
 /** Die Zoomstufen, aus denen die sichtbaren Kacheln stammen. */
 async function tileZooms(page: Page): Promise<number[]> {
-  const quellen = await page.locator('img.leaflet-tile-loaded').evaluateAll((bilder) =>
+  const quellen = await page.locator('.kacheln img.leaflet-tile-loaded').evaluateAll((bilder) =>
     bilder.map((bild) => (bild as HTMLImageElement).src),
   );
   const stufen = quellen
@@ -61,7 +61,7 @@ async function tileZooms(page: Page): Promise<number[]> {
  */
 async function tileStretch(page: Page): Promise<number> {
   const transform = await page
-    .locator('.leaflet-tile-container')
+    .locator('.kacheln .leaflet-tile-container')
     .first()
     .evaluate((element) => getComputedStyle(element).transform);
   return Number(/^matrix\(([\d.]+)/.exec(transform)?.[1] ?? 1);
@@ -90,7 +90,7 @@ test('die Karte laedt Kacheln, ohne zu meckern', async ({ page }) => {
 
   await page.goto(DEMO);
 
-  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  await expect(page.locator('.kacheln img.leaflet-tile-loaded').first()).toBeVisible();
   expect(await tileZooms(page)).not.toEqual([]);
   expect(fehler).toEqual([]);
   // Ohne Höhen in map.json keine Koordinaten, ohne seaLevel und area kein Tablett.
@@ -128,7 +128,7 @@ test('ohne Skin beim Build kein Tablett und kein Code eines Skins, auch mit quad
   });
   await welt(page, { seaLevel: 0, area: [-64, -64, 64, 64] });
   await page.goto(DEMO);
-  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  await expect(page.locator('.kacheln img.leaflet-tile-loaded').first()).toBeVisible();
   await expect(page.locator('canvas.tablett')).toHaveCount(0);
   // Nur das Bündel der Karte.
   expect(skripte).toHaveLength(1);
@@ -152,7 +152,7 @@ test('map.json, trees.json und Höhen fragt die Seite jedes Mal beim Server nach
   });
   await welt(page);
   await page.goto(DEMO);
-  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  await expect(page.locator('.kacheln img.leaflet-tile-loaded').first()).toBeVisible();
   await page.mouse.move(...(await bildschirm(page, 400, 36)));
   await expect(page.locator('.koordinaten')).toHaveText('X 35  Y 5  Z -15');
   expect(await page.evaluate(() => (window as unknown as { modi: object }).modi)).toEqual({
@@ -171,7 +171,7 @@ test('ohne Routing schickt Chromium dafür Cache-Control: max-age=0', async ({ p
     if (datei) void anfrage.allHeaders().then((k) => kopf.set(datei, k['cache-control']));
   });
   await page.goto(DEMO);
-  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  await expect(page.locator('.kacheln img.leaflet-tile-loaded').first()).toBeVisible();
   await expect
     .poll(() => Object.fromEntries(kopf))
     .toEqual({ 'trees.json': 'max-age=0', 'map.json': 'max-age=0' });
@@ -192,7 +192,7 @@ test('die Karte läuft unter strengen Headern', async ({ page }) => {
   expect(Object.keys(header)).toContain('Content-Security-Policy');
   for (const [name, wert] of Object.entries(header)) expect(antwort?.headers()[name.toLowerCase()], name).toBe(wert);
 
-  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  await expect(page.locator('.kacheln img.leaflet-tile-loaded').first()).toBeVisible();
   // Koordinaten holen Höhen und entpacken sie; auch das muss erlaubt sein.
   await page.mouse.move(...(await bildschirm(page, 400, 36)));
   await expect(page.locator('.koordinaten')).toHaveText('X 35  Y 5  Z -15');
@@ -201,7 +201,7 @@ test('die Karte läuft unter strengen Headern', async ({ page }) => {
   );
 });
 
-test('Kacheln folgt Leaflet 1.9.4: Ein anderes Leaflet braucht einen Blick auf die drei Methoden der Unterklasse', () => {
+test('Kacheln folgt Leaflet 1.9.4: Ein anderes Leaflet braucht einen Blick auf die fünf Methoden der Unterklasse', () => {
   const { version } = JSON.parse(readFileSync(new URL('../node_modules/leaflet/package.json', import.meta.url), 'utf8')) as { version: string };
   expect(version, 'siehe docs/frontend.md, „Ausliefern“').toBe('1.9.4');
 });
@@ -223,13 +223,63 @@ test('Zoomen bricht laufende Kacheln ab, ohne die CSP zu verletzen; eine abgebro
   await page.goto(`${DEMO}&at=20,0,-20&zoom=0`);
   await expect.poll(() => haengend.length).toBeGreaterThan(0);
   await page.locator('.leaflet-control-zoom-out').click();
-  await expect(page.locator('img.leaflet-tile-loaded[src*="/tiles-demo/1/"]').first()).toBeVisible();
+  await expect(page.locator('.kacheln img.leaflet-tile-loaded[src*="/tiles-demo/1/"]').first()).toBeVisible();
   for (const weiter of haengend) weiter();
   await expect.poll(() => abgebrochen.filter((u) => u.includes('/tiles-demo/2/')).length).toBeGreaterThan(0);
   // Nach dem Abbruch steht keine Kachel der Stufe 2 als geladen da.
   await page.waitForTimeout(300);
-  await expect(page.locator('img.leaflet-tile-loaded[src*="/tiles-demo/2/"]')).toHaveCount(0);
+  await expect(page.locator('.kacheln img.leaflet-tile-loaded[src*="/tiles-demo/2/"]')).toHaveCount(0);
   expect(await page.evaluate(() => (window as unknown as { verletzt: string[] }).verletzt)).toEqual([]);
+});
+
+/** Die Stufen der geladenen Kacheln einer Ebene, `.grund` oder `.kacheln`. */
+const stufenIn = (page: Page, ebene: string) =>
+  page.locator(`${ebene} img.leaflet-tile-loaded`).evaluateAll((l) => [...new Set(l.map((i) => Number(/\/tiles-demo\/(\d+)\//.exec((i as HTMLImageElement).src)![1])))].sort());
+
+test('die Grundschicht liegt zwei Stufen gröber unter den Kacheln und steht da, solange die feinen noch laden', async ({ page }) => {
+  // Kacheln der Stufe 2 hängen, bis der Test sie freigibt.
+  const haengend: (() => void)[] = [];
+  await page.route('**/tiles-demo/2/*/*.webp', async (route) => {
+    await new Promise<void>((weiter) => haengend.push(weiter));
+    await route.fulfill({ response: await route.fetch() }).catch(() => undefined);
+  });
+  await page.goto(`${DEMO}&at=20,0,-20&zoom=0`);
+  // Die feinen fehlen noch; die Grundschicht der Stufe 0 steht schon da.
+  await expect(page.locator('.grund img.leaflet-tile-loaded').first()).toBeVisible();
+  expect(await stufenIn(page, '.grund')).toEqual([0]);
+  await expect(page.locator('.kacheln img.leaflet-tile-loaded')).toHaveCount(0);
+  const rechtecke = (ebene: string) =>
+    page.locator(`${ebene} img.leaflet-tile-loaded`).evaluateAll((l) => l.map((i) => i.getBoundingClientRect()).map((r) => [r.left, r.top, r.right, r.bottom]));
+  const grund = await rechtecke('.grund');
+  for (const weiter of haengend) weiter();
+  await expect(page.locator('.kacheln img.leaflet-tile-loaded').first()).toBeVisible();
+  expect(await stufenIn(page, '.kacheln')).toEqual([2]);
+  // Wo jetzt eine feine Kachel liegt, lag vorher schon die Grundschicht.
+  for (const [x0, y0, x1, y1] of await rechtecke('.kacheln')) {
+    const [x, y] = [(x0! + x1!) / 2, (y0! + y1!) / 2];
+    expect(grund.some(([a, b, c, d]) => x >= a! && x < c! && y >= b! && y < d!), `${x}, ${y}`).toBe(true);
+  }
+  // Die feinen liegen darüber.
+  const lagen = await page.evaluate(() => ['.grund', '.kacheln'].map((k) => Number(getComputedStyle(document.querySelector(k)!).zIndex)));
+  expect(lagen[0]).toBeLessThan(lagen[1]!);
+});
+
+test('die Grundschicht lädt eine Kachel um das Fenster, die feinen Kacheln nur das Fenster', async ({ page }) => {
+  // Zwei Stufen über der feinsten nehmen beide Stufe 2, eine Kachel 1024 px; ein kleines Fenster mitten in Kachel 2/0/0 sieht nur sie.
+  await page.setViewportSize({ width: 400, height: 300 });
+  let [bx, bz, best] = [0, 0, Infinity];
+  for (let x = -60; x <= 60; x++) {
+    for (let z = -60; z <= 60; z++) {
+      const [px, py] = projiziere(x + 0.5, 1, z + 0.5, zweiZuEins(16));
+      const d = Math.hypot(px - 128, py - 128);
+      if (d < best) [bx, bz, best] = [x, z, d];
+    }
+  }
+  await page.goto(`${DEMO}&at=${bx},0,${bz}&zoom=2`);
+  await expect(page.locator('.kacheln img.leaflet-tile-loaded')).toHaveCount(1);
+  // Die Pyramide hat auf Stufe 2 nur 2 × 2 Kacheln; mit dem Ring lädt die Grundschicht alle vier.
+  await expect(page.locator('.grund img.leaflet-tile-loaded')).toHaveCount(4);
+  expect(await stufenIn(page, '.grund')).toEqual([2]);
 });
 
 test('die Koordinaten rechnen mit projection aus map.json', async ({ page }) => {
@@ -237,7 +287,7 @@ test('die Koordinaten rechnen mit projection aus map.json', async ({ page }) => 
   // zeigt sich, dass projection gilt und nicht scale.
   await welt(page, { camera: 'top', projection: { azimuth: 'diagonal', u: 8, v: 8, y: 0 } });
   await page.goto(DEMO);
-  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  await expect(page.locator('.kacheln img.leaflet-tile-loaded').first()).toBeVisible();
   await page.mouse.move(...(await bildschirm(page, 400, 36)));
   await expect(page.locator('.koordinaten')).toHaveText('X 27  Y 0  Z -23');
 });
@@ -248,7 +298,7 @@ test('aus Nordwesten zeigt die Anzeige Weltkoordinaten', async ({ page }) => {
   // Säule: Zelle der Spalten -36 bis -33 und 12 bis 15, Region -1.0.
   await welt(page, { direction: 'nw' }, ['-1.0.bin', 3 * 128 + 119]);
   await page.goto(DEMO);
-  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  await expect(page.locator('.kacheln img.leaflet-tile-loaded').first()).toBeVisible();
   await page.mouse.move(...(await bildschirm(page, 400, 36)));
   await expect(page.locator('.koordinaten')).toHaveText('X -36  Y 5  Z 14');
 });
@@ -260,7 +310,7 @@ test('genordet rechnen die Koordinaten mit u = x und v = z', async ({ page }) =>
     projection: { azimuth: 'north', u: 16, v: 16, y: 0 },
   });
   await page.goto(DEMO);
-  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  await expect(page.locator('.kacheln img.leaflet-tile-loaded').first()).toBeVisible();
   // Die Mitte des Pixels (400, 36) liegt über Spalte 400,5 / 16 und 36,5 / 16.
   await page.mouse.move(...(await bildschirm(page, 400, 36)));
   await expect(page.locator('.koordinaten')).toHaveText('X 25  Y 0  Z 2');
@@ -285,7 +335,7 @@ for (const [mehr, grund] of [
     await welt(page, mehr);
     await page.goto(DEMO);
 
-    await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+    await expect(page.locator('.kacheln img.leaflet-tile-loaded').first()).toBeVisible();
     await expect(page.locator('.koordinaten')).toHaveCount(0);
     expect(warnungen).toContain(`/tiles-demo/map.json: keine Koordinaten, ${grund}`);
   });
@@ -300,14 +350,14 @@ test('unvollständige Höhen lassen die Karte stehen', async ({ page }) => {
   });
   await page.goto(DEMO);
 
-  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  await expect(page.locator('.kacheln img.leaflet-tile-loaded').first()).toBeVisible();
   await expect(page.locator('.koordinaten')).toHaveCount(0);
 });
 
 test('die Maus zeigt Koordinaten des Blocks darunter, ohne Umriss', async ({ page }) => {
   await welt(page);
   await page.goto(DEMO);
-  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  await expect(page.locator('.kacheln img.leaflet-tile-loaded').first()).toBeVisible();
   const anzeige = page.locator('.koordinaten');
   await expect(anzeige).toHaveText('X –  Y –  Z –');
 
@@ -327,7 +377,7 @@ test('das Kopiersymbol kopiert /tp, ein Klick hält den Block dafür fest', asyn
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   await welt(page);
   await page.goto(DEMO);
-  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  await expect(page.locator('.kacheln img.leaflet-tile-loaded').first()).toBeVisible();
   const anzeige = page.locator('.koordinaten');
   const kopieren = page.getByRole('button', { name: '/tp kopieren' });
   const meldung = page.getByRole('status');
@@ -379,7 +429,7 @@ test('ein Klick auf X macht es editierbar, Enter springt hin, Y aus der Höhenka
 }) => {
   await welt(page);
   await page.goto(DEMO);
-  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  await expect(page.locator('.kacheln img.leaflet-tile-loaded').first()).toBeVisible();
   const anzeige = page.locator('.koordinaten');
   await page.mouse.click(...(await bildschirm(page, 400, 36)));
   await expect(anzeige).toHaveText('X 35  Y 5  Z -15');
@@ -408,7 +458,7 @@ test('ein Klick auf X macht es editierbar, Enter springt hin, Y aus der Höhenka
 test('wird Y selbst geändert, gilt es', async ({ page }) => {
   await welt(page);
   await page.goto(DEMO);
-  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  await expect(page.locator('.kacheln img.leaflet-tile-loaded').first()).toBeVisible();
   await page.mouse.click(...(await bildschirm(page, 400, 36)));
   await page.locator('.wert').nth(1).click();
   const feld = page.getByRole('textbox', { name: 'Y eingeben' });
@@ -420,7 +470,7 @@ test('wird Y selbst geändert, gilt es', async ({ page }) => {
 test('unbrauchbare Eingaben weist die Anzeige sichtbar ab', async ({ page }) => {
   await welt(page);
   await page.goto(DEMO);
-  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  await expect(page.locator('.kacheln img.leaflet-tile-loaded').first()).toBeVisible();
   await page.mouse.click(...(await bildschirm(page, 400, 36)));
   await page.locator('.wert').nth(2).click();
   const feld = page.getByRole('textbox', { name: 'Z eingeben' });
@@ -460,7 +510,7 @@ test('wer abbricht, während die Höhenkarte lädt, springt nicht', async ({ pag
     await route.fulfill({ body: deflateSync(Buffer.from(new Int16Array(128 * 128).buffer)) });
   });
   await page.goto(DEMO);
-  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  await expect(page.locator('.kacheln img.leaflet-tile-loaded').first()).toBeVisible();
   const ebene = page.locator('.leaflet-map-pane');
   const anzeige = page.locator('.koordinaten');
   await page.mouse.click(...(await bildschirm(page, 400, 36)));
@@ -488,7 +538,7 @@ test('wer abbricht, während die Höhenkarte lädt, springt nicht', async ({ pag
 test('Escape oder ein Klick daneben bricht den Eintrag ab', async ({ page }) => {
   await welt(page);
   await page.goto(DEMO);
-  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  await expect(page.locator('.kacheln img.leaflet-tile-loaded').first()).toBeVisible();
   const anzeige = page.locator('.koordinaten');
   const ebene = page.locator('.leaflet-map-pane');
   const lage = await ebene.evaluate((e) => (e as HTMLElement).style.transform);
@@ -516,7 +566,7 @@ test('ohne gezeigten Block nimmt der Eintrag den Block in der Mitte, auch per Ta
 }) => {
   await welt(page);
   await page.goto(DEMO);
-  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  await expect(page.locator('.kacheln img.leaflet-tile-loaded').first()).toBeVisible();
   await expect.poll(() => new URL(page.url()).searchParams.get('at')).not.toBeNull();
   const at = new URL(page.url()).searchParams.get('at')!.split(',');
   await page.locator('.wert').first().focus();
@@ -535,7 +585,7 @@ test('ohne Zwischenablage sagt die Rückmeldung, warum nicht kopiert wird', asyn
   });
   await welt(page);
   await page.goto(DEMO);
-  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  await expect(page.locator('.kacheln img.leaflet-tile-loaded').first()).toBeVisible();
   const kopieren = page.getByRole('button', { name: '/tp kopieren' });
   await kopieren.click();
   await expect(page.getByRole('status')).toHaveText('Erst einen Block wählen');
@@ -550,7 +600,7 @@ test('schlägt das Kopieren fehl, sagt die Rückmeldung es', async ({ page }) =>
   });
   await welt(page);
   await page.goto(DEMO);
-  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  await expect(page.locator('.kacheln img.leaflet-tile-loaded').first()).toBeVisible();
   await page.mouse.click(...(await bildschirm(page, 400, 36)));
   await page.getByRole('button', { name: '/tp kopieren' }).click();
   await expect(page.getByRole('status')).toHaveText('Kopieren fehlgeschlagen');
@@ -566,7 +616,7 @@ test.describe('auf dem Touchscreen', () => {
     await context.grantPermissions(['clipboard-read', 'clipboard-write']);
     await welt(page);
     await page.goto(DEMO);
-    await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+    await expect(page.locator('.kacheln img.leaflet-tile-loaded').first()).toBeVisible();
     await page.touchscreen.tap(...(await bildschirm(page, 400, 36)));
     await expect(page.locator('.koordinaten')).toHaveText('X 35  Y 5  Z -15');
     const knopf = (await page.getByRole('button', { name: '/tp kopieren' }).boundingBox())!;
@@ -580,7 +630,7 @@ test.describe('auf dem Touchscreen', () => {
   }) => {
     await welt(page);
     await page.goto(DEMO);
-    await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+    await expect(page.locator('.kacheln img.leaflet-tile-loaded').first()).toBeVisible();
     expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(true);
     // Auch ohne Block, wenn ein Wert nur „–“ zeigt: mindestens 24 px
     // (WCAG 2.5.8).
@@ -600,7 +650,7 @@ test.describe('auf dem Touchscreen', () => {
   test('Tippen auf Z, ein negativer Wert und Enter springt hin', async ({ page }) => {
     await welt(page);
     await page.goto(DEMO);
-    await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+    await expect(page.locator('.kacheln img.leaflet-tile-loaded').first()).toBeVisible();
     await page.touchscreen.tap(...(await bildschirm(page, 400, 36)));
     const z = (await page.locator('.wert').nth(2).boundingBox())!;
     await page.touchscreen.tap(z.x + z.width / 2, z.y + z.height / 2);
@@ -615,7 +665,7 @@ test.describe('auf dem Touchscreen', () => {
   test('ein Tippen zeigt den Block darunter', async ({ page }) => {
     await welt(page);
     await page.goto(DEMO);
-    await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+    await expect(page.locator('.kacheln img.leaflet-tile-loaded').first()).toBeVisible();
     await page.touchscreen.tap(...(await bildschirm(page, 400, 36)));
     await expect(page.locator('.koordinaten')).toHaveText('X 35  Y 5  Z -15');
     // Ohne Zeiger zeigt der Umriss den Block: Sechseck und die drei Kanten
@@ -633,7 +683,7 @@ test.describe('auf dem Touchscreen', () => {
 test('der Knopf ⌂ passt die ganze Karte ein, per Maus und Tastatur', async ({ page }) => {
   await welt(page);
   await page.goto(DEMO);
-  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  await expect(page.locator('.kacheln img.leaflet-tile-loaded').first()).toBeVisible();
   const parameter = (name: string) => new URL(page.url()).searchParams.get(name);
   await expect.poll(() => parameter('at')).not.toBeNull();
   const [at, zoom] = [parameter('at'), parameter('zoom')];
@@ -664,7 +714,7 @@ test('der Knopf ⌂ passt die ganze Karte ein, per Maus und Tastatur', async ({ 
 test('die Adresse folgt der Karte, ohne Einträge im Verlauf', async ({ page }) => {
   await welt(page);
   await page.goto(DEMO);
-  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  await expect(page.locator('.kacheln img.leaflet-tile-loaded').first()).toBeVisible();
   const parameter = (name: string) => new URL(page.url()).searchParams.get(name);
   // Schon die erste Ansicht steht in der Adresse.
   await expect.poll(() => parameter('at')).toMatch(/^-?\d+,-?\d+,-?\d+$/);
@@ -687,14 +737,14 @@ test('die Adresse folgt der Karte, ohne Einträge im Verlauf', async ({ page }) 
   // Neu geladen steht derselbe Block in der Mitte, auf derselben Stufe.
   const at = parameter('at')!.split(',');
   await page.reload();
-  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  await expect(page.locator('.kacheln img.leaflet-tile-loaded').first()).toBeVisible();
   expect(await mitte(page)).toBe(`X ${at[0]}  Y ${at[1]}  Z ${at[2]}`);
   expect(parameter('zoom')).toBe(String(zoom - 1));
 });
 
 test('zoomen wechselt die Kachelstufe, bis es keine feinere gibt', async ({ page }) => {
   await page.goto(DEMO);
-  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  await expect(page.locator('.kacheln img.leaflet-tile-loaded').first()).toBeVisible();
   const hinein = page.locator('.leaflet-control-zoom-in');
   const heraus = page.locator('.leaflet-control-zoom-out');
 
@@ -726,7 +776,7 @@ test('passt Zoom 0 nicht ins Fenster, geht es weiter heraus', async ({ page }) =
   // in jedem Fenster so: ihr Baum behält seine Stufen.
   await page.setViewportSize({ width: 100, height: 100 });
   await page.goto(DEMO);
-  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  await expect(page.locator('.kacheln img.leaflet-tile-loaded').first()).toBeVisible();
 
   expect(await tileZooms(page)).toEqual([0]);
   await expect.poll(() => tileStretch(page)).toBe(0.5);
@@ -754,7 +804,7 @@ test.describe('der Stand der Karte', () => {
       await route.fulfill({ status: 200, contentType: 'application/json', body: await response.text() });
     });
     await page.goto(DEMO);
-    await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+    await expect(page.locator('.kacheln img.leaflet-tile-loaded').first()).toBeVisible();
     await expect(page.locator('.stand')).toHaveCount(0);
   });
 
@@ -878,9 +928,9 @@ async function mitte(page: Page): Promise<string | null> {
 
 /** Die Stufen, aus denen die sichtbaren Kacheln eines Baums unter `/tiles-baeume` stammen. */
 async function baumStufen(page: Page): Promise<number[]> {
-  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  await expect(page.locator('.kacheln img.leaflet-tile-loaded').first()).toBeVisible();
   const quellen = await page
-    .locator('img.leaflet-tile-loaded')
+    .locator('.kacheln img.leaflet-tile-loaded')
     .evaluateAll((bilder) => bilder.map((bild) => (bild as HTMLImageElement).src));
   const stufen = quellen.map((src) => Number(/\/tiles-baeume\/[\w-]+\/(\d+)\//.exec(src)?.[1]));
   return [...new Set(stufen)];
@@ -921,7 +971,7 @@ test('ohne 2D ist der Umschalter eine Liste; sie öffnet den anderen Baum mit de
 
 /** Wie breit eine Kachel auf dem Schirm ist; über der feinsten Stufe vergrössert Leaflet sie. */
 async function kachelBreite(page: Page): Promise<number> {
-  const kachel = page.locator('img.leaflet-tile-loaded').first();
+  const kachel = page.locator('.kacheln img.leaflet-tile-loaded').first();
   await expect(kachel).toBeVisible();
   return (await kachel.boundingBox())!.width;
 }
@@ -1007,7 +1057,7 @@ test('mit 2D und 3D ein Knopf statt der Liste: er wechselt an denselben Block, e
 
 test('ein Baum allein braucht keinen Umschalter, nur den Kompass', async ({ page }) => {
   await page.goto(DEMO);
-  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  await expect(page.locator('.kacheln img.leaflet-tile-loaded').first()).toBeVisible();
   await expect(page.locator('select.baeume')).toHaveCount(0);
   await expect(page.locator('.kompass')).toHaveAttribute('style', /rotate\(63\.4deg\)/);
 });

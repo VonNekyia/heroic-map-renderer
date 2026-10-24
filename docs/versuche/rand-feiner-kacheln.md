@@ -51,5 +51,6 @@ gegen die Grundschicht:
 
 Mit einer eigenen Warteschlange, die das Sichtbare vor dem Rand lädt und
 eine Kachel des Rands aus der Schlange nimmt, sobald sie nicht mehr gebraucht
-wird, nähme der Rand dem Sichtbaren nichts. Nach dieser Warteschlange (D3)
-wird er noch einmal gemessen.
+wird, nähme der Rand dem Sichtbaren nichts. Diese Warteschlange ist selbst
+gemessen und verworfen, siehe [Warteschlange der Kacheln](warteschlange-der-kacheln.md);
+der Rand wurde darum nicht noch einmal gemessen.

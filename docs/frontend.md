@@ -147,6 +147,11 @@ laden; statt des Grunds der Karte sieht man dort die Gegend unscharf.
   das Fenster hinaus. Ein Rand der feinen Kacheln ist gemessen und
   verworfen: Bei 10 Mbit/s nimmt er den sichtbaren die Bandbreite, und er
   kostet +60 % Bytes; siehe [Rand der feinen Kacheln](versuche/rand-feiner-kacheln.md).
+- **Keine eigene Warteschlange:** Die Kacheln fragt Leaflet an wie immer.
+  Eine Warteschlange mit Vorrang der Grundschicht ist gemessen und
+  verworfen: Über HTTP/1.1 hält Chromium die Anfragen selbst zurück, und
+  eine eigene kostet Bytes oder Verbindungen; siehe
+  [Warteschlange der Kacheln](versuche/warteschlange-der-kacheln.md).
 
 ## Koordinaten
 

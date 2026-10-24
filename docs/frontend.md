@@ -757,9 +757,11 @@ für alle Banner.
 - **Kartenschrift:** je Schriftzug ein SVG im Pane der Formen, mit
   `textPath` entlang des Pfads, neu gesetzt bei jedem Zoom und während des
   Zooms ausgeblendet:
-  - die Schrift IM FELL English SC, die TTF unverändert aus
-    `web/src/ebenen/schrift/`, mit `FontFace` geladen, sobald eine Ebene
-    Schrift oder den Namen einer Nadel oder eines Banners zeigt;
+  - die Schrift IM FELL English SC als WOFF2 aus
+    `web/src/ebenen/schrift/`, nach
+    [0130](entscheidungen/0130-kartenschrift-als-woff2.md), mit `FontFace`
+    geladen, sobald eine Ebene Schrift oder den Namen einer Nadel oder eines
+    Banners zeigt;
   - Höhe der Grossbuchstaben `size · scale · 2^(Zoom − maxZoom)` Pixel;
     die Schriftgrösse ist sie durch 1384/2048, die Oberkante des „H“ der
     Schrift. Unter 8 Pixeln aus, über 96 gedeckelt;

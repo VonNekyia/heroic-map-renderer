@@ -73,7 +73,9 @@ Ein Kreis mit 2000 Blöcken Radius hat rund 785 000 Felder von 4 × 4 Blöcken.
   Grossbuchstaben H, E und Z (1384); die Schrift stünde 2,4 % zu klein.
 - **WOFF2 statt TTF:** Die OFL nennt einen Wechsel des Formats eine
   geänderte Version, und die darf den reservierten Namen nicht tragen. Die
-  Schrift kommt unverändert mit, so wie gewählt.
+  Schrift kommt unverändert mit, so wie gewählt. Aufgenommen in
+  [0130](0130-kartenschrift-als-woff2.md): Die FAQ zur OFL erlaubt WOFF2
+  ohne neuen Namen, wenn nur komprimiert ist.
 - **Je Zeichen ein gedrehtes Element:** mehr DOM, Sperrung und Kontur selbst
   gerechnet; `textPath` macht beides im Browser.
 

@@ -1082,13 +1082,23 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     const [gb, gh] = [b * k, h * k];
     const [sb, sh] = [gb / devicePixelRatio, gh / devicePixelRatio];
     const html = L.DomUtil.create('div', 'nadel');
-    const kopie = document.createElement('canvas');
-    [kopie.width, kopie.height] = [gb, gh];
-    [kopie.style.width, kopie.style.height] = [`${sb}px`, `${sh}px`];
-    const ctx = kopie.getContext('2d')!;
-    ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(bild, 0, 0, gb, gh);
-    html.append(kopie);
+    // Versuch, siehe docs/messungen/2026-10-24-viele-nadeln-und-banner.md: v1 Leinwand ohne Beschleunigung, v2 <img> für Bilder mit Adresse.
+    const versuch = new URLSearchParams(location.search).get('versuch') ?? '';
+    if (versuch.includes('v2') && bild instanceof HTMLImageElement) {
+      const img = document.createElement('img');
+      img.src = bild.src;
+      img.alt = '';
+      [img.style.width, img.style.height] = [`${sb}px`, `${sh}px`];
+      html.append(img);
+    } else {
+      const kopie = document.createElement('canvas');
+      [kopie.width, kopie.height] = [gb, gh];
+      [kopie.style.width, kopie.style.height] = [`${sb}px`, `${sh}px`];
+      const ctx = kopie.getContext('2d', versuch.includes('v1') ? { willReadFrequently: true } : undefined)!;
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(bild, 0, 0, gb, gh);
+      html.append(kopie);
+    }
     const [ax, ay] = [(fx * sb) / b, (fy * sh) / h];
     if (name && ort?.winkel !== undefined) {
       // Gemessen in der Kartenschrift: bannerIcon wartet, bis sie geladen ist.

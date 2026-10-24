@@ -120,7 +120,12 @@ async function lauf(browser: Browser, variante: keyof typeof VARIANTEN, dpr: num
   const cdp: CDPSession = await context.newCDPSession(page);
   await cdp.send('Emulation.setCPUThrottlingRate', { rate: cpu });
   const start = Date.now();
-  await page.goto(`${DEMO}&tree=2x1-se&at=0,64,0&zoom=${v.zoom}`);
+  if (process.env.LAGEN) await cdp.send('LayerTree.enable');
+  const lagen: number[] = [];
+  cdp.on('LayerTree.layerTreeDidChange', (e: { layers?: unknown[] }) => {
+    if (e.layers) lagen.push(e.layers.length);
+  });
+  await page.goto(`${DEMO}&tree=2x1-se&at=0,64,0&zoom=${v.zoom}${process.env.VERSUCH ? `&versuch=${process.env.VERSUCH}` : ''}`);
   await expect(page.locator('.nadel-icon')).toHaveCount(2000, { timeout: 300_000 });
   const laden_ms = Date.now() - start;
   const laden = await abschnitt(page, 0, await jetzt(page));
@@ -160,7 +165,7 @@ async function lauf(browser: Browser, variante: keyof typeof VARIANTEN, dpr: num
   const { usedSize } = (await cdp.send('Runtime.getHeapUsage')) as { usedSize: number };
   const { nodes } = (await cdp.send('Memory.getDOMCounters')) as { nodes: number };
   await context.close();
-  return { variante, dpr, cpu, laden_ms, laden, ziehen, rad, pinch, ...zustand, heap_mb: Math.round(usedSize / 1e5) / 10, dom_knoten: nodes };
+  return { versuch: process.env.VERSUCH || 'master', lagen: lagen.at(-1), variante, dpr, cpu, laden_ms, laden, ziehen, rad, pinch, ...zustand, heap_mb: Math.round(usedSize / 1e5) / 10, dom_knoten: nodes };
 }
 
 for (const variante of Object.keys(VARIANTEN) as (keyof typeof VARIANTEN)[]) {
@@ -168,7 +173,7 @@ for (const variante of Object.keys(VARIANTEN) as (keyof typeof VARIANTEN)[]) {
     for (const cpu of [1, 4]) {
       test(`${variante} dpr ${dpr} CPU ${cpu}×`, async ({ browser }) => {
         test.setTimeout(1_200_000);
-        for (let n = 1; n <= 3; n++) {
+        for (let n = 1; n <= Number(process.env.LAEUFE ?? 3); n++) {
           const zeile = JSON.stringify({ n, ...(await lauf(browser, variante, dpr, cpu)) });
           console.log(zeile);
           if (process.env.AUS) appendFileSync(process.env.AUS, `${zeile}\n`);

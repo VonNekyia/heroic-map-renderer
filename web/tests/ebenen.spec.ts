@@ -166,11 +166,19 @@ for (const [richtung, drehe] of [
     // Gefälle in x und z, eine leere Zelle unter den vier um die Nadel. Gekrümmt in x,
     // damit der Mittelwert der Nachbarn vom Umkreis abhängt.
     const hoehe = (i: number, j: number) => (i === 9 && j === -4 ? LEER : 10 + 2 * i * i + 3 * j);
+    // Westlich von x = 0 fehlen die Regionen. Nach 0128 hat nur ein Ort im Fenster mit Rand einen Marker: „Ohne“ liegt
+    // darum nah, mit allen Zellen seiner Rechnung samt Nachbarn in der fehlenden Region.
+    const mitLuecke = (i: number, j: number) => (i < 0 ? undefined : hoehe(i, j));
     const zwischen = { ...HAFEN, id: 'zwischen', name: 'Zwischen', at: [35.5, -14.5] };
-    const ohne = { ...HAFEN, id: 'ohne', name: 'Ohne', at: [600.5, -14.5] };
-    await welt(page, staedte([zwischen, ohne], { mehr: { seaLevel: 40, direction: richtung }, hoehe }));
-    await page.goto(DEMO);
-    await expect(page.locator('.nadel-icon')).toHaveCount(2);
+    const ohne = { ...HAFEN, id: 'ohne', name: 'Ohne', at: [-12.5, -14.5] };
+    // Auf ihrer Höhe stehen beide über der Welt, wo keine Kachel liegt. Gemessen wird darum gegen eine Nadel mit y am
+    // Ort von Zwischen; dass eine Nadel mit y richtig steht, prüft der Test davor gegen die Kacheln.
+    const bezug = { ...HAFEN, id: 'bezug', name: 'Bezug', at: [35.5, -14.5], y: 40 };
+    await welt(page, staedte([zwischen, ohne, bezug], { mehr: { seaLevel: 40, direction: richtung }, hoehe: mitLuecke }));
+    // Nach 0128 hat nur ein Ort im Fenster mit Rand einen Marker: die Mitte zwischen ihnen, das Fenster hoch genug.
+    await page.setViewportSize({ width: 1280, height: 1600 });
+    await page.goto(`${DEMO}&at=12,90,-15`);
+    await expect(page.locator('.nadel-icon')).toHaveCount(3);
     // Die Regel aus ebenen.md, hier unabhängig nachgebaut.
     const zelle = (i: number, j: number) => {
       const eigen = hoehe(i, j);
@@ -183,13 +191,17 @@ for (const [richtung, drehe] of [
     const [i, j, tx, tz] = [Math.floor(fx), Math.floor(fz), fx - Math.floor(fx), fz - Math.floor(fz)];
     expect([i, j, i + 1, j + 1]).toEqual([8, -5, 9, -4]);
     const h = (zelle(i, j) * (1 - tx) + zelle(i + 1, j) * tx) * (1 - tz) + (zelle(i, j + 1) * (1 - tx) + zelle(i + 1, j + 1) * tx) * tz + 1;
+    const [rx, rz] = drehe(35.5, -14.5);
+    const r = projiziere(rx, 41, rz, zweiZuEins(16));
+    const bei = await fuss(page, 'Bezug');
     for (const [name, x, y, z] of [
       ['Zwischen', 35.5, h, -14.5],
       // Keine Höhen dort, kein Nachbar: seaLevel + 1.
-      ['Ohne', 600.5, 41, -14.5],
+      ['Ohne', -12.5, 41, -14.5],
     ] as const) {
       const [bx, bz] = drehe(x, z);
-      const soll = await aufDemSchirm(page, ...projiziere(bx, y, bz, zweiZuEins(16)));
+      const p = projiziere(bx, y, bz, zweiZuEins(16));
+      const soll = [bei[0]! + p[0] - r[0], bei[1]! + p[1] - r[1]];
       const ist = await fuss(page, name);
       expect(Math.abs(ist[0]! - soll[0]!), `${name} x`).toBeLessThanOrEqual(1);
       expect(Math.abs(ist[1]! - soll[1]!), `${name} y`).toBeLessThanOrEqual(1);
@@ -1230,4 +1242,83 @@ test('was über die Grenzen geht oder nicht auf die Webkarte gehört, übergeht 
   await expect(page.locator('.tafel img')).toHaveCount(0);
   expect(meldungen.some((m) => m.includes('max 21'))).toBe(true);
   expect(meldungen.some((m) => m.includes('width und height'))).toBe(true);
+});
+
+/** Von oben genordet, 4 Pixel je Block; Zoom 0 zeigt 320 × 180 Blöcke, der Rahmen nach 0128 reicht 240 Blöcke von der Mitte. */
+const WEIT = { camera: 'top-north', scale: 4, projection: { azimuth: 'north', u: 4, v: 4, y: 0 }, minZoom: -10, bounds: [-4096, -4096, 4096, 4096] };
+const NAH = { ...HAFEN, id: 'nah', name: 'Nah', at: [0.5, 0.5], panel: undefined };
+/** 400 Blöcke östlich: auf Zoom 0 ausserhalb des Rahmens, auf −1 darin, aber nicht im Fenster, auf −2 im Fenster. */
+const FERN = { ...HAFEN, id: 'fern', name: 'Fern', at: [400.5, 0.5] };
+const fern = (page: Page) => page.locator('.nadel-icon[title="Fern"]');
+const imFenster = (page: Page) => fern(page).evaluate((e) => e.getBoundingClientRect().left < innerWidth);
+/** Zoomt mit den Knöpfen um eine Stufe und wartet, bis die Adresse sie nennt, also nach `moveend`. */
+async function stufe(page: Page, knopf: 'in' | 'out'): Promise<void> {
+  const vorher = Number(new URL(page.url()).searchParams.get('zoom'));
+  await page.locator(`.leaflet-control-zoom-${knopf}`).click();
+  await expect.poll(() => Number(new URL(page.url()).searchParams.get('zoom'))).toBe(vorher + (knopf === 'in' ? 1 : -1));
+}
+
+test('nach 0128 hat ein Ort nur im Fenster mit Rand einen Marker: Hinauszoomen baut ihn, Hineinzoomen hängt ihn aus', async ({ page }) => {
+  await welt(page, staedte([NAH, FERN], { mehr: WEIT }));
+  await page.goto(`${DEMO}&at=0,0,0&zoom=0`);
+  await expect(page.locator('.nadel-icon[title="Nah"]')).toHaveCount(1);
+  await expect(fern(page)).toHaveCount(0);
+  // Auf −1 im Rahmen, aber noch rechts ausserhalb des Fensters: Der Rand baut ihn vorab.
+  await stufe(page, 'out');
+  await expect(fern(page)).toHaveCount(1);
+  expect(await imFenster(page)).toBe(false);
+  await stufe(page, 'out');
+  await expect.poll(() => imFenster(page)).toBe(true);
+  // Zurück auf 0: wieder ausgehängt, der nahe bleibt.
+  await stufe(page, 'in');
+  await stufe(page, 'in');
+  await expect(fern(page)).toHaveCount(0);
+  await expect(page.locator('.nadel-icon[title="Nah"]')).toHaveCount(1);
+});
+
+test('nach 0128 kommt ein Ort schon beim Ziehen dazu, nicht erst beim Loslassen', async ({ page }) => {
+  await welt(page, staedte([NAH, FERN], { mehr: WEIT }));
+  await page.goto(`${DEMO}&at=0,0,0&zoom=0`);
+  await expect(page.locator('.nadel-icon[title="Nah"]')).toHaveCount(1);
+  await expect(fern(page)).toHaveCount(0);
+  // 800 px nach links sind 200 Blöcke: Fern liegt dann 200 Blöcke rechts der Mitte, im Rahmen.
+  await page.mouse.move(1000, 360);
+  await page.mouse.down();
+  await page.mouse.move(200, 360, { steps: 20 });
+  await expect(fern(page)).toHaveCount(1);
+  await page.mouse.up();
+});
+
+test('nach 0128 bleibt ein Marker mit offener Tafel oder mit dem Fokus, auch ausserhalb des Rahmens', async ({ page }) => {
+  await welt(page, staedte([NAH, FERN], { mehr: WEIT }));
+  await page.goto(`${DEMO}&at=0,0,0&zoom=-2`);
+  await expect.poll(() => imFenster(page)).toBe(true);
+  // Mit gehaltener Tafel zurück auf 0: Er liegt weit ausserhalb, bleibt aber, und die Tafel bleibt offen.
+  await fern(page).click();
+  await expect(page.locator('.leaflet-popup')).toBeVisible();
+  await stufe(page, 'in');
+  await stufe(page, 'in');
+  await expect(fern(page)).toHaveCount(1);
+  expect(await imFenster(page)).toBe(false);
+  await expect(page.locator('.leaflet-popup')).toBeVisible();
+  // Geschlossen und einmal verschoben: Er weicht.
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.leaflet-popup')).toHaveCount(0);
+  await page.mouse.move(640, 360);
+  await page.mouse.down();
+  await page.mouse.move(600, 360, { steps: 4 });
+  await page.mouse.up();
+  await expect(fern(page)).toHaveCount(0);
+  // Mit dem Fokus: hinaus, fokussieren, mit dem Rad um die Mitte hinein.
+  await page.goto(`${DEMO}&at=0,0,0&zoom=-2`);
+  await expect.poll(() => imFenster(page)).toBe(true);
+  await fern(page).focus();
+  await page.mouse.move(640, 360);
+  for (let i = 0; i < 4; i++) {
+    await page.mouse.wheel(0, -120);
+    await page.waitForTimeout(300);
+  }
+  await expect.poll(() => imFenster(page)).toBe(false);
+  await expect(fern(page)).toHaveCount(1);
+  expect(await fern(page).evaluate((e) => e === document.activeElement)).toBe(true);
 });

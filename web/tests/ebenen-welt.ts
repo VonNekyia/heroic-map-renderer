@@ -65,8 +65,11 @@ export interface Welt {
   datei: (name: string) => object | undefined;
   /** Felder für map.json. */
   mehr?: object;
-  /** Höhe einer Zelle nach ihrem Index in der Welt; ohne Angabe eben auf 0. Regionen mit x ≥ 512 fehlen. */
-  hoehe?: (i: number, j: number) => number;
+  /**
+   * Höhe einer Zelle nach ihrem Index in der Welt; ohne Angabe eben auf 0.
+   * Regionen mit x ≥ 512 fehlen, ebenso eine mit `undefined` an ihrer ersten Zelle.
+   */
+  hoehe?: (i: number, j: number) => number | undefined;
   /**
    * Der Boden ohne Laub, als `ground` in map.json, wie `hoehe`; ohne Angabe kein `ground`.
    * `undefined` an der ersten Zelle einer Region: Ihre Datei fehlt.

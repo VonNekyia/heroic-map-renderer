@@ -201,7 +201,7 @@ test('die Karte läuft unter strengen Headern', async ({ page }) => {
   );
 });
 
-test('Kacheln folgt Leaflet 1.9.4: Ein anderes Leaflet braucht einen Blick auf die vier Methoden der Unterklasse', () => {
+test('Kacheln folgt Leaflet 1.9.4: Ein anderes Leaflet braucht einen Blick auf die fünf Methoden der Unterklasse', () => {
   const { version } = JSON.parse(readFileSync(new URL('../node_modules/leaflet/package.json', import.meta.url), 'utf8')) as { version: string };
   expect(version, 'siehe docs/frontend.md, „Ausliefern“').toBe('1.9.4');
 });

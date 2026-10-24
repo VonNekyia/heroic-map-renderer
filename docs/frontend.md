@@ -145,6 +145,31 @@ laden; statt des Grunds der Karte sieht man dort die Gegend unscharf.
   Messung des Rands der feinen Kacheln. Wo die Pyramide endet, laden beide
   dieselbe Stufe, und der Browser holt sie einmal.
 
+## Warteschlange
+
+Kacheln beider Ebenen gehen durch eine Warteschlange in
+[`main.ts`](../web/src/main.ts), statt dass Leaflet jede gleich anfragt.
+
+- **Anlegen:** `createTile` legt das Bild an wie Leaflet, setzt `src` aber
+  nicht; die Kachel wartet. Leaflet legt die Kacheln schon nach Abstand
+  zur Mitte an; die Reihe bleibt.
+- **Vorrang:** zuerst die wartenden der Grundschicht, dann die feinen.
+- **Grenze:** Höchstens 6 Kacheln laden zugleich, so viele, wie Chromium
+  über HTTP/1.1 je Host öffnet. Die erste fertige Kachel derselben Herkunft
+  setzt die Grenze nach `nextHopProtocol`: 6 für `http/1.x`, 16 sonst. Ist
+  es leer, etwa aus dem Cache, bleibt es bei 6, bis eine über das Netz
+  kommt. `SCHLANGE` in `main.ts`.
+- **Nicht mehr gebraucht:** Entfernt Leaflet eine Kachel, beim Ziehen oder
+  beim Wechsel der Stufe, fällt sie aus der Warteschlange, wenn sie noch
+  wartet; sie geht nie ans Netz. Lädt sie schon, lädt sie losgelöst zu Ende,
+  statt abzubrechen: Über HTTP/1.1 verwirft Chromium nach einem Abbruch
+  oft die Verbindung, und fertig liegt sie im Cache. Ihr Platz wird erst
+  danach frei.
+- **Losgelöst fasst sie nichts an:** Eine entfernte Kachel, die zu Ende
+  lädt, geht nicht in die Karte und nicht in `_tileReady`. Sonst markierte
+  sie eine neue Kachel an derselben Stelle als geladen, bevor diese selbst
+  angefragt ist.
+
 ## Koordinaten
 
 Unten links steht, welcher Block unter Maus oder Finger zu sehen ist,
@@ -928,15 +953,15 @@ liegen als `tiles/` daneben, oder `?tiles=` nennt ihren Pfad.
   Tests prüfen den Build darunter; der Server des Renderers (#151) nimmt sie
   per `include_str!`. Ein anderer Server setzt sie so oder strenger. Liegen die Kacheln auf einer anderen
   Domain als die Seite, brauchen `img-src` und `connect-src` diese Domain.
-- **Abgebrochene Kacheln:** Beim Zoomen bricht Leaflet Kacheln ab, die noch
-  laden, und setzt dafür ein GIF als `data:` in `src`. Das verletzte die
-  CSP, bei jedem Zoomen viele Male. Die Karte nimmt darum eine Unterklasse
-  `Kacheln` in [`web/src/main.ts`](../web/src/main.ts): Sie entfernt `src`,
-  das bricht die Anfrage genauso ab und lädt nichts. `L.Util.emptyImageUrl`
-  umzusetzen reicht nicht, Leaflet liest die Adresse aus einer Variable
-  seines Moduls. Die drei Methoden folgen Leaflet 1.9.4, ebenso die der
-  Grundschicht, siehe „Grundschicht“; ein neues Leaflet braucht einen Blick
-  auf alle vier.
+- **Keine abgebrochenen Kacheln:** Beim Zoomen bricht Leaflet Kacheln ab,
+  die noch laden, und setzt dafür ein GIF als `data:` in `src`. Das verletzte
+  die CSP, bei jedem Zoomen viele Male. `L.Util.emptyImageUrl` umzusetzen
+  reicht nicht, Leaflet liest die Adresse aus einer Variable seines Moduls.
+  Die Unterklasse `Kacheln` in [`web/src/main.ts`](../web/src/main.ts)
+  bricht darum gar nicht ab, siehe „Warteschlange“. Ihre fünf Methoden
+  (`createTile`, `_abortLoading`, `_removeTile`, `_tileReady` und
+  `_clampZoom` der Grundschicht) folgen Leaflet 1.9.4; ein neues Leaflet
+  braucht einen Blick auf alle fünf.
 - **Cache:** Ein neuer Lauf tauscht Kacheln unter derselben URL. Damit der
   Browser danach den neuen Stand zeigt:
   - **Betreiber** setzen für `tiles/` `Cache-Control: no-cache`, in nginx

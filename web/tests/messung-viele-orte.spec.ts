@@ -172,7 +172,7 @@ async function lauf(browser: Browser, variante: keyof typeof VARIANTEN, dpr: num
   const { usedSize } = (await cdp.send('Runtime.getHeapUsage')) as { usedSize: number };
   const { nodes } = (await cdp.send('Memory.getDOMCounters')) as { nodes: number };
   await context.close();
-  return { stand: process.env.STAND ?? '', variante, dpr, cpu, laden_ms, laden, ziehen, radRein, radRaus, pinchRein, pinchRaus, ...zustand, heap_mb: Math.round(usedSize / 1e5) / 10, dom_knoten: nodes };
+  return { stand: process.env.STAND ?? '', imDomGeladen: zahl, variante, dpr, cpu, laden_ms, laden, ziehen, radRein, radRaus, pinchRein, pinchRaus, ...zustand, heap_mb: Math.round(usedSize / 1e5) / 10, dom_knoten: nodes };
 }
 
 for (const variante of Object.keys(VARIANTEN) as (keyof typeof VARIANTEN)[]) {

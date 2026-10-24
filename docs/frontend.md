@@ -576,7 +576,21 @@ für alle Banner.
   - übereinander: je Ebene ein Pane, `z-index` 510 + Rang in der Reihe der Liste,
     über `shadowPane` (500) und unter `markerPane` (600), `tooltipPane`
     und der Tafel; in einer Ebene liegt das spätere oben;
-  - ohne Tafel kein Ziel für Maus und Tastatur.
+  - ohne Tafel kein Ziel für Maus und Tastatur;
+  - nur im Fenster mit Rand im DOM, nach
+    [0128](entscheidungen/0128-marker-nur-im-ausschnitt.md). Der Rand ist
+    ein Viertel des Fensters je Seite (`ORT_RAND`). Die Lage rechnet
+    `ladeEbene` für alle Orte; Icon und Marker baut `zeigeOrte` erst, wenn
+    ein Ort zum ersten Mal in den Rahmen kommt, je 32 zugleich, und gibt
+    nach `STUECK_MS` den Hauptfaden frei. Ein gebauter Marker bleibt bis zum
+    nächsten Laden der Ebene und wird nur aus- und eingehängt.
+  - **Neu gezählt** wird bei `moveend` und gleich nach dem Laden. Beim
+    Ziehen zählt die Karte höchstens einmal je Frame neu, sobald das
+    Fenster den inneren Rahmen verlässt, den halben Rand.
+  - **Bleiben** auch ausserhalb: ein Marker mit offener Tafel, sonst
+    schlösse Leaflet sie, und einer mit dem Fokus.
+  - **Tab** erreicht nur Nadeln und Banner im Fenster mit Rand. Ein Ort weit
+    ausserhalb ist kein Ziel, bis die Karte dorthin geht.
 - **Infotafel:** ein Popup von Leaflet, gebaut nur aus Elementen mit
   `textContent` und Bildern unter `images/` der Ebene, dunkel wie im Mod
   nach [Ebenen](benutzung/ebenen.md), „Infotafel“, in der Schrift der UI;

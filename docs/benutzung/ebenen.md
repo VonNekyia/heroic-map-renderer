@@ -346,7 +346,9 @@ layers/<modname>/banner/<ebene>/<satz>/satz.json
 - **`<ebene>`:** der Teil der Kennung nach `:`.
 - **`<satz>`:** der Name eines Baums aus `trees.json`, der nicht von oben
   schaut, etwa `2x1-se`, oder `oben`: die Sicht aus `north-45`, Richtung
-  `s`, im Look der Karte. `oben` gibt es immer.
+  `s`, im Look der Karte. `oben` gibt es immer. Jeder Satz zeichnet wie
+  `oben`, von vorn, in jeder Kamera und Richtung des Baums, siehe
+  [0120](../entscheidungen/0120-banner-von-vorn.md).
 - **Welches Sprite:** Ein Baum, der nicht von oben schaut, nimmt seinen
   Satz; jeder Baum von oben, `top-north`, `top` und `--flat`, und der Mod
   nehmen `oben`. Mit `capital` das aus `krone/`.
@@ -361,8 +363,9 @@ layers/<modname>/banner/<ebene>/<satz>/satz.json
 - **`satz.json`:** der Fuss im Sprite und der Winkel der Unterkante des
   Tuchs. Die Ansicht setzt das Sprite mit diesem Fuss auf den Ort und dreht
   den Namen darunter um diesen Winkel, so dass er parallel zur Unterkante
-  läuft; von vorn ist er 0. Welcher Winkel je Kamera und Richtung gilt,
-  steht in [0100](../entscheidungen/0100-der-renderer-zeichnet-die-banner.md).
+  läuft; von vorn ist er 0, und seit
+  [0120](../entscheidungen/0120-banner-von-vorn.md) zeichnet jeder Satz von
+  vorn.
   Mit `image` bleibt der Fuss bei `(⌊Breite / 2⌋, Höhe)` und der Name
   waagrecht.
 

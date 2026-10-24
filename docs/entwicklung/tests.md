@@ -362,6 +362,7 @@ lassen; ohne sie läuft der Renderer, wie er ist.
 |---|---|---|
 | `HEROIC_ABBRUCH=vor-pyramide` | bricht nach der Basis ab, bevor die Pyramide von der Platte entsteht | `update_nach_abbruch_gleicht_einem_vollen_lauf` |
 | `HEROIC_ABBRUCH=basis-N` | bricht nach N neu geschriebenen Basiskacheln ab | ebenda |
+| `HEROIC_ABBRUCH=stand-haelfte` | bricht am Ende ab, wenn die Hälfte der geänderten Regionen in `stand/` liegt, vor dem Kopf | `stand_je_region_nach_abbruch` |
 | `HEROIC_GPU_GRENZE` | lässt die Karte schon beim Anlegen des Zeichners an einer Grenze in Bytes scheitern | `versagende_karte_steht_einmal_im_log` |
 
 ## GPU-Tests

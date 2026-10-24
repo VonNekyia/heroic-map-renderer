@@ -25,7 +25,10 @@ use super::sonne::texel_mitte;
 use super::sprites::{Family, Rows, TINT_BLOCK, TINT_WATER, mask_bit};
 use super::{Cell, OWN_CELL, Projection, Richtung, Sprite, SpriteId, SpriteSet};
 
+mod relief;
 mod strahl;
+
+pub use relief::Relief;
 
 pub(crate) use strahl::{Versatz, ohne_null, versaetze};
 
@@ -91,7 +94,9 @@ pub fn render_area(
     let spalten = rect.width.div_ceil(STUECK) as usize;
     let mut chunks = ChunkCache::with_row(world, sprites, spalten);
     if rect.width <= STUECK && rect.height <= STUECK {
-        return render_area_with(&mut chunks, rect, y_range);
+        let mut bild = render_area_with(&mut chunks, rect, y_range)?;
+        mit_relief(&mut chunks, &mut bild, rect)?;
+        return Ok(bild);
     }
     let mut canvas = RgbaImage::new(rect.width, rect.height);
     for y in (0..rect.height).step_by(STUECK as usize) {
@@ -102,11 +107,22 @@ pub fn render_area(
                 width: STUECK.min(rect.width - x),
                 height: STUECK.min(rect.height - y),
             };
-            let bild = render_area_with(&mut chunks, stueck, y_range)?;
+            let mut bild = render_area_with(&mut chunks, stueck, y_range)?;
+            mit_relief(&mut chunks, &mut bild, stueck)?;
             image::imageops::replace(&mut canvas, &bild, i64::from(x), i64::from(y));
         }
     }
     Ok(canvas)
+}
+
+/// Legt das Relief aus `--relief` auf das Bild des Ausschnitts `rect`, auf
+/// der CPU wie nach der Grafikkarte; ohne Relief bleibt es, wie es ist.
+/// Siehe docs/renderer/relief.md.
+pub fn mit_relief(chunks: &mut ChunkCache, bild: &mut RgbaImage, rect: ScreenRect) -> Result<()> {
+    match chunks.sprites.relief() {
+        Some(relief) => relief::zeichne(chunks, bild, rect, relief),
+        None => Ok(()),
+    }
 }
 
 /// Kantenlänge der Stücke von [`render_area`], in Pixeln. Kandidaten,

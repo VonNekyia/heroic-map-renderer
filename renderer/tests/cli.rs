@@ -5822,6 +5822,159 @@ fn update_gleicht_einem_vollen_lauf() {
     }
 }
 
+/// Boden aus einer Lage, für die Tests des Reliefs.
+fn boden(_: i32, y: i32, _: i32) -> &'static str {
+    if y == 0 {
+        "minecraft:einfarbig"
+    } else {
+        "minecraft:air"
+    }
+}
+
+/// Der Boden mit einem Turm bis y = 60 in der Ecke (15, 15) des Chunks
+/// (0, 0): Sein Schatten fällt 32 Blöcke diagonal nach Südosten, bis in den
+/// Chunk (2, 2).
+fn boden_mit_turm(x: i32, y: i32, z: i32) -> &'static str {
+    if (x, z) == (15, 15) && y <= 60 {
+        "minecraft:einfarbig"
+    } else {
+        boden(x, y, z)
+    }
+}
+
+/// Mit `--relief shadows` zeichnet ein Update auch, wohin der Schatten
+/// einer Änderung fällt, über den Chunk daneben hinaus, und gleicht danach
+/// einem vollen Lauf. Die Kachel dort hat sich wirklich geändert: Bei
+/// scale 32 ist eine Kachel 8 Blöcke breit, und die Kachel (5, 5) liegt
+/// ausserhalb der 16 Blöcke um den Chunk samt der Reserve von 3 Blöcken
+/// für überstehende Sprites.
+/// Siehe docs/benutzung/updates.md, „Wo ein Update zeichnet“.
+#[test]
+fn relief_update_reicht_so_weit_wie_der_schatten() {
+    let chunks = [(0, 0), (1, 1), (2, 2)];
+    let welt = tempdir();
+    let baue = |block: fn(i32, i32, i32) -> &'static str, zeit: u32| {
+        common::write_world_sections(welt.path(), &chunks, 0..=3, block, |_, _| None);
+        common::setze_stempel(welt.path(), 0, 0, zeit);
+    };
+    let extra = ["--camera", "top-north", "--scale", "32", "--relief", "shadows"];
+    baue(boden, 1);
+    let baum = neuer_baum("top-north-s");
+    gelungen(&export(welt.path(), baum.path(), &extra));
+    let vorher = schnappschuss(baum.path());
+
+    baue(boden_mit_turm, 2);
+    let update: Vec<&str> = extra.iter().copied().chain(["--update"]).collect();
+    let log = String::from_utf8_lossy(&gelungen(&export(welt.path(), baum.path(), &update)).stdout)
+        .into_owned();
+    assert!(log.contains("Update:     1 Chunks geändert"), "{log}");
+    let voll = neuer_baum("top-north-s");
+    gelungen(&export(welt.path(), voll.path(), &extra));
+    gleiche_baeume(baum.path(), voll.path(), "--relief shadows --update");
+    let fern = format!("{}/5/5.webp", max_zoom(voll.path()));
+    assert_ne!(
+        vorher.get(&fern),
+        schnappschuss(voll.path()).get(&fern),
+        "{fern}"
+    );
+}
+
+/// Das Relief wechselt nur ein voller Lauf. Ein Update oder ein Ausschnitt
+/// mit einem anderen bricht ab und schreibt nichts. Ein voller Lauf zeichnet
+/// den Baum ganz neu, auch mit `--resume`, und `map.json` nennt danach das
+/// neue; ohne Relief fehlt das Feld. Zurück ohne Relief gleicht der Baum
+/// wieder dem von vorher, und ein Update hat nichts zu zeichnen.
+/// Siehe docs/benutzung/updates.md, „Relief wechseln“.
+#[test]
+fn relief_wechselt_nur_mit_vollem_lauf() {
+    let welt = tempdir();
+    baue_gelaende(welt.path());
+    let baum = neuer_baum("top-north-s");
+    let info = |baum: &Path| -> serde_json::Value {
+        serde_json::from_str(&std::fs::read_to_string(baum.join("map.json")).unwrap()).unwrap()
+    };
+    let oben = ["--camera", "top-north", "--scale", "8"];
+    let lauf = |dazu: &[&str]| {
+        let extra: Vec<&str> = oben.iter().chain(dazu).copied().collect();
+        export(welt.path(), baum.path(), &extra)
+    };
+    gelungen(&lauf(&[]));
+    assert!(info(baum.path()).get("relief").is_none());
+    let ohne = schnappschuss(baum.path());
+
+    for dazu in [
+        &["--relief", "slope", "--update"][..],
+        &["--relief", "slope", "--size", "64"],
+    ] {
+        let ausgabe = lauf(dazu);
+        let meldung = String::from_utf8_lossy(&ausgabe.stderr);
+        assert!(
+            !ausgabe.status.success()
+                && meldung.contains(
+                    "gehört zu einem Baum ohne Relief, dieser Lauf zeichnet mit Relief slope"
+                )
+                && meldung.contains("Das Relief wechselt nur ein voller Lauf"),
+            "{dazu:?}: {meldung}"
+        );
+        assert_eq!(schnappschuss(baum.path()), ohne, "{dazu:?}");
+    }
+
+    let ausgabe = lauf(&["--relief", "slope", "--resume"]);
+    let log = String::from_utf8_lossy(&gelungen(&ausgabe).stdout).into_owned();
+    assert!(
+        log.contains("dieser Lauf zeichnet mit Relief slope und jede Kachel neu"),
+        "{log}"
+    );
+    assert_eq!(info(baum.path())["relief"], "slope");
+    let frisch = neuer_baum("top-north-s");
+    let mit: Vec<&str> = oben.iter().copied().chain(["--relief", "slope"]).collect();
+    gelungen(&export(welt.path(), frisch.path(), &mit));
+    gleiche_baeume(baum.path(), frisch.path(), "--relief slope über einen Baum ohne");
+    assert_ne!(schnappschuss(baum.path()), ohne, "das Relief zeichnet nichts");
+
+    let ausgabe = lauf(&["--update"]);
+    let meldung = String::from_utf8_lossy(&ausgabe.stderr);
+    assert!(
+        !ausgabe.status.success()
+            && meldung.contains(
+                "gehört zu einem Baum mit Relief slope, dieser Lauf zeichnet ohne Relief"
+            ),
+        "{meldung}"
+    );
+    gelungen(&lauf(&[]));
+    assert_eq!(schnappschuss(baum.path()), ohne);
+    let log = String::from_utf8_lossy(&gelungen(&lauf(&["--update"])).stdout).into_owned();
+    assert!(log.contains("nichts zu zeichnen"), "{log}");
+}
+
+/// `--relief` gibt es nur von oben, genordet aus Süden, und nicht mit
+/// Cinematic oder der einfarbigen Ansicht.
+#[test]
+fn relief_nur_von_oben_aus_sueden() {
+    let welt = tempdir();
+    baue_gelaende(welt.path());
+    for (extra, meldung) in [
+        (&["--relief", "slope"][..], "--relief gibt es nur mit --camera top-north in Richtung s"),
+        (
+            &["--camera", "top-north", "--direction", "w", "--relief", "slope"],
+            "--relief gibt es nur mit --camera top-north in Richtung s",
+        ),
+        (&["--camera", "top", "--relief", "shadows"], "--relief gibt es nur mit --camera top-north"),
+        (&["--camera", "top-north", "--cinematic", "--relief", "slope"], "--cinematic"),
+        (&["--flat", "--relief", "slope"], "--flat"),
+        (&["--camera", "top-north", "--relief", "none"], "unbekanntes Relief none"),
+    ] {
+        let baum = neuer_baum(&baum_name(extra));
+        let ausgabe = export(welt.path(), baum.path(), extra);
+        let fehler = String::from_utf8_lossy(&ausgabe.stderr);
+        assert!(
+            !ausgabe.status.success() && fehler.contains(meldung),
+            "{extra:?}: {fehler}"
+        );
+        assert!(!baum.path().exists(), "{extra:?}");
+    }
+}
+
 /// Das Manifest eines Baums, entpackt.
 fn manifest(baum: &Path) -> String {
     let datei = std::fs::File::open(baum.join("manifest")).unwrap();

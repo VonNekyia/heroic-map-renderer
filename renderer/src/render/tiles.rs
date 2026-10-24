@@ -19,7 +19,7 @@ use crate::world::{BlockState, Blockdaten, Chunk, REGION, World};
 use super::heights::{self, Heights, RegionHeights};
 use super::look::Look;
 use super::stand::{Aenderung, Inhalt};
-use super::{BLEED_BLOCKS, Projection, ScreenRect};
+use super::{BLEED_BLOCKS, Projection, Relief, ScreenRect};
 
 /// Kantenlänge einer Kachel in Pixeln. 256 ist, was Leaflet ohne
 /// Zusatzeinstellung erwartet.
@@ -485,7 +485,9 @@ fn zur_sonne(projection: Projection, look: &Look) -> [[i32; 2]; 2] {
 /// Unterkante der Dimension, bis 16 Blöcke über [`Aenderung::oben`], denn
 /// Himmelslicht fällt in einer Spalte beliebig tief. Mit Cinematic dazu
 /// jeder Chunk, dessen Strahlen zur Sonne ihn lesen ([`Reach::mit_sonne`]
-/// umgekehrt), und der Rand des Bloom auf jeder nativen Stufe.
+/// umgekehrt), und der Rand des Bloom auf jeder nativen Stufe. Mit Relief
+/// dazu die Chunks im Südosten, deren Relief er ändert
+/// ([`Relief::chunks_nach_suedosten`]).
 /// Siehe docs/benutzung/updates.md, „Wo ein Update zeichnet“.
 pub fn gebiet_der_aenderungen(
     projection: Projection,
@@ -493,9 +495,14 @@ pub fn gebiet_der_aenderungen(
     unten: i32,
     aenderungen: &[Aenderung],
     look: Option<&Look>,
+    relief: Option<Relief>,
 ) -> Gebiet {
     let richtung = projection.richtung();
-    let [von, bis] = look.map_or([[-1, -1], [1, 1]], |look| zur_sonne(projection, look));
+    let [mut von, bis] = look.map_or([[-1, -1], [1, 1]], |look| zur_sonne(projection, look));
+    if let Some(relief) = relief {
+        let n = relief.chunks_nach_suedosten();
+        von = [von[0].min(-n), von[1].min(-n)];
+    }
     let bloom = look.map_or(0, |look| {
         (0..=stufen)
             .map(|k| (3 * look.bloom_radius(projection.scale() >> k) as i32) << k)
@@ -1071,7 +1078,7 @@ mod tests {
                 let richtung = projection.richtung();
                 for stufen in [0, 3] {
                     let gebiet =
-                        gebiet_der_aenderungen(projection, stufen, unten, &[aenderung], None);
+                        gebiet_der_aenderungen(projection, stufen, unten, &[aenderung], None, None);
                     for x in chunk[0] * 16 - 16..chunk[0] * 16 + 32 {
                         for z in chunk[1] * 16 - 16..chunk[1] * 16 + 32 {
                             for y in [unten, oben + 16] {
@@ -1094,6 +1101,38 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// Mit Schatten reicht das Gebiet einer Änderung so weit nach Südosten,
+    /// wie die Schatten ihrer Spalten fallen, 32 Blöcke diagonal; das Gefälle
+    /// braucht nichts über die 16 Blöcke hinaus. Bei scale 32 ist eine Kachel
+    /// 8 Blöcke breit: Die letzten liegen jenseits der Reserve von
+    /// [`BLEED_BLOCKS`].
+    /// Siehe docs/benutzung/updates.md, „Wo ein Update zeichnet“.
+    #[test]
+    fn gebiet_mit_schatten_reicht_32_bloecke_nach_suedosten() {
+        use crate::render::{Kamera, Richtung};
+        let chunk = [2, -3];
+        let aenderung = Aenderung {
+            chunk,
+            oben: 40,
+            bleibt: true,
+        };
+        let projection = Projection::mit_kamera(32, Kamera::ObenNord)
+            .aus(Richtung::parse("s", Kamera::ObenNord).unwrap());
+        let gebiet = |relief| gebiet_der_aenderungen(projection, 0, -64, &[aenderung], None, relief);
+        let schatten = gebiet(Some(Relief::Schatten));
+        for x in chunk[0] * 16..chunk[0] * 16 + 16 + 32 {
+            for z in chunk[1] * 16..chunk[1] * 16 + 16 + 32 {
+                let (sx, sy) = projection.project_block([x, 0, z]);
+                let tile = TileId {
+                    x: (sx / TILE as f64).floor() as i32,
+                    y: (sy / TILE as f64).floor() as i32,
+                };
+                assert!(schatten.enthaelt(tile), "Block {x}, {z}");
+            }
+        }
+        assert_eq!(gebiet(Some(Relief::Gefaelle)).kacheln(), gebiet(None).kacheln());
     }
 
     /// Ein Gebiet aus einem Rechteck verhält sich wie das Rechteck, auf

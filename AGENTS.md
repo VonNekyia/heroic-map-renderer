@@ -187,7 +187,8 @@ Vor dem Arbeitsschritt die `SKILL.md` ganz lesen und ihr folgen.
 27. Zeichnet der Renderer nach einer Änderung eine Kachel, eine Höhe oder
     den Abdruck eines Chunks eines Looks anders, hebt dieselbe PR dessen
     Zeichenstand in `renderer/src/render/stand.rs`, `ZEICHENSTAND_MAP`,
-    `_CINEMATIC` oder `_FLAT`, auch wenn kein Goldbild es zeigt. Berührt
+    `_CINEMATIC` oder `_FLAT`, auch wenn kein Goldbild es zeigt; zeichnet
+    nur das Relief anders, `ZEICHENSTAND_RELIEF`. Berührt
     die Änderung, was alle Looks teilen, oder ist es unklar, hebt sie jeden.
     Sonst mischt ein Update auf dem Server alte und neue Kacheln. Wann er
     steigt und was die Looks teilen, steht in

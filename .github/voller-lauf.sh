@@ -4,8 +4,11 @@
 # dem letzten Tag geändert hat, und für alle, ob sich eine Tabelle unter
 # renderer/src/assets/ geändert hat. Vor 0101 galt ein ZEICHENSTAND für alle
 # Looks; bis v0.5.0 stand keiner im Code, jene Builds zeichnen wie
-# Zeichenstand 1. Den Wortlaut übernimmt das Plugin in seinen CHANGELOG.
-# Siehe docs/entscheidungen/0101-zeichenstand-je-look.md.
+# Zeichenstand 1. Bäume mit --relief brauchen dazu einen, wenn
+# ZEICHENSTAND_RELIEF steigt. Den Wortlaut übernimmt das Plugin in seinen
+# CHANGELOG.
+# Siehe docs/entscheidungen/0101-zeichenstand-je-look.md und
+# docs/entscheidungen/0122-relief-von-oben.md.
 # Aufruf: bash .github/voller-lauf.sh <Tag>
 set -euo pipefail
 neu=$1
@@ -48,12 +51,32 @@ for i in "${!looks[@]}"; do
     anders+=("${looks[$i]}")
   fi
 done
+# Der Zeichenstand des Reliefs an einem Stand; leer, wo es ihn nicht gibt.
+relief() {
+  git show "$1:renderer/src/render/stand.rs" 2>/dev/null |
+    sed -n 's/^pub const ZEICHENSTAND_RELIEF: u32 = \([0-9]*\);$/\1/p' || true
+}
+relief_alt=$(relief "$alt")
+if [ -n "$relief_alt" ] && [ "$relief_alt" != "$(relief "$neu")" ]; then
+  relief_anders=ja
+fi
+
 if ! git diff --quiet "$alt" "$neu" -- 'renderer/src/assets/*.txt' || [ ${#gleich[@]} -eq 0 ]; then
   echo "Jeder Baum braucht einen vollen Lauf: Zeichenstand oder Tabellen sind anders als in $alt."
+  exit 0
+elif [ ${#anders[@]} -eq 0 ] && [ -n "${relief_anders:-}" ]; then
+  echo "Einen vollen Lauf brauchen nur Bäume mit --relief: der Zeichenstand des Reliefs ist" \
+    "anders als in $alt. Alle anderen: kein voller Lauf, --update geht weiter."
+  exit 0
 elif [ ${#anders[@]} -eq 0 ]; then
   echo "Kein voller Lauf nötig: Zeichenstand und Tabellen wie in $alt, --update geht weiter." \
     "Einen Baum eines Release vor v0.4.0 rendert der Renderer einmal ganz."
 else
   echo "Einen vollen Lauf brauchen nur Bäume mit look $(und "${anders[@]}"): ihr Zeichenstand ist" \
     "anders als in $alt. Bäume mit look $(und "${gleich[@]}"): kein voller Lauf, --update geht weiter."
+fi
+# Relief gibt es nur mit look map; steht map schon oben, ist es gesagt.
+if [ -n "${relief_anders:-}" ] && [[ " ${gleich[*]} " == *" map "* ]]; then
+  echo "Bäume mit --relief brauchen dazu einen vollen Lauf: der Zeichenstand des Reliefs ist" \
+    "anders als in $alt."
 fi

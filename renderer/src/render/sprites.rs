@@ -18,7 +18,7 @@ use crate::world::{BlockState, Blockdaten};
 
 use super::kino::Kino;
 use super::look::Look;
-use super::metatile::ohne_null;
+use super::metatile::{Relief, ohne_null};
 use super::rasterizer::{Lightmap, Raster, auf_den_vorderseiten, faces_camera, rastern};
 use super::sonne::{Masken, Sonnenform};
 use super::tint::BiomeTable;
@@ -93,6 +93,8 @@ pub struct SpriteSet {
     licht_deckend: Option<HashSet<BlockState>>,
     /// Womit Cinematic zeichnet; `None` für die Karte.
     kino: Option<Kino>,
+    /// Das Relief von oben aus `--relief`; `None` ohne.
+    relief: Option<Relief>,
     /// Nur für Cinematic: die Texelmasken der [`Sonnenform`]en und die
     /// Würfel um einen Block, in die irgendein Modell ragt, von und bis.
     masken: Masken,
@@ -636,6 +638,7 @@ impl SpriteSet {
             biomes,
             licht_deckend: None,
             kino,
+            relief: None,
             masken: Masken::default(),
             sonne_reich: [[0; 3]; 2],
             festes_laub: false,
@@ -1043,6 +1046,16 @@ impl SpriteSet {
     /// Womit Cinematic zeichnet; `None` für die Karte.
     pub fn kino(&self) -> Option<&Kino> {
         self.kino.as_ref()
+    }
+
+    /// Das Relief von oben, das jeder Ausschnitt nach dem Zeichnen bekommt,
+    /// siehe [`super::metatile::mit_relief`].
+    pub fn set_relief(&mut self, relief: Option<Relief>) {
+        self.relief = relief;
+    }
+
+    pub fn relief(&self) -> Option<Relief> {
+        self.relief
     }
 
     /// Die Texelmasken für [`Sonnenform::trifft`].

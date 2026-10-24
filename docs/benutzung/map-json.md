@@ -75,6 +75,7 @@ das Frontend liest die Datei in `web/src/main.ts`.
 | `minY`, `maxY` | unterster und oberster Block, den der Renderer zeichnet; stehen mit `heights` | „Höhen“ unten |
 | `look` | `"map"` die Karte, `"cinematic"` oder `"flat"`; fehlt es, die Karte | „Look“ unten |
 | `lookHash` | Fingerabdruck der Werte von Cinematic, 16 Hexziffern; nur mit `"cinematic"` | „Look“ unten |
+| `relief` | das Relief von oben, `"slope"` oder `"shadows"`, `--relief`; fehlt ohne | „Look“ unten |
 | `seaLevel` | Wasserspiegel der Dimension in Blöcken, oder `null` | „Die Welt“ unten |
 | `area` | das Rechteck der Welt, das der Baum zeichnet, `[x0, z0, x1, z1]` in Blöcken | „Die Welt“ unten |
 | `areaFixed` | `true`, wenn `area` mit `--area` gewählt ist; fehlt sonst | „Die Welt“ unten |
@@ -477,7 +478,11 @@ vor #72 und zeigt die Karte. Einen anderen Wert nimmt kein Lauf an.
   Ordner ein Baum mit dem anderen look oder mit anderen Werten liegt, bevor
   er einen Chunk liest, auch mit `--resume`, siehe
   [Zoomstufen](zoomstufen.md), „Ein Baum, ein look“.
-- **`--pyramid`** behält beide Felder.
+- **`relief`** steht nur mit `--relief`, in `top-north` aus `s` mit
+  `"map"`, siehe [Relief von oben](../renderer/relief.md). Einen anderen
+  Wert nimmt nur ein voller Lauf an, siehe [Updates](updates.md), „Relief
+  wechseln“.
+- **`--pyramid`** behält alle drei Felder.
 
 ## Wann sie geschrieben wird
 

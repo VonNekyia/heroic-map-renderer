@@ -26,7 +26,7 @@ dem Plugin-Programmierer ab.
 - **Schalter** aus `Args` in
   [`renderer/src/cli.rs`](../renderer/src/cli.rs): `--world`, `--assets`,
   `--data`, `--tiles`, `--camera`, `--direction`, `--scale`, `--cinematic`,
-  `--gpu`, `--update`, `--resume` und `--compact`, siehe
+  `--relief`, `--gpu`, `--update`, `--resume` und `--compact`, siehe
   [Schalter und Beispiele](benutzung/schalter.md).
 - **Kompakt packen, für Plugin und CLI gleich** (Maintainer, 08.10.):
   - `--compact` bei jedem vollen Lauf, wenn `renderer.compact` in der
@@ -56,6 +56,16 @@ dem Plugin-Programmierer ab.
   rechnet den Ordner mit `-flat` nach. Ein älterer Renderer, der
   `trees.json` in derselben Wurzel neu schreibt, kennt look `"flat"` nicht
   und lässt den flachen Baum aus der Liste.
+- **Das Relief von oben** ([0122](entscheidungen/0122-relief-von-oben.md)):
+  - `--relief slope` oder `--relief shadows` bei jedem Lauf eines Baums,
+    voll, Update und Fortsetzen, nur mit `camera: "top-north"` aus `s` und
+    ohne Cinematic. Der Ordner bleibt.
+  - Wechselt das Relief, bricht ein Update ab, mit „Das Relief wechselt nur
+    ein voller Lauf“ in der Meldung (`pruefe_relief` in `cli.rs`). Dann
+    braucht der Baum einen vollen Lauf, siehe
+    [Updates](benutzung/updates.md), „Relief wechseln“.
+  - Steigt `ZEICHENSTAND_RELIEF`, nennen die Notizen des Release die Bäume
+    mit `--relief`, siehe unten.
 - **Den Ordner eines Baums,** `baum_name` in `cli.rs`. Das Plugin rechnet ihn
   nach, um `stand.bin` und `stand-neu.bin` zu finden; daneben liegt
   `stand-neu-liegen.bin`, das nur `--resume` liest. Siehe
@@ -117,6 +127,12 @@ dem Plugin-Programmierer ab.
   - „Einen vollen Lauf brauchen nur Bäume mit look flat: ihr Zeichenstand
     ist anders als in vX. Bäume mit look map und cinematic: kein voller
     Lauf, --update geht weiter.“ Mehrere Looks verbinden Komma und „und“.
+  - „Einen vollen Lauf brauchen nur Bäume mit --relief: der Zeichenstand
+    des Reliefs ist anders als in vX. Alle anderen: kein voller Lauf,
+    --update geht weiter.“ Steigt er zusammen mit dem Zeichenstand eines
+    anderen Looks als `map`, kommt nach der Zeile dazu: „Bäume mit --relief
+    brauchen dazu einen vollen Lauf: der Zeichenstand des Reliefs ist anders
+    als in vX.“
 - **Das Manifest** eines Baums, für `angebot`, `freigabe` und den Deckel
   eines Tokens: `--manifest` bei jedem Lauf, `--pyramid` und
   `--compact-tree` eines Baums mit `download: true`, siehe unten,

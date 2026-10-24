@@ -20,11 +20,16 @@ const NADELN = { id: 'beispiel:nadeln', name: { de: 'Nadeln', en: 'Pins' }, visi
 const SATZ = { foot: [12, 49], angle: 26.56505117707799 };
 const SPRITE = png(23, 51);
 
-/** Je Variante: Abstand im Raster in Blöcken, ob Banner einen Namen tragen, Zoom des Starts. */
+/**
+ * Je Variante: Abstand im Raster in Blöcken, ob Banner einen Namen tragen,
+ * Zoom des Starts. `dicht` hat alle Orte im Fenster, `weit` rund 6 %, `voll`
+ * rund 88 %; `voll` ist das „weit“ der ersten Reihe vom 24.10.
+ */
 const VARIANTEN = {
   dicht: { abstand: 4, namen: true, zoom: -4 },
-  weit: { abstand: 40, namen: true, zoom: -4 },
-  'weit-ohne-namen': { abstand: 40, namen: false, zoom: -4 },
+  voll: { abstand: 40, namen: true, zoom: -4 },
+  weit: { abstand: 40, namen: true, zoom: -2 },
+  'weit-ohne-namen': { abstand: 40, namen: false, zoom: -2 },
 };
 
 /** 2000 Orte auf einem Raster 45 × 45 um (0, 0), abwechselnd Banner und Nadel. */
@@ -89,6 +94,16 @@ const abschnitt = (page: Page, von: number, bis: number): Promise<Abschnitt> =>
 
 const jetzt = (page: Page) => page.evaluate(() => performance.now());
 
+/** Wie viele Icons im Fenster liegen, nicht nur im DOM. */
+const imFenster = (page: Page) =>
+  page.locator('.nadel-icon').evaluateAll(
+    (icons) =>
+      icons.filter((e) => {
+        const r = e.getBoundingClientRect();
+        return r.right > 0 && r.bottom > 0 && r.left < innerWidth && r.top < innerHeight;
+      }).length,
+  );
+
 /** Misst, was `tu` auslöst, bis 600 ms danach. */
 async function miss(page: Page, tu: () => Promise<unknown>): Promise<Abschnitt> {
   const von = await jetzt(page);
@@ -132,6 +147,7 @@ async function lauf(browser: Browser, variante: keyof typeof VARIANTEN, dpr: num
     await page.waitForTimeout(100);
   }
   const laden_ms = seit - start;
+  const imFensterStart = await imFenster(page);
   const laden = await abschnitt(page, 0, await jetzt(page));
   await page.waitForTimeout(1000);
   const b = { x: 640, y: 400 };
@@ -162,17 +178,14 @@ async function lauf(browser: Browser, variante: keyof typeof VARIANTEN, dpr: num
   const zustand = await page.evaluate(() => {
     const icons = [...document.querySelectorAll('.nadel-icon')];
     const leinwand = [...document.querySelectorAll<HTMLCanvasElement>('.nadel-icon canvas')].reduce((s, c) => s + c.width * c.height * 4, 0);
-    const imAusschnitt = icons.filter((e) => {
-      const r = e.getBoundingClientRect();
-      return r.right > 0 && r.bottom > 0 && r.left < innerWidth && r.top < innerHeight;
-    }).length;
-    return { leinwand_mib: Math.round((leinwand / 2 ** 20) * 10) / 10, imAusschnitt, imDom: icons.length };
+    return { leinwand_mib: Math.round((leinwand / 2 ** 20) * 10) / 10, imDom: icons.length };
   });
+  const imFensterEnde = await imFenster(page);
   await cdp.send('HeapProfiler.collectGarbage');
   const { usedSize } = (await cdp.send('Runtime.getHeapUsage')) as { usedSize: number };
   const { nodes } = (await cdp.send('Memory.getDOMCounters')) as { nodes: number };
   await context.close();
-  return { stand: process.env.STAND ?? '', imDomGeladen: zahl, variante, dpr, cpu, laden_ms, laden, ziehen, radRein, radRaus, pinchRein, pinchRaus, ...zustand, heap_mb: Math.round(usedSize / 1e5) / 10, dom_knoten: nodes };
+  return { stand: process.env.STAND ?? '', imDomGeladen: zahl, imFensterStart, imFensterEnde, variante, dpr, cpu, laden_ms, laden, ziehen, radRein, radRaus, pinchRein, pinchRaus, ...zustand, heap_mb: Math.round(usedSize / 1e5) / 10, dom_knoten: nodes };
 }
 
 for (const variante of Object.keys(VARIANTEN) as (keyof typeof VARIANTEN)[]) {

@@ -201,7 +201,7 @@ test('die Karte läuft unter strengen Headern', async ({ page }) => {
   );
 });
 
-test('Kacheln folgt Leaflet 1.9.4: Ein anderes Leaflet braucht einen Blick auf die fünf Methoden der Unterklasse', () => {
+test('Kacheln folgt Leaflet 1.9.4: Ein anderes Leaflet braucht einen Blick auf die vier Methoden der Unterklasse', () => {
   const { version } = JSON.parse(readFileSync(new URL('../node_modules/leaflet/package.json', import.meta.url), 'utf8')) as { version: string };
   expect(version, 'siehe docs/frontend.md, „Ausliefern“').toBe('1.9.4');
 });
@@ -236,7 +236,7 @@ test('Zoomen bricht laufende Kacheln ab, ohne die CSP zu verletzen; eine abgebro
 const stufenIn = (page: Page, ebene: string) =>
   page.locator(`${ebene} img.leaflet-tile-loaded`).evaluateAll((l) => [...new Set(l.map((i) => Number(/\/tiles-demo\/(\d+)\//.exec((i as HTMLImageElement).src)![1])))].sort());
 
-test('die Grundschicht liegt zwei Stufen gröber unter den Kacheln und steht da, solange die feinen noch laden', async ({ page }) => {
+test('die Grundschicht liegt unter den Kacheln, gröber, und steht da, solange die feinen noch laden', async ({ page }) => {
   // Kacheln der Stufe 2 hängen, bis der Test sie freigibt.
   const haengend: (() => void)[] = [];
   await page.route('**/tiles-demo/2/*/*.webp', async (route) => {
@@ -264,8 +264,8 @@ test('die Grundschicht liegt zwei Stufen gröber unter den Kacheln und steht da,
   expect(lagen[0]).toBeLessThan(lagen[1]!);
 });
 
-test('die Grundschicht lädt eine Kachel um das Fenster, die feinen Kacheln nur das Fenster', async ({ page }) => {
-  // Zwei Stufen über der feinsten nehmen beide Stufe 2, eine Kachel 1024 px; ein kleines Fenster mitten in Kachel 2/0/0 sieht nur sie.
+test('die Grundschicht liegt drei Stufen gröber und lädt nur das Fenster', async ({ page }) => {
+  // Zwei Stufen über der feinsten nehmen die feinen Stufe 2, eine Kachel 1024 px; ein kleines Fenster mitten in Kachel 2/0/0 sieht nur sie.
   await page.setViewportSize({ width: 400, height: 300 });
   let [bx, bz, best] = [0, 0, Infinity];
   for (let x = -60; x <= 60; x++) {
@@ -277,9 +277,11 @@ test('die Grundschicht lädt eine Kachel um das Fenster, die feinen Kacheln nur 
   }
   await page.goto(`${DEMO}&at=${bx},0,${bz}&zoom=2`);
   await expect(page.locator('.kacheln img.leaflet-tile-loaded')).toHaveCount(1);
-  // Die Pyramide hat auf Stufe 2 nur 2 × 2 Kacheln; mit dem Ring lädt die Grundschicht alle vier.
-  await expect(page.locator('.grund img.leaflet-tile-loaded')).toHaveCount(4);
-  expect(await stufenIn(page, '.grund')).toEqual([2]);
+  // Die Grundschicht drei Stufen darunter: Stufe 1, eine Kachel über 2048 px, die das Fenster deckt; sonst keine.
+  await expect(page.locator('.grund img.leaflet-tile-loaded')).toHaveCount(1);
+  await page.waitForTimeout(300);
+  await expect(page.locator('.grund img.leaflet-tile')).toHaveCount(1);
+  expect(await stufenIn(page, '.grund')).toEqual([1]);
 });
 
 test('die Koordinaten rechnen mit projection aus map.json', async ({ page }) => {

@@ -156,7 +156,7 @@ export default [
   { name: 'ganz-nie-neu', datei: 'src/ebenen.ts', alt: 'const GANZ = { fenster: 9,', neu: 'const GANZ = { fenster: 0,', spec: 'tests/formen.spec.ts', titel: 'nach 0111: ein grosser Kreis' },
   { name: 'gemerkt-ohne-rahmen', datei: 'src/ebenen.ts', alt: 'if (e.g !== g || !(e.ansicht.ganz || imRahmen(e.ansicht.schirm))) return undefined;', neu: 'if (e.g !== g) return undefined;', spec: 'tests/formen.spec.ts', titel: 'nach 0111: eine Fläche, die aus dem Ausschnitt fällt' },
   // Grundschicht, D1.
-  { name: 'grund-nicht-groeber', datei: 'src/main.ts', alt: 'grob ? Math.round(zoom) - grob : zoom', neu: 'grob ? Math.round(zoom) - 0 * grob : zoom', spec: 'tests/smoke.spec.ts', titel: 'die Grundschicht liegt zwei Stufen gröber' },
-  { name: 'grund-oben', datei: 'src/main.ts', alt: "grob: GRUND.stufen, zIndex: 0, className: 'grund'", neu: "grob: GRUND.stufen, zIndex: 2, className: 'grund'", spec: 'tests/smoke.spec.ts', titel: 'die Grundschicht liegt zwei Stufen gröber' },
-  { name: 'grund-ohne-ring', datei: 'src/main.ts', alt: '    const rand = this.getTileSize();', neu: '    const rand = L.point(0, 0);', spec: 'tests/smoke.spec.ts', titel: 'die Grundschicht lädt eine Kachel um das Fenster' },
+  { name: 'grund-zwei-stufen', datei: 'src/main.ts', alt: 'const GRUND = { stufen: 3 };', neu: 'const GRUND = { stufen: 2 };', spec: 'tests/smoke.spec.ts', titel: 'die Grundschicht liegt drei Stufen gröber' },
+  { name: 'grund-nicht-groeber', datei: 'src/main.ts', alt: 'grob ? Math.round(zoom) - grob : zoom', neu: 'grob ? Math.round(zoom) - 0 * grob : zoom', spec: 'tests/smoke.spec.ts', titel: 'die Grundschicht liegt unter den Kacheln' },
+  { name: 'grund-oben', datei: 'src/main.ts', alt: "grob: GRUND.stufen, zIndex: 0, className: 'grund'", neu: "grob: GRUND.stufen, zIndex: 2, className: 'grund'", spec: 'tests/smoke.spec.ts', titel: 'die Grundschicht liegt unter den Kacheln' },
 ];

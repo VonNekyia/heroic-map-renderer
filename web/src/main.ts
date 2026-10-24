@@ -545,11 +545,11 @@ interface KachelInnen {
 }
 
 /**
- * Die Grundschicht unter den Kacheln: `stufen` Stufen gröber, mit einem Ring
- * von einer Kachel um das Fenster. Beim Ziehen und Zoomen steht sie da, bis
- * die feinen kommen. Siehe docs/frontend.md, „Grundschicht“.
+ * Die Grundschicht unter den Kacheln: `stufen` Stufen gröber, nur für das
+ * Fenster. Beim Ziehen und Zoomen steht sie da, bis die feinen kommen. Siehe
+ * docs/frontend.md, „Grundschicht“.
  */
-const GRUND = { stufen: 2 };
+const GRUND = { stufen: 3 };
 
 /** Die Optionen von `Kacheln`: `grob` macht sie zur Grundschicht, so viele Stufen gröber. */
 type KachelOptionen = L.TileLayerOptions & { grob?: number };
@@ -559,7 +559,7 @@ type KachelOptionen = L.TileLayerOptions & { grob?: number };
  * verliert. Leaflet setzt dafür ein GIF als `data:`, und das verletzt
  * `default-src 'self'`. `L.Util.emptyImageUrl` umzusetzen hilft nicht:
  * Leaflet liest die Adresse aus einer Variable seines Moduls. Mit `grob`
- * eine Stufe aus `GRUND`. Die fünf Methoden folgen Leaflet 1.9.4. Siehe
+ * eine Stufe aus `GRUND`. Die vier Methoden folgen Leaflet 1.9.4. Siehe
  * docs/frontend.md, „Ausliefern“.
  */
 const Kacheln = L.TileLayer.extend({
@@ -567,13 +567,6 @@ const Kacheln = L.TileLayer.extend({
   _clampZoom(this: KachelInnen & { options: KachelOptionen }, zoom: number) {
     const { grob } = this.options;
     return (L.TileLayer.prototype as unknown as { _clampZoom(this: unknown, z: number): number })._clampZoom.call(this, grob ? Math.round(zoom) - grob : zoom);
-  },
-  // Die Grundschicht lädt eine Kachel über das Fenster hinaus.
-  _getTiledPixelBounds(this: KachelInnen & { options: KachelOptionen; getTileSize(): L.Point }, mitte: L.LatLng) {
-    const b = (L.TileLayer.prototype as unknown as { _getTiledPixelBounds(this: unknown, m: L.LatLng): L.Bounds })._getTiledPixelBounds.call(this, mitte);
-    if (!this.options.grob) return b;
-    const rand = this.getTileSize();
-    return L.bounds(b.min!.subtract(rand), b.max!.add(rand));
   },
   // Bricht die Kacheln ab, die noch für eine andere Stufe laden.
   _abortLoading(this: KachelInnen) {

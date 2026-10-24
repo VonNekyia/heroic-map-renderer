@@ -419,11 +419,14 @@ Banner, feste Grösse und die Tafel beim Zeigen folgen
 nur der Name stufenlos kleiner und blendet aus, siehe
 [0119](entscheidungen/0119-namen-stufenlos-icons-fest.md)
 und [Ebenen](benutzung/ebenen.md), „Nadeln und Banner“. `namenNachZoom`
-setzt dafür `--name-teil` und `--name-deck` am Container, ab dem Start
-jedes Zooms (`zoomanim`) und bei jedem `zoom`; CSS geht in 250 ms dorthin,
-mit der Kurve von Leaflet. Ohne Deckung bekommt der Container `namen-weg`,
-die Namen werden `hidden`, erst nach dem Ausblenden. Kein Icon wird dabei
-neu gebaut.
+setzt dafür `--name-teil` und `--name-deck` an jedes Pane der Nadeln, ab
+dem Start jedes Zooms (`zoomanim`) und bei jedem `zoom`, aber nur, wenn
+sich ein Wert ändert; CSS geht in 250 ms dorthin, mit der Kurve von
+Leaflet. Am Container rechnete der Browser bei jedem Bild eines Pinch den
+Stil aller Nachkommen neu, auch der Kacheln. Ohne Deckung bekommt das Pane
+`namen-weg`, die Namen werden `hidden`, erst nach dem Ausblenden. Kein Icon
+wird dabei neu gebaut. Die Breite eines Namens im Bogen misst ein Kontext
+für alle Banner.
 
 ![Eine Ebene auf dem Ufer der Testwelt, links schräg in 2:1, rechts von oben](bilder/ebenen-testwelt.webp)
 

@@ -90,7 +90,8 @@ sichtbar ist.
       "name": { "de": "Stadtinfos", "en": "Town info" },
       "visible": false,
       "order": 99,
-      "version": "0b77d2a4"
+      "version": "0b77d2a4",
+      "maxBlocksPerPixel": 8
     }
   ]
 }
@@ -105,6 +106,7 @@ sichtbar ist.
 | `version` | ändert sich mit jeder Änderung der Datei der Ebene, etwa ein Hash ihres Inhalts | Pflicht |
 | `player` | `true`: eine Aktionsebene, ihre Datei kommt je Spieler vom Server, siehe „Aktionsebenen und Knöpfe“ | `false` |
 | `designs` | `true`: Der Kopf der Datei der Ebene nennt Entwürfe unter `designs`, siehe „Entwürfe“. Eine Ansicht kann dann den Satz der Sprites (`satz.json`, siehe „Sprites“) gleich mit der Datei holen, statt erst nach ihr | `false` |
+| `maxBlocksPerPixel` | Zahl über 0, höchstens 1024: Die Ebene ist nur zu sehen, solange ein Pixel des Bildschirms höchstens so viele Blöcke zeigt, siehe „Zoomgrenze“ | keine Grenze |
 
 Die Wahl des Betrachters, welche Ebene an ist, merkt sich jede Ansicht
 selbst, die Webkarte im Browser.
@@ -115,6 +117,29 @@ selbst, die Webkarte im Browser.
   `true` ohne Entwürfe kostet eine Anfrage zu viel und schadet sonst nicht.
 - **Unbekannte Felder** übergeht jede Ansicht; so liest ein älterer Mod
   oder eine ältere Webkarte eine neuere Liste.
+
+### Zoomgrenze
+
+Mit `maxBlocksPerPixel` zeigt eine Ansicht eine Ebene nur, solange sie nah
+genug ist, etwa Regionen nur, bis die Karte weit draussen ist.
+
+- **Einheit:** Blöcke je Pixel des Bildschirms, bei der Webkarte je
+  CSS-Pixel. Sie hängt nicht vom Baum ab, nicht von `scale`, Kamera oder
+  Stufe. Gemessen wird die Breite eines Blocks wie für die Namen in
+  [0119](../entscheidungen/0119-namen-stufenlos-icons-fest.md), von oben wie
+  im iso.
+- **Genau auf der Grenze** ist die Ebene zu sehen: sichtbar, solange Blöcke
+  je Pixel ≤ `maxBlocksPerPixel`.
+- **Nicht geladen:** Liegt eine angehakte Ebene jenseits der Grenze, holt
+  eine Ansicht ihre Datei nicht, erst wenn die Grenze erreicht ist. Darum
+  steht das Feld in der Liste und nicht im Kopf der Datei.
+- **Gilt für jede Ebene,** auch für Aktionsebenen.
+- **Fehlt das Feld** oder ist es 0, gibt es keine Grenze, wie in einer
+  älteren Liste. Ansichten, die das Feld nicht kennen, zeigen die Ebene
+  immer.
+- **Im Plugin:** `Layer.maxBlocksPerPixel(double)`, bei Ebenen aus Dateien
+  `maxBlocksPerPixel` im Kopf. Das Plugin schreibt das Feld nur, wenn eine
+  Grenze gesetzt ist; ab welcher Fassung, steht in seiner Doku.
 
 ## Datei einer Ebene
 
@@ -131,7 +156,9 @@ selbst, die Webkarte im Browser.
 ```
 
 - **Kopf:** `id`, `name`, `visible` und `order` wie in der Liste, dazu
-  `designs`, die Entwürfe der Banner, siehe „Banner“.
+  `designs`, die Entwürfe der Banner, siehe „Banner“. Beim Plugin auch
+  `maxBlocksPerPixel`; es übernimmt den Wert in die Liste, siehe
+  „Zoomgrenze“.
 - **Nur beim Plugin:**
   - `web`, Vorgabe `true`: ob die Ebene auf die Webkarte kommt;
   - `permission`: wer sie im Mod sieht. Eine Ebene mit `permission` kommt

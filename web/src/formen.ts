@@ -180,6 +180,8 @@ function laeufe(z: Zug, r: Rand, renderer: L.Renderer): Strich[] {
     interactive: false,
     dashArray: r.strich?.join(' '),
     lineCap: r.strich ? 'butt' : 'round',
+    // Schon auf ε vereinfacht, siehe docs/entscheidungen/0111-geometrie-nach-bildschirmfehler.md; Leaflet vereinfachte sonst noch einmal um 1 px.
+    smoothFactor: 0,
   };
   // Siehe docs/benutzung/ebenen.md, „Was verdeckt ist“.
   const verdecktStil: L.PolylineOptions = { ...stil, weight: Math.max(1, r.breite / 2), opacity: 0.4, dashArray: '3 4', lineCap: 'butt' };

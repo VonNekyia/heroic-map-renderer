@@ -155,5 +155,6 @@ export default [
   { name: 'hoch-ohne-oberseite', datei: 'src/gelaende.ts', alt: 'gemerkt.set(s, (h += 1));', neu: 'gemerkt.set(s, (h += 0));', spec: 'tests/gelaende.spec.ts', titel: 'verdeckt überspringt Blöcke' },
   { name: 'ganz-nie-neu', datei: 'src/ebenen.ts', alt: 'const GANZ = { fenster: 9,', neu: 'const GANZ = { fenster: 0,', spec: 'tests/formen.spec.ts', titel: 'nach 0111: ein grosser Kreis' },
   { name: 'gemerkt-ohne-rahmen', datei: 'src/ebenen.ts', alt: 'if (e.g !== g || !(e.ansicht.ganz || imRahmen(e.ansicht.schirm))) return undefined;', neu: 'if (e.g !== g) return undefined;', spec: 'tests/formen.spec.ts', titel: 'nach 0111: eine Fläche, die aus dem Ausschnitt fällt' },
+  { name: 'leaflet-glaettet-strich', datei: 'src/formen.ts', alt: '    smoothFactor: 0,\n  };', neu: '    smoothFactor: 1,\n  };', spec: 'tests/formen.spec.ts', titel: 'nach 0111 vereinfacht Leaflet einen Strich nicht noch einmal' },
   { name: 'namen-am-container', datei: 'src/ebenen.ts', alt: '    for (const { nadeln } of panes.values()) namenAn(map.getPane(nadeln)!);', neu: '    namenAn(map.getContainer());', spec: 'tests/ebenen.spec.ts', titel: 'nach 0119 bleiben Nadeln' },
 ];

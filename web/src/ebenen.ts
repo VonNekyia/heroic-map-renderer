@@ -12,8 +12,8 @@ import rahmenKlein from './ebenen/schild_klein_rahmen.png?url&no-inline';
 import feldMittel from './ebenen/schild_mittel.png?url&no-inline';
 import rahmenMittel from './ebenen/schild_mittel_rahmen.png?url&no-inline';
 import { bereich, flaechenZiele, form, hatFlaeche, versetze, zeichneAnsicht, zuege, type Form, type Strich } from './formen';
-import { bildpunkt, blockBreite, oberflaeche as hoeheAuf, rechteck, schriftPfad, weltRechteck, zurKamera, type Blick, type Gelaende, type Rechteck, type Schirm } from './gelaende';
-import { FRISCH, LEER, type Hoehenkarten } from './hoehen';
+import { BLOCK, bildpunkt, blockBreite, blockHoch, oberflaeche as hoeheAuf, rechteck, schriftPfad, weltRechteck, zurKamera, type Blick, type Gelaende, type Rechteck, type Schirm } from './gelaende';
+import { FRISCH, HOEHEN_BYTES, LEER, regionBytes, type Hoehenkarten } from './hoehen';
 import { REGION } from './pick';
 import { abmelden, aktion, anmelden, ebene as spielerEbene, erkennen, ich, knoepfe as holeKnoepfeVomServer, nimmToken, objektSchluessel, sicht, type Knopf, type Spieler } from './konto';
 import { farbe, istObjekt, istText, istZahl, punkt } from './pruefen';
@@ -128,16 +128,42 @@ const KOPF = { bytes: 16 * 1024, seite: 8 };
 const GRENZEN = { liste: 64 * 1024, datei: 4 * 1024 * 1024, ebenen: 64, objekte: 10_000, nadeln: 1000, bausteine: 64, bild: 512, punkte: 20, banner: [32, 64] };
 
 /**
- * So viele Bytes Höhen lädt die Webkarte höchstens je Ebene, für Formen und
- * für Schrift je für sich: mit `heightsCell` 4 sind das 1024 Regionen. Darüber
- * nehmen Formen `heights` statt `ground`, und reicht es auch dafür nicht,
- * liegt die ganze Ebene auf `seaLevel`. Eine Grenze der Webkarte, nicht des
- * Formats. Siehe docs/frontend.md, „Ebenen“.
+ * Je geladener Karte von `seite` × `seite` Zellen das Höchste je Block von
+ * `kante` Zellen und ob dort eine leer ist, einmal gerechnet; es fällt mit der
+ * Karte weg. Für `Gelaende.hoch`.
  */
-const HOEHEN_BYTES = 32 * 1024 * 1024;
-
-/** Bytes einer Region Höhen mit Zellen der Kante `zelle`. */
-const regionBytes = (zelle: number) => (REGION / zelle) ** 2 * 2;
+const kartenBloecke = new WeakMap<Int16Array, Map<number, { max: Int16Array; leer: Uint8Array }>>();
+function bloeckeDer(karte: Int16Array, seite: number, kante: number): { max: Int16Array; leer: Uint8Array } {
+  // Je Kante eigen: Eine Karte aus heights dient im Gelände aus ground mit kleineren Blöcken.
+  let jeKante = kartenBloecke.get(karte);
+  if (!jeKante) kartenBloecke.set(karte, (jeKante = new Map<number, { max: Int16Array; leer: Uint8Array }>()));
+  let b = jeKante.get(kante);
+  if (!b) {
+    const n = seite / kante;
+    b = { max: new Int16Array(n * n).fill(LEER), leer: new Uint8Array(n * n) };
+    for (let j = 0; j < seite; j++) {
+      for (let i = 0; i < seite; i++) {
+        const v = karte[j * seite + i]!;
+        const k = Math.floor(j / kante) * n + Math.floor(i / kante);
+        if (v === LEER) b.leer[k] = 1;
+        else if (v > b.max[k]!) b.max[k] = v;
+      }
+    }
+    jeKante.set(kante, b);
+  }
+  return b;
+}
+/** Je geladener Karte ihre höchste Oberseite, einmal gerechnet; sie fällt mit der Karte weg. */
+const kartenMax = new WeakMap<Int16Array, number>();
+function hoechste(karte: Int16Array): number {
+  let max = kartenMax.get(karte);
+  if (max === undefined) {
+    max = -Infinity;
+    for (const v of karte) if (v !== LEER && v + 1 > max) max = v + 1;
+    kartenMax.set(karte, max);
+  }
+  return max;
+}
 
 /**
  * Die Panes der Nadeln, 510 bis 573: über `shadowPane` (500), unter
@@ -726,16 +752,28 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
         const karte = vomBoden ?? (await karten.karte(rx, rz));
         if (!karte) return;
         regionen.set(s, { karte, n: REGION / (vomBoden ? cg : c) });
-        for (const v of karte) if (v !== LEER && v + 1 > max) max = v + 1;
+        max = Math.max(max, hoechste(karte));
       }),
     );
     const n = REGION / cg;
     // Die zuletzt gefragte Region: Nachbarn liegen meist in derselben.
     let [letzte, eintrag]: [number, { karte: Int16Array; n: number } | undefined] = [Number.NaN, undefined];
+    // Je Block von BLOCK Zellen dieses Geländes das Höchste seiner Region; ohne Region oder mit leerer Zelle zählt grund.
+    const proRegion = n / BLOCK;
+    const roh = (bi: number, bj: number): number => {
+      const [rx, rz] = [Math.floor(bi / proRegion), Math.floor(bj / proRegion)];
+      const e = regionen.get(schluessel(rx, rz));
+      if (!e) return grund;
+      const kante = (BLOCK * e.n) / n;
+      const b = bloeckeDer(e.karte, e.n, kante);
+      const k = (bj - rz * proRegion) * proRegion + (bi - rx * proRegion);
+      return b.leer[k] || b.max[k] === LEER ? Math.max(grund, b.max[k]!) : b.max[k]!;
+    };
     return {
       c: cg,
       grund,
       max,
+      hoch: blockHoch(roh),
       zelle: (i, j) => {
         const [rx, rz] = [Math.floor(i / n), Math.floor(j / n)];
         const s = schluessel(rx, rz);

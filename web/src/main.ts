@@ -783,10 +783,10 @@ async function start(): Promise<void> {
     // oben, jeder andere seinen Pfad. Siehe docs/benutzung/ebenen.md, „Sprites“.
     const satz = baum && (baum.camera === 'top' || baum.camera === 'top-north' || baum.look === 'flat' ? 'oben' : baum.path);
     // Der Boden ohne Laub, nur mit brauchbaren heights, je Zelle aus groundCell, sonst heightsCell;
-    // siehe docs/benutzung/ebenen.md, „Die Oberfläche im iso“. Er wiegt je Block 512 KB je Region,
-    // darum behält der Cache nur wenige.
+    // siehe docs/benutzung/ebenen.md, „Die Oberfläche im iso“. Er wiegt je Block 512 KB je Region;
+    // der Cache hält so viele wie eine Ansicht höchstens lädt, `HOEHEN_BYTES`.
     const bodenCell = hatHoehen(info) && zelleGilt(info.groundCell) ? info.groundCell : heightsCell;
-    const boden = karten && hatHoehen(info) && typeof info.ground === 'string' ? hoehen(base, info.ground, bodenCell!, 8) : undefined;
+    const boden = karten && hatHoehen(info) && typeof info.ground === 'string' ? hoehen(base, info.ground, bodenCell!) : undefined;
     void ebenen({ map, wurzel, blick, scale, maxZoom, karten, boden, bodenCell, heightsCell, seaLevel, minY, maxY, area, satz: satz ?? undefined, token }).catch(
       (error: unknown) => console.error(error),
     );

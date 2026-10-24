@@ -1,6 +1,8 @@
 import { expect, test } from '@playwright/test';
 import {
+  BLOCK,
   abtasten,
+  blockHoch,
   abtastenImRahmen,
   kreisSeiten,
   glaetten,
@@ -209,6 +211,56 @@ test('verdeckt: erst Gelände mehr als eine Zelle vor dem Punkt zählt, diagonal
   expect(verdeckt(fehlt(63), 42, 1, 42, SE)).toBe(true);
   expect(verdeckt(fehlt(-10), 42, 1, 42, SE)).toBe(false);
   expect(verdeckt(turm(11, 11), x, 1, z, OBEN)).toBe(false);
+});
+
+/** `verdeckt` ohne Blöcke, Schritt für Schritt wie in der Doku, als Mass für die schnelle Fassung. */
+function verdecktEinfach(g: Gelaende, x: number, y: number, z: number, blick: Blick): boolean {
+  if (blick.p.y === 0) return false;
+  const genordet = blick.p.azimuth === 'north';
+  let [wx, wz] = genordet ? [0, 1] : [1, 1];
+  for (let i = 0; i < blick.k; i++) [wx, wz] = [-wz, wx];
+  const steigung = ((genordet ? 1 : 2) * blick.p.v) / blick.p.y;
+  for (let d = (genordet ? 2 : 1) * g.c; y + steigung * d <= g.max; d += g.c / 2) {
+    if (oberflaeche(g, x + wx * d, z + wz * d) > y + steigung * d) return true;
+  }
+  return false;
+}
+
+test('verdeckt überspringt Blöcke unter dem Strahl und gibt dasselbe wie der einfache Strahl: Gipfel, Lücken ohne Werte, tiefer und hoher grund, jede Richtung', () => {
+  // Wellen mit einzelnen Gipfeln, dazu ein Loch ohne Werte und eine leere Kante: Mischen, Ersatz und grund am Rand eines Blocks.
+  const wert = (i: number, j: number) => {
+    if ((i >= 30 && i < 37 && j >= 5 && j < 9) || j < -20) return undefined;
+    const gipfel = (i * 7 + j * 13) % 41 === 0 ? 90 : 0;
+    return Math.round(12 * Math.sin(i / 3.7) + 9 * Math.cos(j / 2.9)) + gipfel;
+  };
+  let verdeckte = 0;
+  let geprueft = 0;
+  for (const grund of [-20, 63, 120]) {
+    // hoch wie in ebenen.ts, nur aus den Zellen: das Höchste je Block, mit grund, wenn eine fehlt.
+    const roh = (bi: number, bj: number) => {
+      let h = -Infinity;
+      for (let i = bi * BLOCK; i < (bi + 1) * BLOCK; i++) for (let j = bj * BLOCK; j < (bj + 1) * BLOCK; j++) h = Math.max(h, wert(i, j) ?? grund);
+      return h;
+    };
+    const g = { ...gelaende(wert, 130, grund), hoch: blockHoch(roh) };
+    for (const p of [ZWEI, GENORDET]) {
+      for (let k = 0; k < 4; k++) {
+        const blick: Blick = { p, k };
+        for (let x = -60; x <= 220; x += 7.3) {
+          for (let z = -100; z <= 120; z += 9.1) {
+            const y = oberflaeche(g, x, z) + ((x * 3 + z) % 5) - 2;
+            const soll = verdecktEinfach(g, x, y, z, blick);
+            expect(verdeckt(g, x, y, z, blick), `${p.azimuth} k=${k} grund=${grund} bei ${x},${y},${z}`).toBe(soll);
+            verdeckte += Number(soll);
+            geprueft++;
+          }
+        }
+      }
+    }
+  }
+  // Beides kommt oft vor, sonst prüfte der Test nichts.
+  expect(verdeckte).toBeGreaterThan(geprueft / 10);
+  expect(verdeckte).toBeLessThan(geprueft * 0.9);
 });
 
 test('sichtbareFelder: ein Durchgang mit laufendem Maximum gibt an jeder Mitte eines Felds dasselbe wie verdeckt, in jeder Richtung', () => {

@@ -288,6 +288,11 @@ body {
   image-rendering: pixelated;
 }
 
+/* Eine Ebene jenseits ihrer Zoomgrenze, siehe docs/entscheidungen/0131-zoomgrenze-je-ebene.md. */
+.ebenen-zeile.ausser-bereich {
+  opacity: 0.6;
+}
+
 /* Der Name wie die Kartenschrift, nicht wie die UI: Farbe und Kontur der
    Vorgaben von `label`, die Kontur 2 px breit sichtbar, also 4 px Strich
    unter der Füllung. Siehe docs/benutzung/ebenen.md, „Nadeln und Banner“. */

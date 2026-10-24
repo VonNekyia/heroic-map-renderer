@@ -75,6 +75,14 @@ Beim Öffnen holt die Seite, was nicht aufeinander wartet, zugleich
   nimmt die Karte diese Antwort, sonst holt sie den ersten Baum wie bisher.
 - **Danach** in dieser Reihe: `map.json`, die Karte, dann je Ebene ihre Datei,
   bei Bannern mit Entwurf `satz.json` und die Sprites, und die Kartenschrift.
+- **`satz.json` mit der Datei:** Trägt der Eintrag in `layers.json`
+  `designs: true`, geht `satz.json` zugleich mit der Datei der Ebene los,
+  bei einer Aktionsebene nach ihrer Antwort aus `api/` (`satzVorab` in
+  `ladeEbene`). Nennt die Datei dann doch keinen Entwurf, bleibt die Antwort
+  ungenutzt. Ohne das Feld wie bisher erst nach der Datei. Siehe
+  [Ebenen](benutzung/ebenen.md), „Liste der Ebenen“; gemessen in
+  [satz.json mit der Datei](messungen/2026-10-24-satz-mit-der-datei.md):
+  das erste Banner eine Umlaufzeit früher.
 - **Gemessen** in [Start der Webkarte](messungen/2026-10-24-start-der-webkarte.md):
   bei 150 ms Umlaufzeit kommt das erste Objekt einer Ebene 330 ms früher, mit
   `?tree=` 530 ms früher, die erste Kachel mit `?tree=` 180 ms früher.
@@ -496,6 +504,13 @@ für alle Banner.
   nicht höher ist, sonst ganz unten. „Reihe des Servers“ unter der Liste,
   nur bei umgestellter Reihe, löscht den Eintrag. Panes und Liste folgen
   derselben Reihe; „Mitspieler“ bleibt oben.
+- **Zoomgrenze,** nach [0131](entscheidungen/0131-zoomgrenze-je-ebene.md):
+  Mit `maxBlocksPerPixel` aus `layers.json` lädt und zeigt die Karte eine
+  Ebene nur, solange ein CSS-Pixel höchstens so viele Blöcke zeigt
+  (`imBereich`). Nach jedem Zoom hängt `bereichAnwenden` sie aus oder ein,
+  ohne neu zu laden; eine offene Tafel schliesst dabei, der Fokus geht an
+  die Karte. Die Zeile in der Liste bleibt angehakt und steht jenseits der
+  Grenze gedimmt mit „(beim Hineinzoomen)“.
 - **Laden:** Eine Ebene lädt erst, wenn sie an ist. Alle 30 Sekunden und
   beim Zurückkehren auf den Tab fragt die Karte `layers.json` mit
   `cache: 'no-cache'` nach und lädt neu, was an ist und eine neue `version`

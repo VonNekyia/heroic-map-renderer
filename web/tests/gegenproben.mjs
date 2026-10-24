@@ -175,4 +175,13 @@ export default [
   // Banner als Bild, 0129.
   { name: 'banner-als-leinwand', datei: 'src/ebenen.ts', alt: 'if (bild instanceof HTMLImageElement) {', neu: 'if (bild instanceof HTMLImageElement && bild.width < 0) {', spec: 'tests/ebenen.spec.ts', titel: 'Banner teilen sich ein Bild' },
   { name: 'bild-geglaettet', datei: 'src/style.css', alt: '.nadel canvas,\n.nadel img {', neu: '.nadel canvas {', spec: 'tests/ebenen.spec.ts', titel: 'nach 0129 ist ein Pixel des Banners' },
+  // satz.json mit der Datei, A3 Punkt 2.
+  { name: 'designs-ungelesen', datei: 'src/ebenen.ts', alt: '    designs: wert.designs === true,', neu: '    designs: wert.designs === 1,', spec: 'tests/ebenen.spec.ts', titel: 'mit designs: true in layers.json' },
+  { name: 'satz-vorab-ungenutzt', datei: 'src/ebenen.ts', alt: 'satzDaten(await (satzVorab ?? json(satzAdresse, 4096)))', neu: 'satzDaten(await (satzVorab && json(satzAdresse, 4096)))', spec: 'tests/ebenen.spec.ts', titel: 'mit designs: true in layers.json' },
+  // Zoomgrenze je Ebene, 0131.
+  { name: 'grenze-ignoriert', datei: 'src/ebenen.ts', alt: 'e.maxBlocksPerPixel === undefined || 1 /', neu: 'e.maxBlocksPerPixel !== -1 || 1 /', spec: 'tests/ebenen.spec.ts', titel: 'nach 0131 holt die Karte' },
+  { name: 'grenze-verkehrt', datei: 'src/ebenen.ts', alt: '<= e.maxBlocksPerPixel * (1 + 1e-9)', neu: '>= e.maxBlocksPerPixel * (1 + 1e-9)', spec: 'tests/ebenen.spec.ts', titel: 'nach 0131 holt die Karte' },
+  { name: 'grenze-echt-kleiner', datei: 'src/ebenen.ts', alt: '<= e.maxBlocksPerPixel * (1 + 1e-9)', neu: '< e.maxBlocksPerPixel', spec: 'tests/ebenen.spec.ts', titel: 'nach 0131 holt die Karte' },
+  { name: 'grenze-in-stufen', datei: 'src/ebenen.ts', alt: '1 / (blockBreite(blick) * 2 ** (map.getZoom() - maxZoom))', neu: '1 / (4 * 2 ** (map.getZoom() - maxZoom))', spec: 'tests/ebenen.spec.ts', titel: 'nach 0131 gilt die Zoomgrenze in Blöcken' },
+  { name: 'hinein-neu-geladen', datei: 'src/ebenen.ts', alt: 'if (drin && (!g || g.version !== e.version)) void ladeEbene', neu: 'if (drin) void ladeEbene', spec: 'tests/ebenen.spec.ts', titel: 'nach 0131 holt die Karte' },
 ];

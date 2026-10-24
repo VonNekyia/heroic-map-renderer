@@ -28,6 +28,10 @@ interface Eintrag {
   version: string;
   /** Eine Aktionsebene: ihre Datei kommt je Spieler aus `api/`, nur angemeldet. */
   player: boolean;
+  /** Der Kopf der Datei nennt Entwürfe: `satz.json` geht mit der Datei los. Siehe docs/benutzung/ebenen.md, „Liste der Ebenen“. */
+  designs: boolean;
+  /** Die Zoomgrenze: sichtbar bis so viele Blöcke je CSS-Pixel; ohne keine. Siehe docs/benutzung/ebenen.md, „Zoomgrenze“. */
+  maxBlocksPerPixel?: number;
 }
 
 type Groesse = 'large' | 'medium' | 'small';
@@ -252,6 +256,8 @@ function eintrag(wert: unknown): Eintrag | undefined {
     order: Number.isInteger(wert.order) ? (wert.order as number) : 0,
     version: wert.version,
     player: wert.player === true,
+    designs: wert.designs === true,
+    ...(istZahl(wert.maxBlocksPerPixel) && wert.maxBlocksPerPixel > 0 && wert.maxBlocksPerPixel <= 1024 ? { maxBlocksPerPixel: wert.maxBlocksPerPixel } : {}),
   };
 }
 
@@ -1293,6 +1299,13 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
   };
 
   const an = (e: Eintrag): boolean => wahl.lies()[e.id] ?? e.visible;
+  /**
+   * Ob eine Ebene nach ihrer Zoomgrenze zu sehen ist, Blöcke je CSS-Pixel
+   * wie für die Namen in 0119; genau auf der Grenze ja. Siehe
+   * docs/entscheidungen/0131-zoomgrenze-je-ebene.md.
+   */
+  const imBereich = (e: Eintrag): boolean =>
+    e.maxBlocksPerPixel === undefined || 1 / (blockBreite(blick) * 2 ** (map.getZoom() - maxZoom)) <= e.maxBlocksPerPixel * (1 + 1e-9);
 
   /** Pixel des Schirms je Pixel der feinsten Stufe. */
   const faktor = () => 2 ** (map.getZoom() - maxZoom);
@@ -1499,6 +1512,8 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     }
   };
   const orteNeu = (id: string, g: Geladen): void => {
+    // Eine Ebene jenseits ihrer Zoomgrenze hängt nicht und zählt nicht.
+    if (!map.hasLayer(g.gruppe)) return;
     void zeigeOrte(g, () => geladen.get(id) === g).catch((fehler: unknown) => console.error(id, fehler));
   };
   /** Beim Ziehen, sobald das Fenster den inneren Rahmen verlässt, höchstens einmal je Frame. */
@@ -1515,7 +1530,7 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
   const ansichtGeaendert = (): void => {
     clearTimeout(ansichtWarten);
     ansichtWarten = setTimeout(() => {
-      for (const [id, g] of geladen) void ansichtNeu(id, g).catch((fehler: unknown) => console.error(id, fehler));
+      for (const [id, g] of geladen) if (map.hasLayer(g.formen)) void ansichtNeu(id, g).catch((fehler: unknown) => console.error(id, fehler));
     }, REGEL.warten);
   };
 
@@ -1525,6 +1540,8 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
    */
   const ladeEbene = async (e: Eintrag, erzwingen = false): Promise<void> => {
     if (abgewiesen.get(e.id) === e.version) return;
+    // Jenseits der Zoomgrenze holt die Karte die Datei nicht; `bereichAnwenden` lädt beim Hineinzoomen.
+    if (!imBereich(e)) return;
     const [mod, name] = e.id.split(':') as [string, string];
     // Die Bilder auch einer Aktionsebene liegen öffentlich unter layers/.
     const ordner = `${wurzel}/layers/${mod}`;
@@ -1538,12 +1555,16 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
       stand = JSON.stringify(datei) ?? '';
       if (!erzwingen && geladen.get(e.id)?.stand === stand) return;
     }
+    // Mit `designs` geht der Satz der Sprites gleich mit der Datei los statt nach ihr; ohne Entwurf in der Datei bleibt er ungenutzt.
+    const satzOrdner = `${ordner}/banner/${name}/${umgebung.satz}`;
+    const satzAdresse = `${satzOrdner}/satz.json?v=${encodeURIComponent(e.version)}`;
+    const satzVorab = umgebung.satz && e.designs ? json(satzAdresse, 4096).catch(() => undefined) : undefined;
     const nummer = (auftrag.get(e.id) ?? 0) + 1;
     auftrag.set(e.id, nummer);
-    // Gilt, solange niemand umgeschaltet hat und die Ebene noch in der Liste steht und an ist.
+    // Gilt, solange niemand umgeschaltet hat, die Ebene noch in der Liste steht, an ist und in ihrer Zoomgrenze liegt.
     const gilt = () => {
       const jetzt = eintraege.find((x) => x.id === e.id);
-      return auftrag.get(e.id) === nummer && jetzt !== undefined && an(jetzt);
+      return auftrag.get(e.id) === nummer && jetzt !== undefined && an(jetzt) && imBereich(jetzt);
     };
     if (!e.player) datei = await json(`${ordner}/${name}.json`, GRENZEN.datei);
     if (istObjekt(datei) && (datei.permission !== undefined || datei.web === false)) {
@@ -1579,8 +1600,7 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     // Der Satz dieses Baums, einmal je Laden und nur, wenn ein Banner einen Entwurf nennt.
     let satz: Satz | undefined;
     if (umgebung.satz && orte.some((o) => 'design' in o && o.design)) {
-      const satzOrdner = `${ordner}/banner/${name}/${umgebung.satz}`;
-      const daten = satzDaten(await json(`${satzOrdner}/satz.json?v=${encodeURIComponent(e.version)}`, 4096));
+      const daten = satzDaten(await (satzVorab ?? json(satzAdresse, 4096)));
       if (daten) satz = { ordner: satzOrdner, ...daten };
       else console.warn(`${satzOrdner}/satz.json fehlt oder taugt nicht, Banner mit image`);
     }
@@ -1728,6 +1748,16 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
       const e = eintraege.find((x) => x.id === box.dataset.id);
       if (e) box.checked = an(e);
       else if (box.dataset.id === MITSPIELER) box.checked = mitspielerAn();
+      // Jenseits der Zoomgrenze gedimmt, mit einem Hinweis auch für Screenreader.
+      const zeile = box.closest('.ebenen-zeile');
+      if (!e || !zeile) continue;
+      const aus = !imBereich(e);
+      zeile.classList.toggle('ausser-bereich', aus);
+      let hinweis = zeile.querySelector('.ebenen-bereich');
+      if (aus && !hinweis) {
+        hinweis = L.DomUtil.create('span', 'ebenen-bereich', box.parentElement!);
+        hinweis.textContent = ' (beim Hineinzoomen)';
+      } else if (!aus) hinweis?.remove();
     }
   };
 
@@ -2025,7 +2055,7 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     // Auch, wenn der Betreiber `visible` ändert und der Betrachter nie gewählt hat.
     for (const id of [...geladen.keys()]) if (!eintraege.some((e) => e.id === id && an(e))) entferne(id);
     // Eine Aktionsebene fragt jedes Mal; neu zeichnet sie nur mit neuem Inhalt.
-    const zuLaden = eintraege.filter((e) => an(e) && (e.player || geladen.get(e.id)?.version !== e.version) && laeuft.get(e.id) !== e.version);
+    const zuLaden = eintraege.filter((e) => an(e) && imBereich(e) && (e.player || geladen.get(e.id)?.version !== e.version) && laeuft.get(e.id) !== e.version);
     await Promise.all(
       zuLaden.map((e) => {
         laeuft.set(e.id, e.version);
@@ -2070,6 +2100,32 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
   map.on('zoomend', () => {
     for (const g of geladen.values()) versetze(g.striche, faktor());
   });
+  /**
+   * Nach jedem Zoom: Ebenen jenseits ihrer Zoomgrenze aushängen, ohne sie zu
+   * vergessen, und im Bereich wieder einhängen oder erst jetzt laden. Lag
+   * der Fokus in einer ausgehängten Ebene, geht er an die Karte. Siehe
+   * docs/entscheidungen/0131-zoomgrenze-je-ebene.md.
+   */
+  const bereichAnwenden = (): void => {
+    for (const e of eintraege) {
+      if (!an(e)) continue;
+      const g = geladen.get(e.id);
+      const drin = imBereich(e);
+      if (drin && (!g || g.version !== e.version)) void ladeEbene(e).catch((fehler: unknown) => console.error(e.id, fehler));
+      else if (drin && g && !map.hasLayer(g.gruppe)) {
+        g.formen.addTo(map);
+        g.gruppe.addTo(map);
+      } else if (!drin && g && map.hasLayer(g.gruppe)) {
+        const { nadeln, formen } = pane(e.id);
+        if ([nadeln, formen].some((p) => map.getPane(p)?.contains(document.activeElement))) map.getContainer().focus({ preventScroll: true });
+        // Das Aushängen schliesst eine offene Tafel der Ebene, wie beim Abschalten.
+        g.gruppe.remove();
+        g.formen.remove();
+      }
+    }
+    zeigeListe();
+  };
+  map.on('zoomend', bereichAnwenden);
   map.on('zoomend moveend', ansichtGeaendert);
   map.on('moveend', () => {
     for (const [id, g] of geladen) orteNeu(id, g);

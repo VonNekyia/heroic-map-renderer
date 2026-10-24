@@ -1057,6 +1057,10 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
 
   /** Wie gross und wie deckend die Namen jetzt sind; vor dem ersten Zoom noch ohne Wert. */
   let namen: { teil: number; deck: number } | undefined;
+  /** Wie lange Namen ein- und ausblenden, in ms, aus `--namen-dauer` in style.css; danach setzt `namenAn` `namen-aus`. */
+  const namenDauer = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--namen-dauer')) || 0;
+  /** Je Pane der Zeitgeber bis `namen-aus`. */
+  const namenAus = new WeakMap<HTMLElement, ReturnType<typeof setTimeout>>();
   /**
    * Setzt `--name-teil` und `--name-deck` an ein Pane der Nadeln, nicht an
    * den Container: Sonst rechnete der Browser bei jedem Bild eines Pinch den
@@ -1064,10 +1068,18 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
    */
   const namenAn = (el: HTMLElement): void => {
     if (!namen) return;
+    clearTimeout(namenAus.get(el));
+    // Erst wieder ins Layout, noch mit dem alten Deck, dann die neuen Werte: So blendet ein Name ein, statt aufzuspringen.
+    if (namen.deck > 0 && el.classList.contains('namen-aus')) {
+      el.classList.remove('namen-aus');
+      void el.offsetWidth;
+    }
     el.style.setProperty('--name-teil', String(namen.teil));
     el.style.setProperty('--name-deck', String(namen.deck));
     // Ein unsichtbarer Name ist kein Ziel für den Zeiger.
     el.classList.toggle('namen-weg', namen.deck === 0);
+    // Ausgeblendet erst nach der Dauer ganz aus dem Layout; fällt `namen-weg` vorher, bleibt es aus.
+    if (namen.deck === 0) namenAus.set(el, setTimeout(() => el.classList.add('namen-aus'), namenDauer));
   };
   /**
    * Wie gross und wie deckend die Namen auf Stufe `zoom` sind, an den Panes

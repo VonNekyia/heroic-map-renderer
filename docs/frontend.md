@@ -486,6 +486,20 @@ Stil aller Nachkommen neu, auch der Kacheln. Ohne Deckung bekommt das Pane
 wird dabei neu gebaut. Die Breite eines Namens im Bogen misst ein Kontext
 für alle Banner.
 
+Ganz ausgeblendete Namen nimmt die Karte aus dem Layout: Eine Dauer nach
+`namen-weg` setzt `namenAn` am Pane `namen-aus`, und die Namen werden
+`display: none`. Die Dauer steht nur in `--namen-dauer` in
+[`style.css`](../web/src/style.css), auch für die Transition; `ebenen.ts`
+liest sie einmal. Fällt `namen-weg` vorher wieder, verwirft `namenAn` den
+Zeitgeber; geht es hinein, kommen die Namen erst ins Layout und blenden dann
+ein. Weit draussen zieht die Karte so mit 41 % weniger langen Aufgaben, das
+Rad hinein mit 61 % weniger; über die Schwelle hinaus kostet der Pinch 15 %
+mehr, siehe
+[Namen aus dem Layout](messungen/2026-10-24-namen-aus-dem-layout.md).
+`transition-behavior: allow-discrete` ginge ohne JS, aber Firefox geht
+`display` damit nicht über, laut den Daten von MDN zu `transition-behavior`
+(Bug 1882408); dort verschwände der Name schon zu Beginn des Zooms.
+
 ![Eine Ebene auf dem Ufer der Testwelt, links schräg in 2:1, rechts von oben](bilder/ebenen-testwelt.webp)
 
 *Wie es entsteht: [Ebenen](benutzung/ebenen.md), „Zeichnen“.*

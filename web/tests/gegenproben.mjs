@@ -173,6 +173,6 @@ export default [
   { name: 'tafel-nicht-fest', datei: 'src/ebenen.ts', alt: ' || (offen !== undefined && offen.element() === element && map.hasLayer(offen.popup));', neu: ';', spec: 'tests/ebenen.spec.ts', titel: 'nach 0128 bleibt ein Marker mit offener Tafel' },
   { name: 'fokus-nicht-fest', datei: 'src/ebenen.ts', alt: 'return element.contains(document.activeElement) ||', neu: 'return false ||', spec: 'tests/ebenen.spec.ts', titel: 'nach 0128 bleibt ein Marker mit offener Tafel' },
   // Banner als Bild, 0129.
-  { name: 'banner-als-leinwand', datei: 'src/ebenen.ts', alt: 'if (bild instanceof HTMLImageElement) {', neu: 'if (bild instanceof HTMLImageElement && false) {', spec: 'tests/ebenen.spec.ts', titel: 'Banner teilen sich ein Bild' },
+  { name: 'banner-als-leinwand', datei: 'src/ebenen.ts', alt: 'if (bild instanceof HTMLImageElement) {', neu: 'if (bild instanceof HTMLImageElement && bild.width < 0) {', spec: 'tests/ebenen.spec.ts', titel: 'Banner teilen sich ein Bild' },
   { name: 'bild-geglaettet', datei: 'src/style.css', alt: '.nadel canvas,\n.nadel img {', neu: '.nadel canvas {', spec: 'tests/ebenen.spec.ts', titel: 'nach 0129 ist ein Pixel des Banners' },
 ];

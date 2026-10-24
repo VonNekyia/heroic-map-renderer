@@ -40,8 +40,6 @@ interface MapInfo {
   maxY?: number;
   /** Die Kamera des Baums, gekürzt, etwa `8:5` oder `top`; ohne sie 2:1. */
   camera?: string;
-  /** `nearest`, wenn die Pyramide je 2 × 2 einen Pixel nimmt; nur dann gibt es Ansichten mit 2 und 1 px. */
-  downscale?: string;
   /** Wo die Kamera steht; ohne Angabe `se`, genordet `s`. */
   direction?: string;
   /** Die Zahlen der Projektion; ohne sie rechnet das Frontend 2:1 aus `scale`. */
@@ -534,13 +532,9 @@ const HIMMEL: Record<string, string> = {
 /** Die Namen der Looks ausser `map` im Umschalter; ein unbekannter heisst wie in `trees.json`. */
 const LOOKS: Record<string, string> = { cinematic: 'Cinematic', flat: 'Einfarbig' };
 
-/**
- * Die Ansichten mit weniger Pixeln je Block: ein Baum aus `top-north` mit
- * gekappter feinster Stufe, denn seine Stufen nehmen je 2 × 2 einen Pixel.
- * Siehe docs/frontend.md, „Ansichten und Kompass“.
- */
-const STUFEN_PX = [2, 1];
-const mitStufen = ({ camera, look }: Baum): boolean => camera === 'top-north' && look !== 'flat';
+/** 2D ist ein Baum von oben, genordet und nicht einfarbig, 3D einer mit einer Kamera W:H. Siehe docs/frontend.md, „Ansichten und Kompass“. */
+const istZweiD = ({ camera, look }: Baum): boolean => camera === 'top-north' && look !== 'flat';
+const istDreiD = ({ camera }: Baum): boolean => /^\d+:\d+$/.test(camera);
 
 /** Was Leaflet an `L.TileLayer` intern nutzt; die Typen von Leaflet nennen es nicht. */
 interface KachelInnen {
@@ -585,12 +579,6 @@ const Kacheln = L.TileLayer.extend({
   },
 }) as unknown as new (url: string, options: L.TileLayerOptions) => L.TileLayer;
 
-/** Um wie viele Stufen die feinste gekappt wird, damit ein Block `px` Pixel breit ist; ohne ganze Zahl über 0 keine Ansicht. */
-function kappung(scale: number, px: number): number | undefined {
-  const stufen = Math.log2(scale / px);
-  return Number.isInteger(stufen) && stufen > 0 ? stufen : undefined;
-}
-
 /** Der Name eines Baums im Umschalter, etwa „2:1 aus Südost“. */
 function anzeigename({ camera, direction, look }: Baum): string {
   const himmel = HIMMEL[direction];
@@ -615,13 +603,10 @@ async function adresse(
   maxZoom: number,
   mitte: () => Promise<Block | undefined>,
   tree: string | undefined,
-  px: number | undefined,
 ): Promise<URL> {
   const block = await mitte();
   const url = new URL(location.href);
   if (tree !== undefined) url.searchParams.set('tree', tree);
-  if (px !== undefined) url.searchParams.set('px', String(px));
-  else url.searchParams.delete('px');
   if (block) url.searchParams.set('at', block.join(','));
   else url.searchParams.delete('at');
   url.searchParams.set('zoom', String(map.getZoom() - maxZoom));
@@ -629,30 +614,36 @@ async function adresse(
 }
 
 /**
- * Der Umschalter zwischen den Bäumen, je Baum aus `top-north` dazu die
- * Ansichten mit 2 und 1 px je Block. Er öffnet den gewählten Baum mit dem
- * Block, der in der Mitte zu sehen ist, wieder in der Mitte, mit derselben
- * Grösse eines Blocks auf dem Schirm, soweit dessen Stufen reichen.
+ * Der Umschalter zwischen den Bäumen. Gibt es 2D und 3D, ist er ein Knopf
+ * zwischen dem ersten Baum jeder Art, sonst eine Liste aller Bäume. Er
+ * öffnet den gewählten Baum mit dem Block, der in der Mitte zu sehen ist,
+ * wieder in der Mitte, mit derselben Grösse eines Blocks auf dem Schirm,
+ * soweit dessen Stufen reichen.
  */
-function umschalter(
-  map: L.Map,
-  ansichten: readonly { baum: Baum; px?: number }[],
-  aktuell: number,
-  ansicht: (tree: string, px: number | undefined) => Promise<URL>,
-): void {
-  const auswahl = L.DomUtil.create('select', 'baeume');
-  auswahl.setAttribute('aria-label', 'Ansicht');
-  ansichten.forEach(({ baum, px }, i) => {
-    const name = px ? `${anzeigename(baum)} · ${px} px je Block` : anzeigename(baum);
-    auswahl.add(new Option(name, px ? `${baum.path}?px=${px}` : baum.path, false, i === aktuell));
-  });
-  L.DomEvent.disableClickPropagation(auswahl);
-  auswahl.addEventListener('change', () => {
-    const { baum, px } = ansichten[auswahl.selectedIndex]!;
-    void ansicht(baum.path, px).then((url) => location.assign(url));
-  });
+function umschalter(map: L.Map, baeume: readonly Baum[], aktuell: Baum, ansicht: (tree: string) => Promise<URL>): void {
+  const zweiD = baeume.find(istZweiD);
+  const dreiD = baeume.find(istDreiD);
+  let element: HTMLElement;
+  if (zweiD && dreiD) {
+    // Aus jedem anderen Baum, offen über ?tree=, führt er nach 2D.
+    const ziel = aktuell === zweiD ? dreiD : zweiD;
+    const knopf = L.DomUtil.create('button', 'baeume zwei-drei');
+    knopf.type = 'button';
+    knopf.textContent = ziel === zweiD ? '2D' : '3D';
+    knopf.title = anzeigename(ziel);
+    knopf.setAttribute('aria-label', `Ansicht: ${ziel === zweiD ? '2D' : '3D'}`);
+    knopf.addEventListener('click', () => void ansicht(ziel.path).then((url) => location.assign(url)));
+    element = knopf;
+  } else {
+    const auswahl = L.DomUtil.create('select', 'baeume');
+    auswahl.setAttribute('aria-label', 'Ansicht');
+    for (const baum of baeume) auswahl.add(new Option(anzeigename(baum), baum.path, false, baum === aktuell));
+    auswahl.addEventListener('change', () => void ansicht(baeume[auswahl.selectedIndex]!.path).then((url) => location.assign(url)));
+    element = auswahl;
+  }
+  L.DomEvent.disableClickPropagation(element);
   const control = new L.Control({ position: 'topright' });
-  control.onAdd = () => auswahl;
+  control.onAdd = () => element;
   control.addTo(map);
 }
 
@@ -698,14 +689,7 @@ async function start(): Promise<void> {
   const baum = liste && (liste.find((b) => b.path === parameter.get('tree')) ?? liste[0]!);
   const base = baum ? `${wurzel}/${baum.path}` : wurzel;
   const { info, stand } = await load(base);
-  // Eine Ansicht mit gekappter feinster Stufe, nur wo der Baum sie hergibt:
-  // Mittelt seine Pyramide, wären die Stufen weich.
-  const wunsch = Number(parameter.get('px'));
-  const kappe = baum && info.downscale === 'nearest' && STUFEN_PX.includes(wunsch) ? kappung(info.scale, wunsch) : undefined;
-  const px = kappe !== undefined && info.maxZoom - kappe >= info.minZoom ? wunsch : undefined;
-  // Die feinste Stufe mit Kacheln und wie breit ein Block dort ist.
-  const feinste = px ? info.maxZoom - kappe! : info.maxZoom;
-  const hoechste = feinste + extraZoom(px ?? info.scale);
+  const hoechste = info.maxZoom + extraZoom(info.scale);
 
   const [left, top, right, bottom] = info.bounds;
   const bounds = L.latLngBounds(point(left, top), point(right, bottom));
@@ -754,9 +738,8 @@ async function start(): Promise<void> {
     maxZoom: hoechste,
     // Über die gerenderte Stufe hinaus gibt es keine Kacheln mehr; Leaflet
     // soll dann die vorhandenen vergrössern statt ins Leere zu laden.
-    // Unter Zoom 0 ebenso, nur verkleinert. Eine gekappte Ansicht vergrössert
-    // schon ab ihrer feinsten Stufe.
-    maxNativeZoom: feinste,
+    // Unter Zoom 0 ebenso, nur verkleinert.
+    maxNativeZoom: info.maxZoom,
     minNativeZoom: info.minZoom,
     // Ausserhalb liegt nichts. Ohne diese Grenze fragt Leaflet beim
     // Herumziehen reihenweise Kacheln an, die es nicht gibt.
@@ -795,19 +778,16 @@ async function start(): Promise<void> {
     const { lat, lng } = map.getCenter();
     return bei ? bei(lng, lat) : Promise.resolve(undefined);
   };
-  const ansicht = (tree: string | undefined, mitPx: number | undefined) => adresse(map, info.maxZoom, mitte, tree, mitPx);
+  const ansicht = (tree: string | undefined) => adresse(map, info.maxZoom, mitte, tree);
   // Beim Wechsel bleibt ein Block gleich gross: `zoom` zählt ab der feinsten
-  // Stufe, und dort ist ein Block `scale` Pixel breit, je Baum anders; auch
-  // in einer gekappten Ansicht, sie zählt wie ihr Baum.
-  const wechsel = async (tree: string, mitPx: number | undefined): Promise<URL> => {
-    const [url, ziel] = await Promise.all([ansicht(tree, mitPx), load(`${wurzel}/${tree}`).catch(() => undefined)]);
+  // Stufe, und dort ist ein Block `scale` Pixel breit, je Baum anders.
+  const wechsel = async (tree: string): Promise<URL> => {
+    const [url, ziel] = await Promise.all([ansicht(tree), load(`${wurzel}/${tree}`).catch(() => undefined)]);
     const zoom = Number(url.searchParams.get('zoom'));
     if (ziel) url.searchParams.set('zoom', String(zoom + Math.round(Math.log2(info.scale / ziel.info.scale))));
     return url;
   };
-  // Je Baum aus top-north dazu die Ansichten mit 2 und 1 px je Block.
-  const ansichten = (liste ?? []).flatMap((b) => [{ baum: b, px: undefined }, ...(mitStufen(b) ? STUFEN_PX.map((n) => ({ baum: b, px: n })) : [])]);
-  if (baum && ansichten.length > 1) umschalter(map, ansichten, ansichten.findIndex((a) => a.baum === baum && a.px === px), wechsel);
+  if (liste && baum && liste.length > 1) umschalter(map, liste, baum, wechsel);
   // Die Adresse folgt der Karte, ohne Einträge im Verlauf. Ohne Koordinaten
   // gibt es keinen Block für `at`, und sie bleibt, wie sie ist. Es gilt die
   // letzte Bewegung.
@@ -815,7 +795,7 @@ async function start(): Promise<void> {
     let zuletzt = 0;
     map.on('moveend', () => {
       const nummer = ++zuletzt;
-      void ansicht(baum?.path, px).then((url) => {
+      void ansicht(baum?.path).then((url) => {
         if (nummer === zuletzt) history.replaceState(history.state, '', url);
       });
     });

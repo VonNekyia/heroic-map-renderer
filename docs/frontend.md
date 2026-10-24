@@ -281,8 +281,17 @@ Server, der stattdessen die Seite schickt) ist der Kachelpfad selbst der
 Baum, wie bisher. Eine Liste ohne brauchbare Einträge zeigt die Seite als
 Fehler an, wie eine fehlende `map.json`.
 
-Bei mehr als einem Baum steht neben dem Kompass ein `select`. Er nennt
-jeden Baum lesbar, nicht mit seinen Kürzeln:
+Bei mehr als einem Baum steht neben dem Kompass ein Umschalter, nach
+[0121](entscheidungen/0121-zwei-d-drei-d-statt-liste.md):
+
+- **2D und 3D:** Gibt es einen Baum aus `top-north`, der nicht einfarbig
+  ist (2D), und einen mit einer Kamera W:H (3D), ist er ein Knopf
+  `button.zwei-drei` zwischen dem ersten Baum jeder Art. Er trägt den Namen
+  der anderen Art, „2D“ oder „3D“, und als `title` deren Namen wie unten.
+  Aus jedem anderen Baum, offen über `?tree=`, führt er nach 2D.
+- **Sonst** ist er ein `select` mit allen Bäumen.
+
+Beide nennen jeden Baum lesbar, nicht mit seinen Kürzeln:
 
 | Kamera | Name |
 |---|---|
@@ -295,26 +304,15 @@ Ein `look` ausser `map` kommt dazu, `cinematic` als „· Cinematic“, `flat`
 als „· Einfarbig“; ein unbekannter wie in `trees.json`. Eine
 unbekannte Kamera oder Richtung steht als `camera · direction` da.
 
-Jeder Baum aus `top-north` ausser einem einfarbigen steht zweimal mehr da,
-als „· 2 px je Block“ und „· 1 px je Block“ (#293). Das sind keine eigenen
-Bäume, sondern seine Stufen, siehe [Zoomstufen](benutzung/zoomstufen.md),
-„1 und 2 px je Block“:
+Ansichten mit 1 und 2 px je Block gibt es auf der Webkarte nicht; dieselben
+Stufen zeigt sie beim Herauszoomen, siehe [Zoomstufen](benutzung/zoomstufen.md),
+„1 und 2 px je Block“. Ein alter Link mit `?px` zeigt die volle Ansicht.
 
-- **Gekappt:** Die feinste Stufe mit Kacheln ist die, auf der ein Block
-  so breit ist, `maxZoom − log2(scale / px)`. Darüber vergrössert Leaflet
-  ihre Kacheln, bis ein Block 64 Pixel breit ist, wie in jedem Baum.
-- **Nur, wo der Baum sie hergibt:** mit `"downscale": "nearest"` in
-  `map.json`, `scale / px` eine Zweierpotenz über 1 und die gekappte Stufe
-  nicht unter `minZoom`. Sonst zeigt die Seite die volle Ansicht. Ein Baum
-  aus älterem Stand ohne `downscale` mittelt beim Verkleinern; seine
-  Stufen wären weich.
-
-Die Wahl lädt die Seite neu, mit bis zu vier Parametern in der Adresse:
+Die Wahl lädt die Seite neu, mit bis zu drei Parametern in der Adresse:
 
 | Parameter | Inhalt |
 |---|---|
 | `tree` | `path` des Baums aus `trees.json` |
-| `px` | 2 oder 1 für die Ansicht mit so vielen Pixeln je Block; fehlt bei der vollen |
 | `at` | der Block in der Mitte, `x,y,z` in Weltkoordinaten |
 | `zoom` | die Zoomstufe ab der feinsten gerenderten: 0 ist ein Pixel der Kachel je Pixel des Bildschirms, −1 halb so gross |
 
@@ -335,8 +333,7 @@ neue zeigt die ganze Karte.
 
 Die Adresse folgt der Karte: Nach jedem Verschieben oder Zoomen schreibt
 das Frontend `at` und `zoom` hinein, mit dem Baum in `tree`, wenn es eine
-Liste gibt, und `px` in einer gekappten Ansicht. `zoom` zählt dort wie im
-Baum, ein Block bleibt beim Wechsel also gleich gross. Es nimmt `history.replaceState`, der Verlauf bekommt also
+Liste gibt. Es nimmt `history.replaceState`, der Verlauf bekommt also
 keine Einträge. Wer die Adresse kopiert oder die Seite neu lädt, sieht
 denselben Block in der Mitte auf derselben Stufe. Ohne Koordinaten gibt es
 keinen Block für `at`, und die Adresse bleibt, wie sie ist.
@@ -418,11 +415,15 @@ ist, ohne Leaflet, und [`pruefen.ts`](../web/src/pruefen.ts) für die
 Eingaben.
 
 Banner, feste Grösse und die Tafel beim Zeigen folgen
-[0097](entscheidungen/0097-banner-feste-groesse-tafel-beim-zeigen.md). Unter 16 Blöcken je Pixel werden
-Nadeln und Banner je Stufe kleiner, siehe
-[0116](entscheidungen/0116-nadeln-und-banner-unter-16-bloecken-je-pixel.md)
-und [Ebenen](benutzung/ebenen.md), „Nadeln und Banner“; beim Zoomen über
-eine Stufe bekommen sie ein neues Icon, neu geladen wird nichts.
+[0097](entscheidungen/0097-banner-feste-groesse-tafel-beim-zeigen.md). Unter 16 Blöcken je Pixel wird
+nur der Name stufenlos kleiner und blendet aus, siehe
+[0119](entscheidungen/0119-namen-stufenlos-icons-fest.md)
+und [Ebenen](benutzung/ebenen.md), „Nadeln und Banner“. `namenNachZoom`
+setzt dafür `--name-teil` und `--name-deck` am Container, ab dem Start
+jedes Zooms (`zoomanim`) und bei jedem `zoom`; CSS geht in 250 ms dorthin,
+mit der Kurve von Leaflet. Ohne Deckung bekommt der Container `namen-weg`,
+die Namen werden `hidden`, erst nach dem Ausblenden. Kein Icon wird dabei
+neu gebaut.
 
 ![Eine Ebene auf dem Ufer der Testwelt, links schräg in 2:1, rechts von oben](bilder/ebenen-testwelt.webp)
 
@@ -513,8 +514,7 @@ eine Stufe bekommen sie ein neues Icon, neu geladen wird nichts.
     beide einmal je Seite. Ein Pixel des Gesichts sind 2 Pixel des Bilds,
     die Mitte liegt auf dem Fuss, der Name gerade darunter. Fehlt der Kopf
     oder taugt er nicht, zeichnet `nadelIcon` die Nadel;
-  - bis zur Grenze aus 0116 auf jeder Stufe gleich gross, darunter je Stufe
-    die Hälfte, siehe oben. Ein
+  - auf jeder Stufe gleich gross, nur der Name nicht, siehe oben. Ein
     Pixel des Bilds ist `k = max(1, round(devicePixelRatio))` Pixel des
     Geräts breit, die Leinwand also `k`-mal so gross wie das Bild und
     `b · k / devicePixelRatio` Pixel des Bildschirms breit. So bleibt jedes

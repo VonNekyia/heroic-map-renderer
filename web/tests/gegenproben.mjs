@@ -72,11 +72,12 @@ export default [
   { name: 'doppelklick-zweimal', datei: 'src/ebenen.ts', alt: 'if (!k || laufend.has(knopfSchluessel(k)) || spieler?.nurLesen) return;', neu: 'if (!k || spieler?.nurLesen) return;', spec: 'tests/aktionsebenen.spec.ts', titel: 'ein Knopf in der Tafel' },
   { name: 'nach-1-5-s-frei', datei: 'src/ebenen.ts', alt: 'const NACH_KLICK = [300, 500, 700, 1500];', neu: 'const NACH_KLICK = [300, 500, 700];', spec: 'tests/aktionsebenen.spec.ts', titel: 'kommt nach einem Klick 3 s kein' },
   { name: 'knopf-ohne-tafel-fehlt', datei: 'src/ebenen.ts', alt: '&& mitKnopf(o.id)) o.panel = [];', neu: '&& mitKnopf(o.id) && !o.id) o.panel = [];', spec: 'tests/aktionsebenen.spec.ts', titel: 'ein Objekt ohne Tafel bekommt' },
-  // Ansichten mit 2 und 1 px je Block, #293.
-  { name: 'kappe-ohne-downscale', datei: 'src/main.ts', alt: "const kappe = baum && info.downscale === 'nearest' && STUFEN_PX", neu: 'const kappe = baum && STUFEN_PX', spec: 'tests/smoke.spec.ts', titel: 'ohne downscale nearest' },
-  { name: 'kacheln-nicht-gekappt', datei: 'src/main.ts', alt: '    maxNativeZoom: feinste,', neu: '    maxNativeZoom: info.maxZoom + 0 * feinste,', spec: 'tests/smoke.spec.ts', titel: 'Ansichten mit 2 und 1 px je Block' },
-  { name: 'grenze-nach-scale', datei: 'src/main.ts', alt: 'const hoechste = feinste + extraZoom(px ?? info.scale);', neu: 'const hoechste = feinste + extraZoom(info.scale);', spec: 'tests/smoke.spec.ts', titel: 'Ansichten mit 2 und 1 px je Block' },
-  { name: 'px-faellt-aus-der-adresse', datei: 'src/main.ts', alt: 'void ansicht(baum?.path, px).then', neu: 'void ansicht(baum?.path, undefined).then', spec: 'tests/smoke.spec.ts', titel: 'Ansichten mit 2 und 1 px je Block' },
+  // 2D/3D statt der Liste.
+  { name: 'grenze-nach-scale', datei: 'src/main.ts', alt: 'const hoechste = info.maxZoom + extraZoom(info.scale);', neu: 'const hoechste = info.maxZoom + extraZoom(16);', spec: 'tests/smoke.spec.ts', titel: 'beim Wechsel bleibt ein Block gleich gross' },
+  { name: 'zweid-auch-von-oben', datei: 'src/main.ts', alt: "camera === 'top-north' && look !== 'flat';", neu: "camera.startsWith('top') && look !== 'flat';", spec: 'tests/smoke.spec.ts', titel: 'ohne 2D ist der Umschalter eine Liste' },
+  { name: 'knopf-zeigt-den-jetzigen', datei: 'src/main.ts', alt: 'const ziel = aktuell === zweiD ? dreiD : zweiD;', neu: 'const ziel = aktuell === zweiD ? zweiD : dreiD;', spec: 'tests/smoke.spec.ts', titel: 'mit 2D und 3D ein Knopf' },
+  { name: 'zweid-auch-einfarbig', datei: 'src/main.ts', alt: "const istZweiD = ({ camera, look }: Baum): boolean => camera === 'top-north' && look !== 'flat';", neu: "const istZweiD = ({ camera, look }: Baum): boolean => camera === 'top-north' && look !== 'x';", spec: 'tests/smoke.spec.ts', titel: 'mit 2D und 3D ein Knopf' },
+  { name: 'wechsel-ohne-scale', datei: 'src/main.ts', alt: '    if (ziel) url.searchParams.set(', neu: '    if (ziel && ziel.info.scale < 0) url.searchParams.set(', spec: 'tests/smoke.spec.ts', titel: 'mit 2D und 3D ein Knopf' },
   // Abgebrochene Kacheln unter der CSP.
   { name: 'abbruch-mit-data', datei: 'src/main.ts', alt: "      el.removeAttribute('src');\n      el.remove();", neu: "      el.src = L.Util.emptyImageUrl;\n      el.remove();", spec: 'tests/smoke.spec.ts', titel: 'Zoomen bricht laufende Kacheln ab' },
   // Erstes Zeichnen und Fokus der Flächen.
@@ -135,14 +136,15 @@ export default [
   { name: 'ich-ohne-rahmen', datei: 'src/style.css', alt: '.mitspieler.ich .mitspieler-kopf {\n  outline: 1px solid #ffd84a;\n}', neu: '.mitspieler.ich .mitspieler-kopf {\n  outline: 0 solid #ffd84a;\n}', spec: 'tests/mitspieler.spec.ts', titel: 'nach 0114 zeigt ein Mitspieler mit kopf' },
   // Kein Fokusring nach einem Mausklick auf eine Fläche.
   { name: 'name-mit-fokus', datei: 'src/formen.ts', alt: "if (!f.panel) flaeche.on('add', () => ohne(flaeche.getElement()!, 'focus blur'));", neu: "if (!f.panel && f.id === '') flaeche.on('add', () => ohne(flaeche.getElement()!, 'focus blur'));", spec: 'tests/formen.spec.ts', titel: 'nach einem Mausklick auf eine Fläche' },
-  // Nadeln und Banner unter 16 Blöcken je Pixel, 0116.
-  { name: 'groesse-immer-voll', datei: 'src/ebenen.ts', alt: 'const GROESSE = { grenze: 1 / 16, nameMin: 6 };', neu: 'const GROESSE = { grenze: 0, nameMin: 6 };', spec: 'tests/ebenen.spec.ts', titel: 'nach 0116 bleiben Nadeln und Banner' },
-  { name: 'grenze-eine-stufe-frueher', datei: 'src/ebenen.ts', alt: 'const GROESSE = { grenze: 1 / 16, nameMin: 6 };', neu: 'const GROESSE = { grenze: 1 / 8, nameMin: 6 };', spec: 'tests/ebenen.spec.ts', titel: 'nach 0116 bleiben Nadeln und Banner' },
-  { name: 'name-immer', datei: 'src/ebenen.ts', alt: 'const mitName = name && NAME.s * teil >= GROESSE.nameMin;', neu: 'const mitName = name && NAME.s * teil >= 0;', spec: 'tests/ebenen.spec.ts', titel: 'nach 0116 bleiben Nadeln und Banner' },
-  { name: 'ohne-kleinste-stufe', datei: 'src/ebenen.ts', alt: 'return Math.min(STUFE_MAX, Math.max(', neu: 'return Math.min(STUFE_MAX + 9, Math.max(', spec: 'tests/ebenen.spec.ts', titel: 'nach 0116 bleiben Nadeln und Banner' },
-  { name: 'zoom-ohne-neues-icon', datei: 'src/ebenen.ts', alt: "  map.on('zoomend', groesseNachZoom);", neu: "  map.on('zoomstart', groesseNachZoom);", spec: 'tests/ebenen.spec.ts', titel: 'nach 0116 bleiben Nadeln und Banner' },
-  { name: 'tafel-ueber-altem-icon', datei: 'src/ebenen.ts', alt: '      popup.options.offset = [0, 7 - hoehe()];\n', neu: '', spec: 'tests/ebenen.spec.ts', titel: 'nach 0116 bleiben Nadeln und Banner' },
-  { name: 'name-nicht-mit-kleiner', datei: 'src/ebenen.ts', alt: "if (teil < 1) [svg.style.transform, svg.style.transformOrigin] = [`scale(${teil})`, '0 0'];", neu: "if (teil < 0) [svg.style.transform, svg.style.transformOrigin] = [`scale(${teil})`, '0 0'];", spec: 'tests/ebenen.spec.ts', titel: 'nach 0116 bleiben Nadeln und Banner' },
+  // Namen stufenlos, Icons fest, 0119.
+  { name: 'name-nie-kleiner', datei: 'src/style.css', alt: '  transform: translateX(-50%) scale(var(--name-teil, 1));', neu: '  transform: translateX(-50%);', spec: 'tests/ebenen.spec.ts', titel: 'nach 0119 bleiben Nadeln' },
+  { name: 'bogen-nie-kleiner', datei: 'src/style.css', alt: '  transform: scale(var(--name-teil, 1));\n  transform-origin: 0 0;', neu: '  transform-origin: 0 0;', spec: 'tests/ebenen.spec.ts', titel: 'nach 0119 bleiben Nadeln' },
+  { name: 'grenze-eine-stufe-frueher', datei: 'src/ebenen.ts', alt: 'const NAMEN = { grenze: 1 / 16,', neu: 'const NAMEN = { grenze: 1 / 8,', spec: 'tests/ebenen.spec.ts', titel: 'nach 0119 bleiben Nadeln' },
+  { name: 'namen-nie-weg', datei: 'src/ebenen.ts', alt: 'const deck = Math.min(1, Math.max(0, (NAME.s * teil - NAMEN.weg) / (NAMEN.voll - NAMEN.weg)));', neu: 'const deck = Math.min(1, NAME.s * teil);', spec: 'tests/ebenen.spec.ts', titel: 'nach 0119 bleiben Nadeln' },
+  { name: 'weg-ohne-uebergang', datei: 'src/style.css', alt: '    opacity 0.25s cubic-bezier(0, 0, 0.25, 1),\n', neu: '', spec: 'tests/ebenen.spec.ts', titel: 'nach 0119 bleiben Nadeln' },
+  { name: 'unsichtbar-sofort', datei: 'src/style.css', alt: ',\n    visibility 0.25s;', neu: ';', spec: 'tests/ebenen.spec.ts', titel: 'nach 0119 bleiben Nadeln' },
+  { name: 'weg-bleibt-ziel', datei: 'src/ebenen.ts', alt: "container.classList.toggle('namen-weg', deck === 0);", neu: "container.classList.toggle('namen-weg', deck < 0);", spec: 'tests/ebenen.spec.ts', titel: 'nach 0119 bleiben Nadeln' },
+  // Köpfe in Ebenen, 0118.
   { name: 'kopf-nie-an-der-nadel', datei: 'src/ebenen.ts', alt: '    if (gesicht) return', neu: "    if (gesicht && n.size === 'small') return", spec: 'tests/ebenen.spec.ts', titel: 'nach 0118 zeigt eine Nadel mit head' },
   { name: 'kopf-ein-pixel-je-pixel', datei: 'src/ebenen.ts', alt: 'ortIcon(gesicht, 2 * KOPF.seite, 2 * KOPF.seite,', neu: 'ortIcon(gesicht, KOPF.seite, KOPF.seite,', spec: 'tests/ebenen.spec.ts', titel: 'nach 0118 zeigt eine Nadel mit head' },
   { name: 'kopf-fuss-unten', datei: 'src/ebenen.ts', alt: '{ fuss: [KOPF.seite, KOPF.seite] }', neu: '{ fuss: [KOPF.seite, 2 * KOPF.seite] }', spec: 'tests/ebenen.spec.ts', titel: 'nach 0118 zeigt eine Nadel mit head' },

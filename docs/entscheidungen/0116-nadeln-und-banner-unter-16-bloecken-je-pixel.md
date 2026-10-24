@@ -1,7 +1,7 @@
 ---
 title: "0116: Nadeln und Banner unter 16 Blöcken je Pixel"
 description: Warum Nadeln und Banner auf der Webkarte nur bis 16 Blöcke je CSS-Pixel ihre volle Grösse behalten und darunter je Stufe auf die Hälfte schrumpfen, Bild und Name, bis der Name unter 6 Pixel fiele; warum die Grenze am Massstab hängt statt am Zoom; löst die feste Grösse aus 0097 für die Webkarte ab.
-status: gilt
+status: abgelöst durch 0119
 date: 2026-10-23
 issues: []
 code:
@@ -9,6 +9,12 @@ code:
 ---
 
 # 0116: Nadeln und Banner unter 16 Blöcken je Pixel
+
+Abgelöst durch [0119](0119-namen-stufenlos-icons-fest.md): Nadeln, Köpfe und Banner bleiben auf
+jeder Stufe gleich gross; nur der Name wird stufenlos kleiner.
+
+Abgelöst durch [0119](0119-namen-stufenlos-icons-fest.md): Nadeln, Köpfe und Banner bleiben auf
+jeder Stufe gleich gross; nur der Name wird stufenlos kleiner.
 
 ## Anlass
 

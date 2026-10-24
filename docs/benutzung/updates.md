@@ -137,11 +137,11 @@ Eine Region, `stand/<x>.<z>.bin`:
 |---|---|
 | `HMRREGIO`, Fassung 2 | 12 |
 | je Chunk, 1024, nach z, dann x: Art des Inhalts mit einem Bit für den Stempel, Zeit, Eintrag der Tabelle, Fingerabdruck, höchster Block | 19 |
-| dazu je Chunk für die Grenze nach unten: Section des tiefsten ersten dichten Blocks, noch leer `0x80`, und Abdruck der Sections darunter, noch 0 | 9 |
+| dazu je Chunk für die Grenze nach unten K als i8, ohne Tiefe `0x80`, und H als u64, ohne 0; siehe „Die Grenze nach unten“ | 9 |
 
 - **Grösse:** Eine Region kostet 28 684 Byte, eine Welt mit 2,5 Millionen
   Chunks also mindestens rund 70 MB je Baum. Im Speicher hält der Stand je
-  Chunk die 19 Bytes.
+  Chunk die 28 Bytes.
 - **Fassung 1** hatte alles in `stand.bin`: hinter jeder Lage einer Region
   ihre Chunks zu 19 Bytes, 47 MB für dieselbe Welt.
 - **Was das Plugin liest,** steht in [Plugin](../plugin.md), „Was das
@@ -260,7 +260,9 @@ Um jeden geänderten Chunk ein Gebiet, `gebiet_der_aenderungen` in
   höchsten Block der 3 × 3 Chunks um ihn: für ihn selbst der höhere aus
   altem und neuem Stand, für die Nachbarn der neue; über einen Chunk, von
   dem der Stand nichts weiss, die Oberkante. Nach unten bleibt es die volle
-  Höhe, denn Himmelslicht fällt in einer Spalte beliebig tief. Nach oben
+  Höhe, denn Himmelslicht fällt in einer Spalte beliebig tief, ausser auf
+  der Karte unter dem tiefsten ersten dichten Block, siehe „Die Grenze nach
+  unten“. Nach oben
   reicht der höhere der beiden Stände, sonst bliebe die Spitze eines
   abgerissenen Turms stehen, und die Nachbarn zählen mit: Wird ein Chunk
   fertig, fällt er weg oder wechselt er sein Biom, ändern sich an einem
@@ -297,6 +299,38 @@ berührt. Kacheln, in die ein Chunk früher reichte, der noch da ist, zeichnet
 der Lauf neu; leer verschwinden sie. Kacheln eines Chunks, der ganz fehlt,
 bleiben ohne `--prune` stehen, siehe [Kacheln exportieren](kacheln.md),
 „Leer gewordene Kacheln“ (`update_laesst_kacheln_fehlender_chunks_stehen`).
+
+## Die Grenze nach unten
+
+Auf der Karte ohne Cinematic und ohne Relief beginnt das Gebiet eines
+geänderten Chunks erst bei `min(16·K_alt, E_neu) − 16`, wenn seine
+Sections unter K gleich geblieben sind. Entschieden in
+[0127](../entscheidungen/0127-grenze-nach-unten.md), dort auch, warum es
+reicht.
+
+- **E** ist das tiefste y, an dem in einer Spalte des Chunks von oben der
+  erste dichte Block steht, einer, der das Licht ganz aufhält
+  (`Chunk::erster_dichter` in
+  [`renderer/src/world/chunk.rs`](../../renderer/src/world/chunk.rs)). Hat
+  eine Spalte keinen, gibt es kein E und keine Grenze.
+- **K** ist die Section von E, **H** der Abdruck der Sections unter K
+  (`Chunk::abdruck_unter`). Beide stehen im Stand, siehe „Der Stand“.
+- **Die Bedingung** prüft `grenze_nach_unten` in `stand.rs`: Der alte Stand
+  kennt K und H, der Chunk hat jetzt ein E, und seine Sections unter dem
+  alten K haben wieder H. Ein Update liest dafür jeden Chunk mit dem alten
+  K.
+- **Ohne Tiefe** bleibt die volle Höhe: für einen Chunk, den der Server
+  während des Laufs schrieb, und für einen aus einem Stand der Fassung 1,
+  bis ein Lauf ihn wieder liest.
+- **Wie viel:** An der Testwelt liesse die Grenze von 1960 Kacheln im
+  Gebiet 816 weg, keine mit neuen Pixeln, gemessen vor dem Bau, siehe
+  [2026-10-24, Updates je Phase](../messungen/2026-10-24-updates-je-phase.md).
+- **Geprüft** in `grenze_nach_unten_gleicht_einem_vollen_lauf` in
+  `renderer/tests/cli.rs`: ein Berg aus Stein mit einem Schacht in die Halle
+  des Chunks daneben, der Reihe nach ein Block oben, Glas, Wasser und Laub
+  über E und weg, Leuchtstein unter K, der Schacht auf und zu und eine
+  Spalte ohne dichten Block; nach jedem Schritt gleicht das Update einem
+  vollen Lauf.
 
 ## Gleiche Pixel
 

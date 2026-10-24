@@ -282,7 +282,8 @@ body {
   overflow: visible;
 }
 
-.nadel canvas {
+.nadel canvas,
+.nadel img {
   display: block;
   image-rendering: pixelated;
 }

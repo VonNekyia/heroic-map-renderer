@@ -161,4 +161,11 @@ export default [
   { name: 'grund-zwei-stufen', datei: 'src/main.ts', alt: 'const GRUND = { stufen: 3 };', neu: 'const GRUND = { stufen: 2 };', spec: 'tests/smoke.spec.ts', titel: 'die Grundschicht liegt drei Stufen gröber' },
   { name: 'grund-nicht-groeber', datei: 'src/main.ts', alt: 'grob ? Math.round(zoom) - grob : zoom', neu: 'grob ? Math.round(zoom) - 0 * grob : zoom', spec: 'tests/smoke.spec.ts', titel: 'die Grundschicht liegt unter den Kacheln' },
   { name: 'grund-oben', datei: 'src/main.ts', alt: "grob: GRUND.stufen, zIndex: 0, className: 'grund'", neu: "grob: GRUND.stufen, zIndex: 2, className: 'grund'", spec: 'tests/smoke.spec.ts', titel: 'die Grundschicht liegt unter den Kacheln' },
+  // Warteschlange der Kacheln, D3.
+  { name: 'schlange-ohne-grenze', datei: 'src/main.ts', alt: 'if (schlange.laufend.size >= schlange.grenze) return;', neu: 'if (schlange.laufend.size >= 1000) return;', spec: 'tests/smoke.spec.ts', titel: 'die Warteschlange lädt höchstens 6 Kacheln zugleich' },
+  { name: 'grund-nicht-zuerst', datei: 'src/main.ts', alt: 'schlange.wartend[this.options.grob ? 0 : 1]', neu: 'schlange.wartend[this.options.grob ? 1 : 0]', spec: 'tests/smoke.spec.ts', titel: 'sind alle Plätze belegt' },
+  { name: 'cache-setzt-grenze', datei: 'src/main.ts', alt: '    if (protokoll) {', neu: '    if (protokoll !== undefined) {', spec: 'tests/smoke.spec.ts', titel: 'die Warteschlange lädt höchstens 6 Kacheln zugleich' },
+  { name: 'h2-bleibt-sechs', datei: 'src/main.ts', alt: "protokoll.startsWith('http/1') ? SCHLANGE.http1 : SCHLANGE.mehrfach", neu: "protokoll.startsWith('http/1') ? SCHLANGE.http1 : SCHLANGE.http1", spec: 'tests/smoke.spec.ts', titel: 'mit h2 lädt die Warteschlange 16' },
+  { name: 'wartende-gehen-ans-netz', datei: 'src/main.ts', alt: '      vergiss(el);\n      entfernt.add(el);\n      el.remove();', neu: '      entfernt.add(el);\n      el.remove();', spec: 'tests/smoke.spec.ts', titel: 'nach dem Zoomen geht eine nicht mehr gebrauchte Kachel nie ans Netz' },
+  { name: 'entfernte-zaehlen', datei: 'src/main.ts', alt: 'if (!this._map || (el && entfernt.has(el))) return;', neu: 'if (!this._map) return;', spec: 'tests/smoke.spec.ts', titel: 'zurückgezoomt markiert eine losgelöste Kachel' },
 ];

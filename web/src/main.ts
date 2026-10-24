@@ -555,42 +555,118 @@ const GRUND = { stufen: 3 };
 type KachelOptionen = L.TileLayerOptions & { grob?: number };
 
 /**
- * Kacheln wie `L.TileLayer`, nur bricht eine Kachel ab, indem sie ihr `src`
- * verliert. Leaflet setzt dafür ein GIF als `data:`, und das verletzt
- * `default-src 'self'`. `L.Util.emptyImageUrl` umzusetzen hilft nicht:
- * Leaflet liest die Adresse aus einer Variable seines Moduls. Mit `grob`
- * eine Stufe aus `GRUND`. Die vier Methoden folgen Leaflet 1.9.4. Siehe
- * docs/frontend.md, „Ausliefern“.
+ * So viele Kacheln laden zugleich: über HTTP/1.1 so viele, wie Chromium je
+ * Host öffnet, sonst mehr. Siehe docs/frontend.md, „Warteschlange“.
+ */
+const SCHLANGE = { http1: 6, mehrfach: 16 };
+
+/**
+ * Die Warteschlange beider Ebenen: Je Vorrang, 0 die Grundschicht, die
+ * wartenden Kacheln mit ihrer Adresse, in der Reihe, in der Leaflet sie
+ * anlegt, die Mitte zuerst. `laufend` hält auch, was Leaflet schon entfernt
+ * hat, bis es zu Ende geladen ist.
+ */
+const schlange = {
+  grenze: SCHLANGE.http1,
+  gemessen: false,
+  wartend: [new Map<HTMLImageElement, string>(), new Map<HTMLImageElement, string>()],
+  laufend: new Set<HTMLImageElement>(),
+};
+/** Kacheln, die Leaflet entfernt hat: Laden sie zu Ende, fassen sie nichts mehr an. */
+const entfernt = new WeakSet<HTMLImageElement>();
+
+/** Startet wartende Kacheln, bis die Grenze erreicht ist, die Grundschicht zuerst. */
+function weiter(): void {
+  for (const wartend of schlange.wartend) {
+    for (const [el, url] of wartend) {
+      if (schlange.laufend.size >= schlange.grenze) return;
+      wartend.delete(el);
+      schlange.laufend.add(el);
+      el.src = url;
+    }
+  }
+}
+
+/**
+ * Eine Kachel ist fertig, geladen oder mit Fehler. Die erste über das Netz
+ * derselben Herkunft setzt die Grenze nach ihrem Protokoll; aus dem Cache ist
+ * es leer, dann bleibt es bei `SCHLANGE.http1`.
+ */
+function fertig(el: HTMLImageElement): void {
+  if (!schlange.laufend.delete(el)) return;
+  if (!schlange.gemessen) {
+    const url = new URL(el.src, location.href);
+    const eintrag = url.origin === location.origin ? (performance.getEntriesByName(url.href).at(-1) as PerformanceResourceTiming | undefined) : undefined;
+    const protokoll = eintrag?.nextHopProtocol;
+    if (protokoll) {
+      schlange.gemessen = true;
+      schlange.grenze = protokoll.startsWith('http/1') ? SCHLANGE.http1 : SCHLANGE.mehrfach;
+    }
+  }
+  weiter();
+}
+
+/** Nimmt eine wartende Kachel aus der Schlange, ohne dass sie ans Netz geht. */
+const vergiss = (el: HTMLImageElement): void => {
+  for (const wartend of schlange.wartend) wartend.delete(el);
+};
+
+/** Leaflet intern: Ladeende einer Kachel an `done` melden. */
+type MeldeKachel = (done: L.DoneCallback, el: HTMLImageElement) => void;
+
+/**
+ * Kacheln wie `L.TileLayer`, nur über die Warteschlange: `createTile` setzt
+ * `src` erst, wenn ein Platz frei ist. Nicht mehr gebrauchte Kacheln fallen
+ * aus der Schlange; laufende laden zu Ende, statt abzubrechen, und fassen
+ * danach nichts mehr an. So setzt die Karte nie das GIF als `data:`, mit dem
+ * Leaflet abbricht und das `default-src 'self'` verletzte. Mit `grob` eine
+ * Stufe aus `GRUND`. Die fünf Methoden folgen Leaflet 1.9.4. Siehe
+ * docs/frontend.md, „Ausliefern“ und „Warteschlange“.
  */
 const Kacheln = L.TileLayer.extend({
+  // Wie Leaflet, ohne `crossOrigin` und `referrerPolicy`, die die Karte nicht setzt; `src` setzt `weiter`.
+  createTile(this: { options: KachelOptionen; getTileUrl(c: L.Coords): string; _tileOnLoad: MeldeKachel; _tileOnError: MeldeKachel }, coords: L.Coords, done: L.DoneCallback) {
+    const el = document.createElement('img');
+    L.DomEvent.on(el, 'load', L.Util.bind(this._tileOnLoad, this, done, el));
+    L.DomEvent.on(el, 'error', L.Util.bind(this._tileOnError, this, done, el));
+    // Gleich wie sie endet: Der Platz wird frei, auch für eine entfernte Kachel.
+    el.addEventListener('load', () => fertig(el));
+    el.addEventListener('error', () => fertig(el));
+    el.alt = '';
+    schlange.wartend[this.options.grob ? 0 : 1]!.set(el, this.getTileUrl(coords));
+    weiter();
+    return el;
+  },
   // Die Grundschicht nimmt die Stufe `grob` darunter, sonst wie Leaflet.
   _clampZoom(this: KachelInnen & { options: KachelOptionen }, zoom: number) {
     const { grob } = this.options;
     return (L.TileLayer.prototype as unknown as { _clampZoom(this: unknown, z: number): number })._clampZoom.call(this, grob ? Math.round(zoom) - grob : zoom);
   },
-  // Bricht die Kacheln ab, die noch für eine andere Stufe laden.
+  // Nimmt die Kacheln einer anderen Stufe, die noch nicht fertig sind, aus der Karte: wartend fallen sie heraus, ladend laden sie losgelöst zu Ende.
   _abortLoading(this: KachelInnen) {
     for (const [schluessel, kachel] of Object.entries(this._tiles)) {
       if (kachel.coords.z === this._tileZoom) continue;
       const el = kachel.el;
-      el.onload = el.onerror = null;
-      if (el.complete) continue;
-      el.removeAttribute('src');
+      // Fertig heisst: gestartet und nicht mehr laufend; die behält Leaflet, bis die neue Stufe steht.
+      if (el.hasAttribute('src') && !schlange.laufend.has(el)) continue;
+      vergiss(el);
+      entfernt.add(el);
       el.remove();
       delete this._tiles[schluessel];
       this.fire('tileabort', { tile: el, coords: kachel.coords });
     }
   },
+  // Wie Leaflet, nur ohne das GIF: Wartend fällt die Kachel heraus, ladend lädt sie losgelöst zu Ende.
   _removeTile(this: KachelInnen, schluessel: string) {
     const kachel = this._tiles[schluessel];
     if (!kachel) return;
-    // Bricht eine laufende Anfrage ab.
-    kachel.el.removeAttribute('src');
+    vergiss(kachel.el);
+    entfernt.add(kachel.el);
     (L.GridLayer.prototype as unknown as { _removeTile(this: KachelInnen, s: string): void })._removeTile.call(this, schluessel);
   },
   _tileReady(this: KachelInnen, coords: L.Coords, fehler: Error | undefined, el: HTMLImageElement | undefined) {
-    // Eine abgebrochene Kachel zählt nicht als fertig.
-    if (!this._map || (el && !el.hasAttribute('src'))) return;
+    // Eine entfernte Kachel, die zu Ende lud, zählt nicht, auch nicht für eine neue Kachel an derselben Stelle.
+    if (!this._map || (el && entfernt.has(el))) return;
     (L.GridLayer.prototype as unknown as { _tileReady(this: KachelInnen, ...a: unknown[]): void })._tileReady.call(this, coords, fehler, el);
   },
 }) as unknown as new (url: string, options: KachelOptionen) => L.TileLayer;

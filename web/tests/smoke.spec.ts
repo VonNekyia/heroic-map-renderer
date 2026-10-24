@@ -206,30 +206,157 @@ test('Kacheln folgt Leaflet 1.9.4: Ein anderes Leaflet braucht einen Blick auf d
   expect(version, 'siehe docs/frontend.md, „Ausliefern“').toBe('1.9.4');
 });
 
-test('Zoomen bricht laufende Kacheln ab, ohne die CSP zu verletzen; eine abgebrochene zählt nicht als geladen', async ({ page }) => {
+/**
+ * Ein grosser Baum unter `/tiles-gross` mit Stufen 0 bis 5, auf Stufe 5 also
+ * 32 × 32 Kacheln, jede die Kachel 0/0/0 des Demobaums. `halte` entscheidet je
+ * Adresse, ob die Antwort wartet, bis der Test sie freigibt; `angefragt`
+ * zählt jede Anfrage.
+ */
+async function grosserBaum(page: Page, halte: (url: string) => boolean = () => true) {
+  const bild = readFileSync(new URL('../public/tiles-demo/0/0/0.webp', import.meta.url));
+  const angefragt: string[] = [];
+  const haengend: (() => void)[] = [];
+  await page.route('**/tiles-gross/trees.json', (route) => route.fulfill({ status: 404 }));
+  await page.route('**/tiles-gross/layers.json', (route) => route.fulfill({ status: 404 }));
+  await page.route('**/tiles-gross/map.json', (route) => route.fulfill({ json: { tileSize: 256, scale: 16, minZoom: 0, maxZoom: 5, tiles: '{z}/{x}/{y}.webp', bounds: [0, 0, 8192, 8192] } }));
+  await page.route('**/tiles-gross/*/*/*.webp', async (route) => {
+    angefragt.push(route.request().url());
+    if (halte(route.request().url())) await new Promise<void>((weiter) => haengend.push(weiter));
+    await route.fulfill({ body: bild, contentType: 'image/webp' }).catch(() => undefined);
+  });
+  // Der Block, der auf Stufe 5 in der Mitte der Welt liegt.
+  let [bx, bz, best] = [0, 0, Infinity];
+  for (let x = -40; x <= 600; x++) {
+    for (let z = -600; z <= 40; z++) {
+      const [px, py] = projiziere(x + 0.5, 1, z + 0.5, zweiZuEins(16));
+      const d = Math.hypot(px - 4096, py - 4096);
+      if (d < best) [bx, bz, best] = [x, z, d];
+    }
+  }
+  return { angefragt, haengend, mitte: `/?tiles=/tiles-gross&at=${bx},0,${bz}&zoom=0` };
+}
+
+/** Wie viele Kacheln einer Ebene laden: `src` gesetzt, noch nicht fertig. */
+const laufend = (page: Page, ebene = '') => page.locator(`${ebene} img.leaflet-tile`).evaluateAll((l) => l.filter((i) => (i as HTMLImageElement).hasAttribute('src') && !(i as HTMLImageElement).complete).length);
+/** Ersetzt das Protokoll, das Resource Timing nennt, etwa '' für eine Kachel aus dem Cache. */
+const protokoll = (page: Page, wert: string) =>
+  page.addInitScript((w) => Object.defineProperty(PerformanceResourceTiming.prototype, 'nextHopProtocol', { get: () => w }), wert);
+
+test('die Warteschlange lädt höchstens 6 Kacheln zugleich, die Grundschicht zuerst; ist das Protokoll leer, wie aus dem Cache, bleibt es bei 6', async ({ page }) => {
+  await protokoll(page, '');
+  // Nur die erste Kachel kommt gleich, so ist eine fertig, bevor gezählt wird.
+  let erste = true;
+  const { angefragt, haengend, mitte } = await grosserBaum(page, () => {
+    const halten = !erste;
+    erste = false;
+    return halten;
+  });
+  await page.goto(mitte);
+  await expect.poll(() => angefragt.length).toBeGreaterThan(1);
+  await page.waitForTimeout(500);
+  // Die Grundschicht auf Stufe 2 ging zuerst ans Netz.
+  expect(angefragt[0]).toMatch(/\/tiles-gross\/2\//);
+  expect(await laufend(page)).toBe(6);
+  expect(angefragt.length).toBe(7);
+  // Es warten mehr, ohne src.
+  expect(await page.locator('.kacheln img.leaflet-tile:not([src])').count()).toBeGreaterThan(6);
+  // Eine fertig: die nächste rückt nach, wieder 6.
+  haengend.shift()!();
+  await expect.poll(() => angefragt.length).toBe(8);
+  expect(await laufend(page)).toBe(6);
+});
+
+test('mit h2 lädt die Warteschlange 16 Kacheln zugleich', async ({ page }) => {
+  await protokoll(page, 'h2');
+  let erste = true;
+  const { angefragt, mitte } = await grosserBaum(page, () => {
+    const halten = !erste;
+    erste = false;
+    return halten;
+  });
+  await page.goto(mitte);
+  await expect.poll(() => laufend(page)).toBe(16);
+  await page.waitForTimeout(300);
+  expect(angefragt.length).toBe(17);
+});
+
+test('nach dem Zoomen geht eine nicht mehr gebrauchte Kachel nie ans Netz; laufende laden losgelöst zu Ende, ohne Abbruch, ohne Verletzung der CSP, und tauchen nicht wieder auf', async ({ page }) => {
   await page.addInitScript(() => {
     const verletzt: string[] = [];
     (window as unknown as { verletzt: string[] }).verletzt = verletzt;
     document.addEventListener('securitypolicyviolation', (e) => verletzt.push(`${e.effectiveDirective} ${e.blockedURI}`));
   });
-  // Kacheln der Stufe 2 hängen, bis der Test sie freigibt: So laufen sie noch, wenn die Karte wegzoomt.
-  const haengend: (() => void)[] = [];
-  await page.route('**/tiles-demo/2/*/*.webp', async (route) => {
-    await new Promise<void>((weiter) => haengend.push(weiter));
-    await route.fulfill({ response: await route.fetch() }).catch(() => undefined);
-  });
+  // Stufe 5 hängt, alles andere kommt gleich.
+  const { angefragt, haengend, mitte } = await grosserBaum(page, (url) => url.includes('/tiles-gross/5/'));
   const abgebrochen: string[] = [];
-  page.on('requestfailed', (r) => abgebrochen.push(r.url()));
-  await page.goto(`${DEMO}&at=20,0,-20&zoom=0`);
-  await expect.poll(() => haengend.length).toBeGreaterThan(0);
+  page.on('requestfailed', (r) => r.url().endsWith('.webp') && abgebrochen.push(r.url()));
+  await page.goto(mitte);
+  await expect.poll(() => laufend(page, '.kacheln')).toBe(6);
+  // Die laufenden der Stufe 5 merken, samt den wartenden.
+  const wartend = await page.locator('.kacheln img.leaflet-tile:not([src])').count();
+  expect(wartend).toBeGreaterThan(0);
+  await page.evaluate(() => {
+    (window as unknown as { alte: HTMLImageElement[] }).alte = [...document.querySelectorAll<HTMLImageElement>('.kacheln img.leaflet-tile[src*="/tiles-gross/5/"]')];
+  });
   await page.locator('.leaflet-control-zoom-out').click();
-  await expect(page.locator('.kacheln img.leaflet-tile-loaded[src*="/tiles-demo/1/"]').first()).toBeVisible();
-  for (const weiter of haengend) weiter();
-  await expect.poll(() => abgebrochen.filter((u) => u.includes('/tiles-demo/2/')).length).toBeGreaterThan(0);
-  // Nach dem Abbruch steht keine Kachel der Stufe 2 als geladen da.
   await page.waitForTimeout(300);
-  await expect(page.locator('.kacheln img.leaflet-tile-loaded[src*="/tiles-demo/2/"]')).toHaveCount(0);
+  // Die 6 laufenden halten ihre Plätze, bis sie fertig sind; dann kommt Stufe 4.
+  for (const weiter of haengend) weiter();
+  await expect(page.locator('.kacheln img.leaflet-tile-loaded[src*="/tiles-gross/4/"]').first()).toBeVisible();
+  await page.waitForTimeout(500);
+  // Nur die 6 laufenden gingen auf Stufe 5 ans Netz, keine abgebrochen.
+  expect(angefragt.filter((u) => u.includes('/tiles-gross/5/')).length).toBe(6);
+  expect(abgebrochen).toEqual([]);
+  // Die losgelösten sind fertig, aber nicht in der Karte und nicht als geladen markiert.
+  const alte = await page.evaluate(() => (window as unknown as { alte: HTMLImageElement[] }).alte.map((i) => [i.complete, i.isConnected, i.classList.contains('leaflet-tile-loaded')]));
+  expect(alte).toEqual(Array.from({ length: 6 }, () => [true, false, false]));
+  await expect(page.locator('img[src*="/tiles-gross/5/"]')).toHaveCount(0);
   expect(await page.evaluate(() => (window as unknown as { verletzt: string[] }).verletzt)).toEqual([]);
+});
+
+test('sind alle Plätze belegt, bekommt die Grundschicht den nächsten freien vor den wartenden feinen Kacheln', async ({ page }) => {
+  // Die Grundschicht der ersten Stufe kommt gleich; alles andere hängt.
+  const { angefragt, haengend, mitte } = await grosserBaum(page, (url) => !url.includes('/tiles-gross/2/'));
+  await page.goto(mitte);
+  await expect.poll(() => laufend(page, '.kacheln')).toBe(6);
+  // Hinaus: Die neue Grundschicht auf Stufe 1 und die feinen auf Stufe 4 warten, denn die 6 alten laden losgelöst weiter.
+  await page.locator('.leaflet-control-zoom-out').click();
+  await page.waitForTimeout(400);
+  const bisher = angefragt.length;
+  haengend.shift()!();
+  await expect.poll(() => angefragt.length).toBeGreaterThan(bisher);
+  expect(angefragt[bisher]).toMatch(/\/tiles-gross\/1\//);
+  for (const weiter of haengend.splice(0)) weiter();
+});
+
+test('zurückgezoomt markiert eine losgelöste Kachel, die zu Ende lädt, nicht die neue an derselben Stelle als geladen', async ({ page }) => {
+  const { haengend, mitte } = await grosserBaum(page, (url) => url.includes('/tiles-gross/5/'));
+  await page.goto(mitte);
+  await expect.poll(() => laufend(page, '.kacheln')).toBe(6);
+  // Hinaus und gleich wieder hinein: Die neuen Kacheln der Stufe 5 haben dieselben Schlüssel und warten, die alten laufen losgelöst.
+  await page.locator('.leaflet-control-zoom-out').click();
+  await page.waitForTimeout(400);
+  await page.locator('.leaflet-control-zoom-in').click();
+  await page.waitForTimeout(400);
+  // Zählt, wie oft eine Kachel als geladen markiert wird, bevor sie überhaupt ein src hat; die Einträge kommen in ihrer Reihenfolge.
+  await page.evaluate(() => {
+    const w = window as unknown as { zuFrueh: number };
+    w.zuFrueh = 0;
+    const mitSrc = new WeakSet<Element>();
+    for (const i of document.querySelectorAll('img[src]')) mitSrc.add(i);
+    new MutationObserver((l) => {
+      for (const m of l) {
+        if (m.attributeName === 'src') mitSrc.add(m.target as Element);
+        else if ((m.target as Element).classList.contains('leaflet-tile-loaded') && !(m.oldValue ?? '').includes('leaflet-tile-loaded') && !mitSrc.has(m.target as Element)) w.zuFrueh++;
+      }
+    }).observe(document, { subtree: true, attributes: true, attributeFilter: ['class', 'src'], attributeOldValue: true });
+  });
+  const vorher = haengend.length;
+  for (const weiter of haengend.splice(0, vorher)) weiter();
+  await page.waitForTimeout(500);
+  // Keine Kachel wurde als geladen markiert, bevor sie selbst angefragt war.
+  expect(await page.evaluate(() => (window as unknown as { zuFrueh: number }).zuFrueh)).toBe(0);
+  for (const weiter of haengend.splice(0)) weiter();
 });
 
 /** Die Stufen der geladenen Kacheln einer Ebene, `.grund` oder `.kacheln`. */

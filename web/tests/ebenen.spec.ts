@@ -14,7 +14,7 @@ test('ohne layers.json gibt es keine Liste der Ebenen, und die Karte fragt bis z
   });
   await page.clock.install();
   await page.goto(DEMO);
-  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  await expect(page.locator('.kacheln img.leaflet-tile-loaded').first()).toBeVisible();
   await expect.poll(() => anfragen).toBe(1);
   await page.clock.runFor(61_000);
   await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
@@ -382,6 +382,24 @@ test('nach 0119 bleiben Nadeln, Köpfe und Banner auf jeder Stufe gleich gross; 
   await expect(spitze).toBeVisible();
   const [oben, unten] = [(await hafen.boundingBox())!.y, (await spitze.boundingBox())!];
   expect(Math.abs(unten.y + unten.height - (oben + 7))).toBeLessThanOrEqual(1);
+  await page.goto(`${DEMO}&at=35,0,-15&zoom=0`);
+  // Die Variablen stehen am Pane der Nadeln, nicht am Container; ein Zoom, der sie nicht ändert, schreibt nichts.
+  await expect(page.locator('.nadel-icon')).toHaveCount(4);
+  const lage = () =>
+    page.evaluate(() => {
+      const pane = document.querySelector('.nadel-icon')!.closest<HTMLElement>('.leaflet-pane')!;
+      return [document.querySelector<HTMLElement>('#map')!.style.getPropertyValue('--name-teil'), pane.style.getPropertyValue('--name-teil')];
+    });
+  expect(await lage()).toEqual(['', '1']);
+  await page.evaluate(() => {
+    const pane = document.querySelector('.nadel-icon')!.closest('.leaflet-pane')!;
+    const w = window as unknown as { geschrieben: number };
+    w.geschrieben = 0;
+    new MutationObserver((l) => (w.geschrieben += l.length)).observe(pane, { attributes: true, attributeFilter: ['style', 'class'] });
+  });
+  await page.locator('.leaflet-control-zoom-out').click();
+  await page.waitForTimeout(400);
+  expect(await page.evaluate(() => (window as unknown as { geschrieben: number }).geschrieben)).toBe(0);
   await page.goto(`${DEMO}&at=35,0,-15&zoom=0`);
   // Die Namen wie die Kartenschrift, 16 Pixel, ohne Kasten, auch ohne Kartenschrift in der Ebene.
   const stil = await page.locator('.nadel-name').first().evaluate((e) => {

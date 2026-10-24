@@ -296,6 +296,14 @@ liegen“. Entschieden in
 - **Jeder Lauf** liest und schreibt die Hashes der Kacheln, die er ablegt,
   auch ein Ausschnitt und `--resume`. Geschrieben wird am Ende. Bricht ein
   Lauf ab, fehlen nur seine Hashes.
+- **Die Pyramide eines Updates** baut die Eltern von der Platte nur über
+  Kindern ohne Treffer im Hash: über neuen Pixeln, über entfernten Kindern,
+  über Kindern, die ein abgebrochener Lauf schrieb oder `--resume` liegen
+  lässt, und über Waisen. Ein leeres Kind ohne Datei vorher baut keine. Die
+  Ausgabe sagt es: `Pyramide:   … über N Kacheln mit gleichen Pixeln nicht
+  neu gebaut`. Ein voller Lauf und ein Update, das umstellt, bauen jede
+  Elternkachel. Entschieden in
+  [0124](../entscheidungen/0124-pyramide-nur-ueber-neuen-kindern.md).
 - **Ein anderer Kodierstand** kodiert jede Kachel neu, die ein Lauf
   ablegt. Ein Block eines alten Builds, bis v0.5.0 mit dem Fingerabdruck
   der ausführbaren Datei im Kopf, gilt als Kodierstand 1.

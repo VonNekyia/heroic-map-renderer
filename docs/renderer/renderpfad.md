@@ -209,6 +209,11 @@ Blöcke ohne Familie. Die Ausbreitung nimmt ausserdem je Section zwei Listen
 mit: die Blöcke mit einer Fläche, die Licht an einer Seite aufhält
 (`formen`), und die, die leuchten, mit ihrer Stufe (`quellen`).
 
+Eine Maske hat 8 760 Bytes. Im ersten Render der Testwelt lebten mit allen
+Threads an der Spitze rund 80 000, 0,65 GiB; 57 % ihrer Ebenen waren ganz
+leer oder ganz voll. Gemessen in
+[2026-10-24, Speicher im ersten Render](../messungen/2026-10-24-speicher-im-ersten-render.md).
+
 Die Spalten liegen im Blick der Kamera. Nur was die Ausbreitung liest, die
 Ebenen `DAEMPFT` und `DICHT`, `formen` und `quellen`, liegt in der Lage der
 Welt, siehe [Richtungen](richtungen.md).

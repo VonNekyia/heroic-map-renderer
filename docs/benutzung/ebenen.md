@@ -145,13 +145,17 @@ genug ist, etwa Regionen nur, bis die Karte weit draussen ist.
 - **Webkarte:** wie sie aus- und einhängt, was mit Tafel und Fokus
   geschieht, steht in
   [0131](../entscheidungen/0131-zoomgrenze-je-ebene.md).
-- **Im Mod,** ab 0.2.70, Angaben von Mod Code Map, vom Reviewer
-  freigegeben:
+- **Im Mod,** ab 0.2.70, entschieden in
+  [mod 0043](https://github.com/VonNekyia/heroic-map-renderer-mod/blob/main/docs/entscheidungen/0043-zoomgrenze-je-ebene.md),
+  beschrieben in seiner
+  [Doku, „Zoomgrenze“](https://github.com/VonNekyia/heroic-map-renderer-mod/blob/main/docs/ebenen.md#zoomgrenze):
   - **Einheit:** 1 Einheit des GUI sind 1,6 px der Webkarte, wie bei den
     Namen in
     [mod 0035](https://github.com/VonNekyia/heroic-map-renderer-mod/blob/main/docs/entscheidungen/0035-namen-weit-draussen-kleiner.md).
     Blöcke je Pixel = 0,625 / Länge eines Blocks in Einheiten des GUI;
     genau auf der Grenze sichtbar wie oben.
+  - **Länge eines Blocks:** auf der Vollbildkarte die Breite eines Blocks
+    auf dem Schirm, auf der Minimap ihr Zoom.
   - **Geladen wird trotzdem:** Der Mod empfängt die Teile, die das Plugin
     schickt, auch jenseits der Grenze, und zeichnet sie nur nicht.
   - **Angeheftete Objekte** auf der Minimap bleiben auch jenseits der

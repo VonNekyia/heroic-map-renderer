@@ -157,4 +157,8 @@ export default [
   { name: 'gemerkt-ohne-rahmen', datei: 'src/ebenen.ts', alt: 'if (e.g !== g || !(e.ansicht.ganz || imRahmen(e.ansicht.schirm))) return undefined;', neu: 'if (e.g !== g) return undefined;', spec: 'tests/formen.spec.ts', titel: 'nach 0111: eine Fläche, die aus dem Ausschnitt fällt' },
   { name: 'leaflet-glaettet-strich', datei: 'src/formen.ts', alt: '    smoothFactor: 0,\n  };', neu: '    smoothFactor: 1,\n  };', spec: 'tests/formen.spec.ts', titel: 'nach 0111 vereinfacht Leaflet einen Strich nicht noch einmal' },
   { name: 'namen-am-container', datei: 'src/ebenen.ts', alt: '    for (const { nadeln } of panes.values()) namenAn(map.getPane(nadeln)!);', neu: '    namenAn(map.getContainer());', spec: 'tests/ebenen.spec.ts', titel: 'nach 0119 bleiben Nadeln' },
+  // Grundschicht, D1.
+  { name: 'grund-zwei-stufen', datei: 'src/main.ts', alt: 'const GRUND = { stufen: 3 };', neu: 'const GRUND = { stufen: 2 };', spec: 'tests/smoke.spec.ts', titel: 'die Grundschicht liegt drei Stufen gröber' },
+  { name: 'grund-nicht-groeber', datei: 'src/main.ts', alt: 'grob ? Math.round(zoom) - grob : zoom', neu: 'grob ? Math.round(zoom) - 0 * grob : zoom', spec: 'tests/smoke.spec.ts', titel: 'die Grundschicht liegt unter den Kacheln' },
+  { name: 'grund-oben', datei: 'src/main.ts', alt: "grob: GRUND.stufen, zIndex: 0, className: 'grund'", neu: "grob: GRUND.stufen, zIndex: 2, className: 'grund'", spec: 'tests/smoke.spec.ts', titel: 'die Grundschicht liegt unter den Kacheln' },
 ];

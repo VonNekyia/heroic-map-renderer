@@ -123,6 +123,28 @@ Kacheln anzufragen, die es nicht gibt. Innerhalb der Grenzen sind einzelne
 404 möglich: der Vorlauf kennt nur die Hüllkästen der Blockspalten. Leaflet
 lässt solche Kacheln leer.
 
+## Grundschicht
+
+Unter den Kacheln liegt eine zweite Ebene derselben Kacheln, drei Stufen
+gröber (`GRUND` in [`main.ts`](../web/src/main.ts)), nur für das Fenster.
+Sie steht da, solange die feinen Kacheln nach dem Ziehen oder Zoomen noch
+laden; statt des Grunds der Karte sieht man dort die Gegend unscharf.
+
+- **Wie:** dieselbe Unterklasse `Kacheln` mit `grob`: `_clampZoom` nimmt
+  die Stufe `round(zoom) − 3` statt `round(zoom)`, sonst wie Leaflet, auch
+  `minNativeZoom` und `maxNativeZoom`.
+- **Übereinander:** die Grundschicht mit `zIndex` 0 und der Klasse
+  `grund`, die feinen Kacheln mit `zIndex` 1 und `kacheln`, beide im
+  `tilePane`. Tests greifen die feinen über `.kacheln`.
+- **Kosten und Gewinn**, gemessen in
+  [Grundschicht](messungen/2026-10-24-grundschicht.md): eine grobe Kachel
+  deckt 8 × 8 feine. Für +3–15 % Bytes fällt das Schwarz beim
+  Hineinzoomen weg, beim Ziehen sinkt es von 8–9 % auf 2–5 % des Fensters,
+  und das volle Bild nach dem Laden kommt 37–45 % früher. Ein Ring von
+  einer Kachel nähme den Rest, kostete aber +26–53 %; das entscheidet die
+  Messung des Rands der feinen Kacheln. Wo die Pyramide endet, laden beide
+  dieselbe Stufe, und der Browser holt sie einmal.
+
 ## Koordinaten
 
 Unten links steht, welcher Block unter Maus oder Finger zu sehen ist,
@@ -912,8 +934,9 @@ liegen als `tiles/` daneben, oder `?tiles=` nennt ihren Pfad.
   `Kacheln` in [`web/src/main.ts`](../web/src/main.ts): Sie entfernt `src`,
   das bricht die Anfrage genauso ab und lädt nichts. `L.Util.emptyImageUrl`
   umzusetzen reicht nicht, Leaflet liest die Adresse aus einer Variable
-  seines Moduls. Die drei Methoden folgen Leaflet 1.9.4; ein neues Leaflet
-  braucht einen Blick darauf.
+  seines Moduls. Die drei Methoden folgen Leaflet 1.9.4, ebenso die der
+  Grundschicht, siehe „Grundschicht“; ein neues Leaflet braucht einen Blick
+  auf alle vier.
 - **Cache:** Ein neuer Lauf tauscht Kacheln unter derselben URL. Damit der
   Browser danach den neuen Stand zeigt:
   - **Betreiber** setzen für `tiles/` `Cache-Control: no-cache`, in nginx

@@ -14,7 +14,7 @@ test('ohne layers.json gibt es keine Liste der Ebenen, und die Karte fragt bis z
   });
   await page.clock.install();
   await page.goto(DEMO);
-  await expect(page.locator('img.leaflet-tile-loaded').first()).toBeVisible();
+  await expect(page.locator('.kacheln img.leaflet-tile-loaded').first()).toBeVisible();
   await expect.poll(() => anfragen).toBe(1);
   await page.clock.runFor(61_000);
   await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));

@@ -74,7 +74,24 @@ Renderer:
   trifft der Mod jede Art auf ±1, nach der Regel in
   [`map.json`](../benutzung/map-json.md), „Die Schicht lesen“. Reviewer am
   24.10., Mod einverstanden. Übersteigt der Rest 3 % des Baums, liefert ihn
-  erst eine eigene Entscheidung aus.
+  erst eine eigene Entscheidung aus. Auf der Testwelt sind es 4,6 %, 60,3 MB
+  in 60 % der Basiskacheln, gemessen in
+  [2026-10-25, Update mit der Schicht des Reliefs](../messungen/2026-10-25-update-mit-relief-schicht.md).
+  Der Renderer schreibt ihn; ob PR 2 ihn ausliefert, entscheidet der
+  Reviewer.
+
+## Was es kostet
+
+Gemessen in
+[2026-10-25, Update mit der Schicht des Reliefs](../messungen/2026-10-25-update-mit-relief-schicht.md),
+auf der ganzen Testwelt bei scale 4 gegen eingebackenes `slope` ohne Schicht:
+
+- **Ein Update** mit 16 Chunks auf einem Thread: +10 %, 5,81 statt 5,28 s,
+  74 statt 64 Kacheln im Gebiet. Das liegt unter den 15 %, ab denen der
+  Reviewer im Ring des Schattens nur die Schicht neu rechnen liesse.
+- **Ein voller Lauf** mit allen Threads: +17 % in je einem Lauf, +0,25 GiB an
+  der Spitze.
+- **Platz:** die Schicht 6,7 %, der Rest 4,6 % des Baums mit `slope`.
 
 ## Verworfene Alternativen
 

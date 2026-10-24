@@ -127,7 +127,11 @@ Auf einer Stadt der grossen Welt bei scale 4, gemessen in
   einem Update wie `shadows`, 3,06 Kacheln je Chunk.
 - **Die Schicht** kostet auf der ganzen Testwelt bei scale 4 dazu 7,7 % des
   Platzes der Karte ohne Relief, gemessen in
-  [2026-10-24, Relief als Schicht](../messungen/2026-10-24-relief-als-schicht.md).
+  [2026-10-24, Relief als Schicht](../messungen/2026-10-24-relief-als-schicht.md);
+  gegen den Baum mit `slope` 6,7 %, der Rest 4,6 %.
+- **Ein Update** mit Schicht und Rest dauert auf einem Thread 10 % länger,
+  ein voller Lauf in je einem Lauf 17 %, gemessen in
+  [2026-10-25, Update mit der Schicht des Reliefs](../messungen/2026-10-25-update-mit-relief-schicht.md).
 - **Der Arbeitsspeicher** blieb auf der Stadt mit 16 Threads ohne
   Grafikkarte gleich. Über die ganze Testwelt mit allen Threads und der
   Grafikkarte stieg die Spitze mit Relief um rund 0,5 GiB, mit der Schicht

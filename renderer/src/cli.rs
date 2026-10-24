@@ -281,7 +281,7 @@ pub struct Args {
         "serve", "web", "listen", "max_connections", "header_timeout", "max_header_bytes", "max_headers",
         "write_timeout", "exit_with_stdin", "tls_cert", "tls_key", "secret_file", "player_dir", "trusted_proxy", "recognize_origin", "recognize_url", "site_url",
         "site_title", "site_description", "site_image", "download_client_jar", "client_version",
-        "cache_dir", "compact", "compact_tree", "flat", "banners", "out",
+        "cache_dir", "compact", "compact_tree", "flat", "relief", "banners", "out",
     ])]
     pyramid: Option<PathBuf>,
 
@@ -296,7 +296,7 @@ pub struct Args {
         "serve", "web", "listen", "max_connections", "header_timeout", "max_header_bytes", "max_headers",
         "write_timeout", "exit_with_stdin", "tls_cert", "tls_key", "secret_file", "player_dir", "trusted_proxy", "recognize_origin", "recognize_url", "site_url",
         "site_title", "site_description", "site_image", "download_client_jar", "client_version",
-        "cache_dir", "compact", "pyramid", "flat", "banners", "out",
+        "cache_dir", "compact", "pyramid", "flat", "relief", "banners", "out",
     ])]
     compact_tree: Option<PathBuf>,
 
@@ -333,7 +333,7 @@ pub struct Args {
         "biome_blend", "render", "cinematic", "center", "area", "tiles", "size", "scan", "prune",
         "native_levels", "resume", "update", "gpu", "progress", "estimate", "defender_exclusion", "heights",
         "pyramid", "manifest", "download_client_jar", "client_version", "cache_dir", "compact",
-        "compact_tree", "flat", "banners", "out",
+        "compact_tree", "flat", "relief", "banners", "out",
     ])]
     serve: Option<PathBuf>,
 
@@ -1459,6 +1459,7 @@ fn auf_der_cpu(chunks: &mut ChunkCache, tiles: &[TileId]) -> Result<Vec<RgbaImag
 /// Die Sprite-Tabelle entsteht vorher aus den Blockstates, die in genau
 /// diesem Ausschnitt vorkommen. Danach greift der Renderpfad nur noch
 /// darauf zu.
+#[allow(clippy::too_many_arguments)]
 fn render_world(
     world: &World,
     assets: &mut Assets,
@@ -1949,8 +1950,14 @@ fn write_tiles(
             let (aenderungen, neu) = alt.vergleiche(&stempel, Y_RANGE.1, |(rx, rz), lagen| {
                 lies_inhalte(world, rx, rz, lagen)
             })?;
-            let gebiet =
-                gebiet_der_aenderungen(projection, stufen, Y_RANGE.0, &aenderungen, look.as_ref(), relief);
+            let gebiet = gebiet_der_aenderungen(
+                projection,
+                stufen,
+                Y_RANGE.0,
+                &aenderungen,
+                look.as_ref(),
+                relief,
+            );
             // Was Läufe ohne neuen Stand zeichneten, zeichnet es noch einmal.
             let offen = lies_offen(dir, stufen)?;
             let dazu = match offen.len() {
@@ -2119,10 +2126,22 @@ fn write_tiles(
     if let Some(aenderungen) = &aenderungen {
         let (bleiben, fehlen): (Vec<Aenderung>, Vec<Aenderung>) =
             aenderungen.iter().partition(|a| a.bleibt);
-        let da =
-            gebiet_der_aenderungen(projection, stufen, Y_RANGE.0, &bleiben, look.as_ref(), relief);
-        let weg =
-            gebiet_der_aenderungen(projection, stufen, Y_RANGE.0, &fehlen, look.as_ref(), relief);
+        let da = gebiet_der_aenderungen(
+            projection,
+            stufen,
+            Y_RANGE.0,
+            &bleiben,
+            look.as_ref(),
+            relief,
+        );
+        let weg = gebiet_der_aenderungen(
+            projection,
+            stufen,
+            Y_RANGE.0,
+            &fehlen,
+            look.as_ref(),
+            relief,
+        );
         let dazu: Vec<TileId> = bestehend
             .iter()
             .filter(|tile| {
@@ -4381,7 +4400,8 @@ fn pruefe_relief(
     if alt.relief.as_deref() == hier {
         return Ok(false);
     }
-    let text = |name: Option<&str>| name.map_or("ohne Relief".to_string(), |n| format!("mit Relief {n}"));
+    let text =
+        |name: Option<&str>| name.map_or("ohne Relief".to_string(), |n| format!("mit Relief {n}"));
     let (dort, hier) = (text(alt.relief.as_deref()), text(hier));
     let pfad = dir.join("map.json");
     if !matches!(bereich, Bereich::Welt) {

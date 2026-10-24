@@ -1120,7 +1120,8 @@ mod tests {
         };
         let projection = Projection::mit_kamera(32, Kamera::ObenNord)
             .aus(Richtung::parse("s", Kamera::ObenNord).unwrap());
-        let gebiet = |relief| gebiet_der_aenderungen(projection, 0, -64, &[aenderung], None, relief);
+        let gebiet =
+            |relief| gebiet_der_aenderungen(projection, 0, -64, &[aenderung], None, relief);
         let schatten = gebiet(Some(Relief::Schatten));
         for x in chunk[0] * 16..chunk[0] * 16 + 16 + 32 {
             for z in chunk[1] * 16..chunk[1] * 16 + 16 + 32 {
@@ -1132,7 +1133,10 @@ mod tests {
                 assert!(schatten.enthaelt(tile), "Block {x}, {z}");
             }
         }
-        assert_eq!(gebiet(Some(Relief::Gefaelle)).kacheln(), gebiet(None).kacheln());
+        assert_eq!(
+            gebiet(Some(Relief::Gefaelle)).kacheln(),
+            gebiet(None).kacheln()
+        );
     }
 
     /// Ein Gebiet aus einem Rechteck verhält sich wie das Rechteck, auf

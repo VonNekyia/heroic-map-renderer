@@ -53,7 +53,7 @@ impl Relief {
     pub fn chunks_nach_suedosten(self) -> i32 {
         match self {
             Relief::Gefaelle => 1,
-            Relief::Schatten => REICHWEITE.div_ceil(16),
+            Relief::Schatten => (REICHWEITE + 15) / 16,
         }
     }
 }

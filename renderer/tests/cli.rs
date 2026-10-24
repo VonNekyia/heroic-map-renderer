@@ -5857,7 +5857,14 @@ fn relief_update_reicht_so_weit_wie_der_schatten() {
         common::write_world_sections(welt.path(), &chunks, 0..=3, block, |_, _| None);
         common::setze_stempel(welt.path(), 0, 0, zeit);
     };
-    let extra = ["--camera", "top-north", "--scale", "32", "--relief", "shadows"];
+    let extra = [
+        "--camera",
+        "top-north",
+        "--scale",
+        "32",
+        "--relief",
+        "shadows",
+    ];
     baue(boden, 1);
     let baum = neuer_baum("top-north-s");
     gelungen(&export(welt.path(), baum.path(), &extra));
@@ -5919,6 +5926,17 @@ fn relief_wechselt_nur_mit_vollem_lauf() {
         assert_eq!(schnappschuss(baum.path()), ohne, "{dazu:?}");
     }
 
+    // Die Kacheln sind eine Stunde alt, eine zehn Minuten jünger: Ein
+    // --resume ohne Wechsel behielte alle bis auf diese.
+    let basis = kacheln(baum.path(), max_zoom(baum.path()));
+    let damals = SystemTime::now() - Duration::from_secs(3600);
+    for pfad in basis.values() {
+        setze_zeit(pfad, damals);
+    }
+    setze_zeit(
+        basis.values().next().unwrap(),
+        damals + Duration::from_secs(600),
+    );
     let ausgabe = lauf(&["--relief", "slope", "--resume"]);
     let log = String::from_utf8_lossy(&gelungen(&ausgabe).stdout).into_owned();
     assert!(
@@ -5929,8 +5947,16 @@ fn relief_wechselt_nur_mit_vollem_lauf() {
     let frisch = neuer_baum("top-north-s");
     let mit: Vec<&str> = oben.iter().copied().chain(["--relief", "slope"]).collect();
     gelungen(&export(welt.path(), frisch.path(), &mit));
-    gleiche_baeume(baum.path(), frisch.path(), "--relief slope über einen Baum ohne");
-    assert_ne!(schnappschuss(baum.path()), ohne, "das Relief zeichnet nichts");
+    gleiche_baeume(
+        baum.path(),
+        frisch.path(),
+        "--relief slope über einen Baum ohne",
+    );
+    assert_ne!(
+        schnappschuss(baum.path()),
+        ohne,
+        "das Relief zeichnet nichts"
+    );
 
     let ausgabe = lauf(&["--update"]);
     let meldung = String::from_utf8_lossy(&ausgabe.stderr);
@@ -5954,15 +5980,34 @@ fn relief_nur_von_oben_aus_sueden() {
     let welt = tempdir();
     baue_gelaende(welt.path());
     for (extra, meldung) in [
-        (&["--relief", "slope"][..], "--relief gibt es nur mit --camera top-north in Richtung s"),
         (
-            &["--camera", "top-north", "--direction", "w", "--relief", "slope"],
+            &["--relief", "slope"][..],
             "--relief gibt es nur mit --camera top-north in Richtung s",
         ),
-        (&["--camera", "top", "--relief", "shadows"], "--relief gibt es nur mit --camera top-north"),
-        (&["--camera", "top-north", "--cinematic", "--relief", "slope"], "--cinematic"),
+        (
+            &[
+                "--camera",
+                "top-north",
+                "--direction",
+                "w",
+                "--relief",
+                "slope",
+            ],
+            "--relief gibt es nur mit --camera top-north in Richtung s",
+        ),
+        (
+            &["--camera", "top", "--relief", "shadows"],
+            "--relief gibt es nur mit --camera top-north",
+        ),
+        (
+            &["--camera", "top-north", "--cinematic", "--relief", "slope"],
+            "--cinematic",
+        ),
         (&["--flat", "--relief", "slope"], "--flat"),
-        (&["--camera", "top-north", "--relief", "none"], "unbekanntes Relief none"),
+        (
+            &["--camera", "top-north", "--relief", "none"],
+            "unbekanntes Relief none",
+        ),
     ] {
         let baum = neuer_baum(&baum_name(extra));
         let ausgabe = export(welt.path(), baum.path(), extra);

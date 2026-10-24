@@ -506,7 +506,7 @@ const GOLDBILDER: [(&str, u64); 4] = [
     ("map", 0x44f0_fa44_6f7d_7b9b),
     ("cinematic", 0x8338_0150_d842_fd85),
     ("flat", 0x9da5_830a_c6ae_0047),
-    ("relief", 0),
+    ("relief", 0x5b95_9d48_ea25_f298),
 ];
 
 /// Eine eingebaute Tabelle aus `src/assets`: ihr Name und ihr Inhalt aus

@@ -623,7 +623,7 @@ impl ChunkCache<'_> {
         for (section, masks) in loaded.chunk.sections().iter().zip(&loaded.masks).rev() {
             let oder = masks
                 .as_ref()
-                .map_or(0, |m| m.bits[PRESENT].iter().fold(0, |a, &w| a | w));
+                .map_or(0, |m| m.ebene(PRESENT).iter().fold(0, |a, &w| a | w));
             if oder != 0 {
                 decke = decke.max(i32::from(section.y) * 16 + 15 - oder.leading_zeros() as i32);
                 break;

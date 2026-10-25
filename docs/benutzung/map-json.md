@@ -497,6 +497,9 @@ bleiben, auch wo die Schicht oder der Rest etwas zeigt. Wie die Schicht
 entsteht, steht in [Relief von oben](../renderer/relief.md), „Die
 Schicht“.
 
+- **Woher:** die Schicht unter `reliefTiles`, der Rest mit denselben
+  Pfaden unter `relief/rest/`. Der Mod lädt beide mit eigenen Manifesten
+  und Strömen, siehe [Server](server.md), „Die Schicht des Reliefs“.
 - **Der Code** c steht in Rot der Schicht, 0 bis 17. Einen grösseren liest
   ein Client wie 4. Fehlt die Schicht einer Kachel, gilt überall 4.
 - **Die Faktoren**, gerechnet in f32:

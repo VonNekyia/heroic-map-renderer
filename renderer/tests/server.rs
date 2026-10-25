@@ -1158,9 +1158,14 @@ fn eintraege(zip: &[u8]) -> (Vec<(String, Vec<u8>)>, bool) {
 
 /// Ein echtes Manifest für den Baum `t` der Wurzel, mit seinen Kacheln.
 fn manifest_fuer_t(kacheln: &Path) {
+    manifest_in(&kacheln.join("t"), &["0/0/0", "0/-1/2", "1/0/0"]);
+}
+
+/// Ein Manifest in `ordner` mit diesen Kacheln; fehlt eine, legt es sie an.
+fn manifest_in(ordner: &Path, lagen: &[&str]) {
     let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
-    for lage in ["0/0/0", "0/-1/2", "1/0/0"] {
-        let pfad = kacheln.join(format!("t/{lage}.webp"));
+    for lage in lagen {
+        let pfad = ordner.join(format!("{lage}.webp"));
         std::fs::create_dir_all(pfad.parent().unwrap()).unwrap();
         if !pfad.exists() {
             std::fs::write(&pfad, format!("kachel {lage}")).unwrap();
@@ -1168,7 +1173,7 @@ fn manifest_fuer_t(kacheln: &Path) {
         let n = std::fs::metadata(&pfad).unwrap().len();
         writeln!(gz, "{lage} {n} \"e\"").unwrap();
     }
-    std::fs::write(kacheln.join("t/manifest"), gz.finish().unwrap()).unwrap();
+    std::fs::write(ordner.join("manifest"), gz.finish().unwrap()).unwrap();
 }
 
 /// `/download/<baum>.zip`: der Satz des Tokens als ZIP stored, chunked, in
@@ -1274,6 +1279,107 @@ fn download_als_zip() {
         mit_token(server.adresse, "GET", "/download/u.zip", &u, &[]).status,
         404,
         "kein Baum u"
+    );
+}
+
+/// Schicht und Rest des Reliefs wie ein Baum darin: ihr Manifest und ihre
+/// Kacheln einzeln bis zur Stufe des Tokens, und je ein Strom ohne
+/// `map.json`, unter `/download/<baum>/relief.zip` und
+/// `/download/<baum>/relief/rest.zip`. Der Strom des Baums bleibt, wie er
+/// ohne sie wäre. Unter `/tiles/` gibt es sie für Bäume der Liste.
+/// Siehe docs/benutzung/server.md, „Die Schicht des Reliefs“.
+#[test]
+fn download_der_schicht() {
+    let (kacheln, _seite) = wurzel();
+    manifest_fuer_t(kacheln.path());
+    let schicht = kacheln.path().join("t/relief");
+    manifest_in(&schicht, &["0/0/0", "0/-1/2", "1/0/0"]);
+    manifest_in(&schicht.join("rest"), &["0/-1/2", "1/0/0"]);
+    std::fs::create_dir_all(schicht.join("pixel")).unwrap();
+    std::fs::write(schicht.join("pixel/0.0.bin"), b"nein").unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let (datei, geheimnis) = geheimnis_in(dir.path());
+    let server = starte(kacheln.path(), &["--secret-file", datei.to_str().unwrap()]);
+    let mit = |pfad: &str, zufall: u8| {
+        let t = token(&geheimnis, "t", 0, 1 << 20, jetzt() + 600, zufall);
+        mit_token(server.adresse, "GET", pfad, &t, &[])
+    };
+    let namen = |pfad: &str, zufall: u8| -> Vec<String> {
+        let a = mit(pfad, zufall);
+        assert_eq!(a.status, 200, "{pfad}");
+        let (zip, _) = entchunke(&a.koerper);
+        assert_eq!(
+            a.header("x-heroic-bytes"),
+            Some(zip.len().to_string().as_str()),
+            "{pfad}"
+        );
+        let (liste, mit_ende) = eintraege(&zip);
+        assert!(mit_ende, "{pfad}");
+        for (name, inhalt) in &liste {
+            let unter = pfad
+                .strip_prefix("/download/")
+                .unwrap()
+                .strip_suffix(".zip")
+                .unwrap();
+            assert_eq!(
+                inhalt,
+                &std::fs::read(kacheln.path().join(unter).join(name)).unwrap(),
+                "{pfad}: {name}"
+            );
+        }
+        liste.into_iter().map(|(name, _)| name).collect()
+    };
+
+    assert_eq!(
+        namen("/download/t.zip", 2),
+        ["map.json", "manifest", "0/0/0.webp", "0/-1/2.webp"],
+        "der Baum ohne die Schicht"
+    );
+    assert_eq!(
+        namen("/download/t/relief.zip", 3),
+        ["manifest", "0/0/0.webp", "0/-1/2.webp"]
+    );
+    assert_eq!(
+        namen("/download/t/relief/rest.zip", 4),
+        ["manifest", "0/-1/2.webp"]
+    );
+
+    for pfad in [
+        "t/relief/manifest",
+        "t/relief/0/0/0.webp",
+        "t/relief/rest/manifest",
+        "t/relief/rest/0/-1/2.webp",
+    ] {
+        let a = mit(&format!("/download/{pfad}"), 5);
+        assert_eq!(a.status, 200, "{pfad}");
+        assert_eq!(a.koerper, std::fs::read(kacheln.path().join(pfad)).unwrap());
+        let offen = hole(server.adresse, &format!("/tiles/{pfad}"));
+        assert_eq!((offen.status, offen.koerper), (200, a.koerper), "{pfad}");
+    }
+    for pfad in [
+        "/download/t/relief/1/0/0.webp",
+        "/download/t/relief/rest/1/0/0.webp",
+    ] {
+        assert_eq!(mit(pfad, 5).status, 403, "{pfad}");
+    }
+    for pfad in [
+        "/download/t/relief/pixel/0.0.bin",
+        "/download/t/relief.json",
+        "/download/t/relief/rest/rest.zip",
+        "/download/t/rest.zip",
+        "/download/t/relief/.zip",
+    ] {
+        assert_eq!(mit(pfad, 5).status, 404, "{pfad}");
+    }
+    let u = token(&geheimnis, "u", 0, 1 << 20, jetzt() + 600, 6);
+    assert_eq!(
+        mit_token(server.adresse, "GET", "/download/t/relief.zip", &u, &[]).status,
+        403
+    );
+    assert_eq!(
+        hole(server.adresse, "/download/t/relief.zip").status,
+        401,
+        "ohne Token"
     );
 }
 

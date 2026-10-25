@@ -7080,6 +7080,55 @@ fn update_ohne_aenderung_schreibt_fehlendes_manifest() {
     }
 }
 
+/// Mit Relief tragen Schicht und Rest je ein eigenes Manifest, das ihren
+/// Kacheln gleicht: nach einem vollen Lauf und nach einem Update, das den
+/// Rest leert. Das des Baums nennt nur seine Kacheln, wie ohne Schicht. Ein
+/// Update ohne Änderung schreibt ein fehlendes; ein Lauf ohne `--manifest`
+/// nimmt alle drei weg.
+/// Siehe docs/benutzung/server.md, „Die Schicht des Reliefs“.
+#[test]
+fn manifeste_der_schicht() {
+    let welt = tempdir();
+    baue_update_welt(welt.path(), hell_am_hang, &[], 1);
+    let extra = ["--camera", "top-north", "--scale", "8", "--relief", "slope"];
+    let voll = [&extra[..], &["--manifest"]].concat();
+    let update = [&voll[..], &["--update"]].concat();
+    let baum = neuer_baum("top-north-s");
+    let schicht = baum.path().join("relief");
+    let rest = schicht.join("rest");
+    let ordner = [baum.path(), schicht.as_path(), rest.as_path()];
+    let gleichen = |fall: &str| {
+        for o in ordner {
+            assert_eq!(manifest(o), manifest_soll(o), "{fall}: {}", o.display());
+            assert!(marken(o).is_empty(), "{fall}: {}", o.display());
+        }
+    };
+    gelungen(&export(welt.path(), baum.path(), &voll));
+    gleichen("voll");
+    assert!(!manifest(&rest).is_empty(), "der Rest hat Kacheln");
+
+    baue_update_welt(welt.path(), mit_aenderungen, &UPDATE_CHUNKS, 2);
+    gelungen(&export(welt.path(), baum.path(), &update));
+    gleichen("Update");
+    assert!(manifest(&rest).is_empty(), "der Rest ist leer");
+
+    for o in [&schicht, &rest] {
+        std::fs::remove_file(o.join("manifest")).unwrap();
+    }
+    let log = String::from_utf8_lossy(&gelungen(&export(welt.path(), baum.path(), &update)).stdout)
+        .into_owned();
+    assert!(log.contains("nichts zu zeichnen"), "{log}");
+    gleichen("ohne Änderung");
+
+    baue_update_welt(welt.path(), hell_am_hang, &UPDATE_CHUNKS, 3);
+    let ohne = [&extra[..], &["--update"]].concat();
+    gelungen(&export(welt.path(), baum.path(), &ohne));
+    for o in ordner {
+        assert!(!o.join("manifest").exists(), "{}", o.display());
+        assert!(marken(o).is_empty(), "{}", o.display());
+    }
+}
+
 /// Auch mit einer nativen Stufe und über einen Ausschnitt, der nur
 /// nachzieht, gleicht das Manifest dem Baum.
 /// Siehe docs/plugin.md, „Manifest“.

@@ -37,9 +37,9 @@ use tokio::net::TcpListener;
 use tokio::sync::Semaphore;
 use tokio_rustls::TlsAcceptor;
 
-use super::NUR_DOWNLOAD;
 use super::manifest::{MANIFEST, etag};
 use super::token::{self, Token};
+use super::{NUR_DOWNLOAD, REST, SCHICHT};
 
 mod api;
 mod ip;
@@ -962,8 +962,10 @@ async fn download(
     };
     let teile: Vec<&str> = rest.split('/').collect();
     let frei = match teile.as_slice() {
-        [baum, "map.json" | MANIFEST] => *baum == token.baum,
-        [baum, stufe, _, _] => {
+        [baum, "map.json" | MANIFEST]
+        | [baum, SCHICHT, MANIFEST]
+        | [baum, SCHICHT, REST, MANIFEST] => *baum == token.baum,
+        [baum, stufe, _, _] | [baum, SCHICHT, stufe, _, _] | [baum, SCHICHT, REST, stufe, _, _] => {
             *baum == token.baum && stufe.parse::<u8>().is_ok_and(|stufe| stufe <= token.stufe)
         }
         _ => false,
@@ -1043,13 +1045,20 @@ fn abgelehnt(z: &Zustand, status: StatusCode) -> Response<Full<Bytes>> {
 async fn download_strom(
     z: &Arc<Zustand>,
     felder: &HeaderMap,
-    baum: &str,
+    name: &str,
     nach: Option<&str>,
     kopf: bool,
 ) -> Response<Koerper> {
     let (_, token) = match gueltig(z, felder, jetzt()) {
         Ok(gueltig) => gueltig,
         Err(status) => return voll(abgelehnt(z, status)),
+    };
+    // Der Baum, oder Schicht und Rest seines Reliefs, ohne `map.json`.
+    let (baum, unter): (&str, &[&str]) = match name.split('/').collect::<Vec<_>>()[..] {
+        [b] => (b, &[]),
+        [b, SCHICHT] => (b, &[SCHICHT]),
+        [b, SCHICHT, REST] => (b, &[SCHICHT, REST]),
+        _ => return voll(leer(z, StatusCode::NOT_FOUND)),
     };
     if !ist_baum(baum) {
         return voll(leer(z, StatusCode::NOT_FOUND));
@@ -1062,9 +1071,12 @@ async fn download_strom(
         Some(Some(lage)) => Some(lage),
         Some(None) => return voll(leer(z, StatusCode::BAD_REQUEST)),
     };
-    let (dir, stufe) = (z.kacheln.join(baum), token.stufe);
+    let dir = unter
+        .iter()
+        .fold(z.kacheln.join(baum), |dir, teil| dir.join(teil));
+    let (stufe, mit_karte) = (token.stufe, unter.is_empty());
     let Ok(Ok((eintraege, erwartet))) =
-        tokio::task::spawn_blocking(move || strom::plan(&dir, stufe, nach)).await
+        tokio::task::spawn_blocking(move || strom::plan(&dir, stufe, nach, mit_karte)).await
     else {
         return voll(leer(z, StatusCode::NOT_FOUND));
     };
@@ -1093,7 +1105,7 @@ async fn download_strom(
             .as_ref()
             .is_some_and(|f| f.buche(&token, n, jetzt()))
     };
-    let baum = baum.to_string();
+    let name = name.to_string();
     let ab = nach
         .map(|(z, x, y)| format!(" nach {z}/{x}/{y}"))
         .unwrap_or_default();
@@ -1106,7 +1118,7 @@ async fn download_strom(
             strom::Ende::Fehler(text) => format!(", abgebrochen: {text}"),
         };
         println!(
-            "Download:   {baum} als ZIP bis Stufe {stufe}{ab} für {spieler}: {} Dateien, {:.1} MB in {:.1} s{grund}",
+            "Download:   {name} als ZIP bis Stufe {stufe}{ab} für {spieler}: {} Dateien, {:.1} MB in {:.1} s{grund}",
             bericht.dateien,
             bericht.bytes as f64 / 1e6,
             dauer.as_secs_f64()
@@ -1235,6 +1247,12 @@ fn kachelpfad<'a>(wurzel: &Path, rest: &'a str) -> Option<(PathBuf, Option<&'a s
         }
         ["koepfe", name] => (ist_kopf(name), None),
         [b, "map.json" | MANIFEST] => (baum(b), Some(*b)),
+        // Schicht und Rest des Reliefs stehen darin wie ein Baum, vor
+        // `[z, x, y]` und `[b, z, x, y]`, die sie sonst nähmen.
+        [b, SCHICHT, MANIFEST] | [b, SCHICHT, REST, MANIFEST] => (baum(b), Some(*b)),
+        [b, SCHICHT, z, x, y] | [b, SCHICHT, REST, z, x, y] => {
+            (baum(b) && kachel(z, x, y), Some(*b))
+        }
         [b, "heights" | "ground", name] => (baum(b) && hoehe(name), Some(*b)),
         [z, x, y] => (kachel(z, x, y), None),
         [b, z, x, y] => (baum(b) && kachel(z, x, y), Some(*b)),
@@ -1519,6 +1537,10 @@ mod tests {
             "2x1-se/heights/1.-2.bin",
             "2x1-se/0/0/0.webp",
             "2x1-se/12/-40/7.webp",
+            "2x1-se/relief/manifest",
+            "2x1-se/relief/12/-40/7.webp",
+            "2x1-se/relief/rest/manifest",
+            "2x1-se/relief/rest/0/0/0.webp",
             "map.json",
             "manifest",
             "3/-1/2.webp",
@@ -1550,6 +1572,10 @@ mod tests {
             ("2x1-se/map.json", Some("2x1-se")),
             ("2x1-se/manifest", Some("2x1-se")),
             ("2x1-se/heights/1.-2.bin", Some("2x1-se")),
+            ("2x1-se/relief/manifest", Some("2x1-se")),
+            ("2x1-se/relief/rest/manifest", Some("2x1-se")),
+            ("2x1-se/relief/3/-1/2.webp", Some("2x1-se")),
+            ("2x1-se/relief/rest/3/-1/2.webp", Some("2x1-se")),
             ("layers.json", None),
             ("layers/beispiel/staedte.json", None),
             ("layers/beispiel/images/burg_16.png", None),
@@ -1602,6 +1628,24 @@ mod tests {
             "boden/0.0.bin",
             "t/0/0",
             "t/",
+            // Schicht und Rest: nur Manifest und Kacheln, keine Hashes,
+            // keine Marken und keine halben Dateien.
+            "t/relief",
+            "t/relief/map.json",
+            "t/relief/pixel/0.0.bin",
+            "t/relief/pixel-neu/0.0.bin",
+            "t/relief/manifest-offen-1-2",
+            "t/relief/manifest.12.tmp",
+            "t/relief/0/0/0.webp.12.tmp",
+            "t/relief/00/0/0.webp",
+            "t/relief/0/0/0.png",
+            "t/relief/rest",
+            "t/relief/rest/map.json",
+            "t/relief/rest/pixel/0.0.bin",
+            "t/relief/rest/manifest-offen-1-2",
+            "t/relief/rest/rest/0/0/0.webp",
+            "t/Relief/0/0/0.webp",
+            "T/relief/0/0/0.webp",
             "geheim.txt",
             // Die Ebenen: halbe Dateien mit Punkt vorn, `..`, Grossbuchstaben,
             // fremde Endungen, Unterordner und Geräte von Windows nicht.

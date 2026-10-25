@@ -1952,7 +1952,12 @@ const FLUIDS: [(usize, usize); 2] = [(WATER, PURE_WATER), (LAVA, PURE_LAVA)];
 /// `quellen`.
 /// Siehe docs/renderer/renderpfad.md, „Bitmasken“.
 struct Masks {
-    bits: [[u16; 256]; FLAGS],
+    /// Je Ebene, ob sie ganz leer oder ganz voll ist oder wo in `gemischt`
+    /// sie steht, siehe [`Masks::ebene`]. Leere und volle teilen sich so
+    /// eine Ebene für alle Sections.
+    /// Siehe docs/renderer/renderpfad.md, „Bitmasken“.
+    ebenen: [u8; FLAGS],
+    gemischt: Box<[[u16; 256]]>,
     /// Je Flüssigkeit aus [`FLUIDS`]: liegt über dem Block dieselbe, auch
     /// aus der Section darüber?
     up: [[u16; 256]; 2],
@@ -1971,8 +1976,8 @@ type Rand = (u16, [u16; 2], [u16; 2]);
 
 fn rand(m: &Masks, col: usize) -> Rand {
     (
-        m.bits[SOLID][col],
-        [m.bits[WATER][col], m.bits[LAVA][col]],
+        m.ebene(SOLID)[col],
+        [m.ebene(WATER)[col], m.ebene(LAVA)[col]],
         [m.up[0][col], m.up[1][col]],
     )
 }
@@ -2021,7 +2026,39 @@ fn lichtweg(state: &BlockState, sprites: &SpriteSet) -> Lichtweg {
     }
 }
 
+/// Marken in [`Masks::ebenen`] für eine ganz leere und eine ganz volle
+/// Ebene.
+const EBENE_LEER: u8 = u8::MAX;
+const EBENE_VOLL: u8 = u8::MAX - 1;
+static NULLEN: [u16; 256] = [0; 256];
+static EINSEN: [u16; 256] = [u16::MAX; 256];
+
 impl Masks {
+    /// Die Ebene `e`: je Spalte ein Wort, Bit `y`.
+    fn ebene(&self, e: usize) -> &[u16; 256] {
+        match self.ebenen[e] {
+            EBENE_LEER => &NULLEN,
+            EBENE_VOLL => &EINSEN,
+            i => &self.gemischt[usize::from(i)],
+        }
+    }
+
+    /// Packt die Ebenen: Nur die gemischten bekommen eigenen Platz.
+    fn packe(bits: &[[u16; 256]; FLAGS]) -> ([u8; FLAGS], Box<[[u16; 256]]>) {
+        let mut gemischt = Vec::new();
+        let ebenen = bits.each_ref().map(|ebene| {
+            if ebene == &NULLEN {
+                EBENE_LEER
+            } else if ebene == &EINSEN {
+                EBENE_VOLL
+            } else {
+                gemischt.push(*ebene);
+                (gemischt.len() - 1) as u8
+            }
+        });
+        (ebenen, gemischt.into_boxed_slice())
+    }
+
     /// `None`, wenn in der Section weder eine Familie steht noch ein Block,
     /// der abdunkelt, die Sicht nimmt, das Licht aufhält oder leuchtet.
     /// Je Paletteneintrag hat `schatten` die Bits aus
@@ -2055,13 +2092,7 @@ impl Masks {
         if union == 0 {
             return None;
         }
-        let mut m = Box::new(Masks {
-            bits: [[0; 256]; FLAGS],
-            up: [[0; 256]; 2],
-            any_foreign: false,
-            formen: Vec::new(),
-            quellen: Vec::new(),
-        });
+        let mut bits = [[0u16; 256]; FLAGS];
         let (mut formen, mut quellen) = (Vec::new(), Vec::new());
         let mut nimm = |i: usize, p: usize| {
             if wege[p].formen != [0; 6] {
@@ -2077,7 +2108,7 @@ impl Masks {
             if flag >> EINZELN & 1 != 0 {
                 (0..4096).for_each(|i| nimm(i, 0));
             }
-            for (b, mask) in m.bits.iter_mut().enumerate() {
+            for (b, mask) in bits.iter_mut().enumerate() {
                 if flag >> b & 1 != 0 {
                     *mask = [u16::MAX; 256];
                 }
@@ -2118,14 +2149,14 @@ impl Masks {
                     }
                     gedreht
                 });
-                for (b, bits) in m.bits.iter_mut().enumerate() {
+                for (b, ebene) in bits.iter_mut().enumerate() {
                     if flag >> b & 1 != 0 {
                         let quelle = match &gedreht {
                             Some(gedreht) if b != DAEMPFT && b != DICHT => gedreht,
                             _ => maske,
                         };
-                        for (bits, spalte) in bits.iter_mut().zip(quelle) {
-                            *bits |= spalte;
+                        for (wort, spalte) in ebene.iter_mut().zip(quelle) {
+                            *wort |= spalte;
                         }
                     }
                 }
@@ -2141,17 +2172,23 @@ impl Masks {
                 }
             }
         }
-        (m.formen, m.quellen) = (formen, quellen);
         if [PRESENT, DARK, VIEW, DAEMPFT, DICHT, VOLL, OPAQUE]
             .iter()
-            .all(|&e| m.bits[e].iter().all(|&w| w == 0))
-            && m.formen.is_empty()
-            && m.quellen.is_empty()
+            .all(|&e| bits[e].iter().all(|&w| w == 0))
+            && formen.is_empty()
+            && quellen.is_empty()
         {
             return None;
         }
-        m.any_foreign = m.bits[FOREIGN].iter().any(|&f| f != 0);
-        Some(m)
+        let (ebenen, gemischt) = Masks::packe(&bits);
+        Some(Box::new(Masks {
+            ebenen,
+            gemischt,
+            up: [[0; 256]; 2],
+            any_foreign: bits[FOREIGN].iter().any(|&f| f != 0),
+            formen,
+            quellen,
+        }))
     }
 }
 
@@ -2224,12 +2261,12 @@ impl Loaded {
                 .y
                 .checked_add(1)
                 .and_then(|y| chunk.section_index(y))
-                .and_then(|i| masks[i].as_ref().map(|a| [a.bits[WATER], a.bits[LAVA]]));
+                .and_then(|i| masks[i].as_ref().map(|a| [*a.ebene(WATER), *a.ebene(LAVA)]));
             if let Some(m) = &mut masks[s] {
                 for (f, &(bit, _)) in FLUIDS.iter().enumerate() {
                     for col in 0..256 {
                         let top = above.map_or(0, |a| a[f][col] & 1);
-                        m.up[f][col] = (m.bits[bit][col] >> 1) | (top << 15);
+                        m.up[f][col] = (m.ebene(bit)[col] >> 1) | (top << 15);
                     }
                 }
             }
@@ -2293,8 +2330,8 @@ impl Loaded {
                 let m = m.as_deref()?;
                 Some(Eingabe {
                     y: section.y,
-                    dicht: &m.bits[DICHT],
-                    daempft: &m.bits[DAEMPFT],
+                    dicht: m.ebene(DICHT),
+                    daempft: m.ebene(DAEMPFT),
                     formen: &m.formen,
                     quellen: &m.quellen,
                 })
@@ -2632,23 +2669,42 @@ impl<'a> ChunkCache<'a> {
             own: [0; 256],
             any_own: false,
         });
+        // Die Ebenen einmal je Section, nicht je Spalte.
+        let (solid, floor, present, loose) = (
+            m.ebene(SOLID),
+            m.ebene(FLOOR),
+            m.ebene(PRESENT),
+            m.ebene(LOOSE),
+        );
+        let fluid = FLUIDS.map(|(enthaelt, _)| m.ebene(enthaelt));
+        let pure = FLUIDS.map(|(_, nur)| m.ebene(nur));
+        let floor_oben = above.map(|a| a.ebene(FLOOR));
+        let eigener_rand = |col: usize| -> Rand {
+            (
+                solid[col],
+                [fluid[0][col], fluid[1][col]],
+                [m.up[0][col], m.up[1][col]],
+            )
+        };
         for col in 0..256 {
             let (x, z) = (col & 15, col >> 4);
-            let (sx, fx, ux) = if x < 15 { rand(m, col + 1) } else { nx[z] };
-            let (sz, fz, uz) = if z < 15 { rand(m, col + 16) } else { nz[x] };
+            let (sx, fx, ux) = if x < 15 { eigener_rand(col + 1) } else { nx[z] };
+            let (sz, fz, uz) = if z < 15 {
+                eigener_rand(col + 16)
+            } else {
+                nz[x]
+            };
             let (sx, sz) = (sx | seite_x, sz | seite_z);
-            let top = above.map_or(0, |a| a.bits[FLOOR][col] & 1);
-            let floor_up = (m.bits[FLOOR][col] >> 1) | (top << 15);
+            let top = floor_oben.map_or(0, |f| f[col] & 1);
+            let floor_up = (floor[col] >> 1) | (top << 15);
             let hidden = sx & floor_up & sz;
             let mut fluid_hidden = 0;
-            for (f, &(_, pure)) in FLUIDS.iter().enumerate() {
-                fluid_hidden |= m.bits[pure][col]
-                    & m.up[f][col]
-                    & (sx | (fx[f] & ux[f]))
-                    & (sz | (fz[f] & uz[f]));
+            for f in 0..FLUIDS.len() {
+                fluid_hidden |=
+                    pure[f][col] & m.up[f][col] & (sx | (fx[f] & ux[f])) & (sz | (fz[f] & uz[f]));
             }
             let verdeckt = if verdecken { hidden | fluid_hidden } else { 0 };
-            ex.own[col] = m.bits[PRESENT][col] & (m.bits[LOOSE][col] | !verdeckt);
+            ex.own[col] = present[col] & (loose[col] | !verdeckt);
         }
         ex.any_own = ex.own.iter().any(|&o| o != 0);
         loaded.exposed[s] = Some(ex);
@@ -2832,9 +2888,10 @@ impl<'a> ChunkCache<'a> {
                     continue;
                 }
                 let sy = section.y as i32 * 16;
+                let (foreign, lose) = (m.ebene(FOREIGN), m.ebene(LOOSE));
                 for col in 0..256 {
                     let own = ex.own[col];
-                    let fo = m.bits[FOREIGN][col];
+                    let fo = foreign[col];
                     if own == 0 && fo == 0 {
                         continue;
                     }
@@ -2846,7 +2903,7 @@ impl<'a> ChunkCache<'a> {
                         let b = bits.trailing_zeros();
                         let y = sy + b as i32;
                         bits &= bits - 1;
-                        let loose = m.bits[LOOSE][col] >> b & 1 != 0;
+                        let loose = lose[col] >> b & 1 != 0;
                         let drin = if loose {
                             in_band(y, v, u)
                         } else {
@@ -3397,7 +3454,7 @@ impl<'a> ChunkCache<'a> {
             .ok()
             .and_then(|sy| loaded.chunk.section_index(sy))
             .and_then(|s| loaded.masks[s].as_deref())
-            .is_some_and(|m| m.bits[VOLL][col] >> (y & 15) & 1 != 0);
+            .is_some_and(|m| m.ebene(VOLL)[col] >> (y & 15) & 1 != 0);
         let licht = Light {
             sky: wert >> 4,
             block: wert & 15,
@@ -3441,7 +3498,7 @@ impl<'a> ChunkCache<'a> {
                         .and_then(|sy| loaded.chunk.section_index(sy))
                         .and_then(|s| loaded.masks[s].as_deref())
                         .map_or([0; 4], |m| {
-                            [SOLID, DARK, VIEW, OPAQUE].map(|e| u32::from(m.bits[e][col]))
+                            [SOLID, DARK, VIEW, OPAQUE].map(|e| u32::from(m.ebene(e)[col]))
                         })
                 };
                 let unten = y - 1;
@@ -3557,6 +3614,33 @@ fn band_chunks(genordet: bool, u_min: i32, u_max: i32, v_lo: i32, v_hi: i32) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Leere und volle Ebenen teilen sich die statischen, jede gemischte hat
+    /// ihren eigenen Platz, und `ebene` gibt jede so zurück, wie sie gepackt
+    /// wurde.
+    #[test]
+    fn masken_teilen_leere_und_volle_ebenen() {
+        let mut bits = [[0u16; 256]; FLAGS];
+        bits[SOLID] = [u16::MAX; 256];
+        bits[WATER][7] = 0b1010;
+        bits[LAVA][0] = u16::MAX;
+        bits[FOREIGN] = [1; 256];
+        let (ebenen, gemischt) = Masks::packe(&bits);
+        assert_eq!(gemischt.len(), 3, "Wasser, Lava, Teile in Nachbarn");
+        let m = Masks {
+            ebenen,
+            gemischt,
+            up: [[0; 256]; 2],
+            any_foreign: false,
+            formen: Vec::new(),
+            quellen: Vec::new(),
+        };
+        for (e, ebene) in bits.iter().enumerate() {
+            assert_eq!(m.ebene(e), ebene, "Ebene {e}");
+        }
+        assert!(std::ptr::eq(m.ebene(SOLID), &EINSEN));
+        assert!(std::ptr::eq(m.ebene(DARK), &NULLEN));
+    }
     use crate::assets::DimensionType;
     use crate::assets::colors::Colors;
     use crate::render::look::LOOK;

@@ -209,10 +209,17 @@ Blöcke ohne Familie. Die Ausbreitung nimmt ausserdem je Section zwei Listen
 mit: die Blöcke mit einer Fläche, die Licht an einer Seite aufhält
 (`formen`), und die, die leuchten, mit ihrer Stufe (`quellen`).
 
-Eine Maske hat 8 760 Bytes. Im ersten Render der Testwelt lebten mit allen
-Threads an der Spitze rund 80 000, 0,65 GiB; 57 % ihrer Ebenen waren ganz
-leer oder ganz voll. Gemessen in
+Ganz leere und ganz volle Ebenen teilen alle Masken: zwei feste Ebenen,
+`NULLEN` und `EINSEN`. Eine Maske hält je Ebene einen Eintrag, leer, voll
+oder die Nummer einer gemischten, und nur ihre gemischten Ebenen
+(`Masks::ebene`, `Masks::packe`). `Masks::of` rechnet in ein Feld auf dem
+Stack und packt erst am Ende; die heissen Schleifen holen ihre Ebenen einmal
+je Section. Vorher hatte eine Maske fest 8 760 Bytes. Im ersten Render der
+Testwelt lebten mit allen Threads an der Spitze rund 80 000, 0,65 GiB, und
+57 % ihrer Ebenen waren ganz leer oder ganz voll, gemessen in
 [2026-10-24, Speicher im ersten Render](../messungen/2026-10-24-speicher-im-ersten-render.md).
+Geteilt liegt die Spitze dort 0,41 GiB tiefer, −12 %, bei gleicher Zeit,
+gemessen in [2026-10-25, Masken teilen](../messungen/2026-10-25-masken-teilen.md).
 
 Die Spalten liegen im Blick der Kamera. Nur was die Ausbreitung liest, die
 Ebenen `DAEMPFT` und `DICHT`, `formen` und `quellen`, liegt in der Lage der

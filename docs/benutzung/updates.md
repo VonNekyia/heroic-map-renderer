@@ -398,8 +398,23 @@ liegen“. Entschieden in
   `--pyramid` und ein Werkzeug, und ebenso, wenn sie nur eine andere Zeit
   bekam.
 - **Jeder Lauf** liest und schreibt die Hashes der Kacheln, die er ablegt,
-  auch ein Ausschnitt und `--resume`. Geschrieben wird am Ende. Bricht ein
-  Lauf ab, fehlen nur seine Hashes.
+  auch ein Ausschnitt und `--resume`. In `pixel/` landen sie erst am Ende,
+  nach der Pyramide. Bricht ein Lauf ab, fehlen nur seine Hashes.
+- **Früh geschrieben:** Ist die letzte Basiskachel eines Blocks fertig,
+  geht der Block nach `pixel-neu/` und aus dem Speicher (`Pixel::erwarte`
+  und `Pixel::fertig`). Am Ende wandern alle Blöcke von dort nach `pixel/`.
+  Ein liegen gebliebenes `pixel-neu/` nimmt der nächste Lauf weg, bevor er
+  einen Hash liest: Seine Kacheln haben womöglich keine neuen Eltern, siehe
+  [0124](../entscheidungen/0124-pyramide-nur-ueber-neuen-kindern.md). Mit
+  einem Thread, wie im Plugin, hält ein Lauf so nur die Blöcke der Spalte
+  im Speicher, in der er zeichnet; mit vielen Threads schliessen die
+  meisten Blöcke erst gegen Ende.
+- **Im Speicher** hält ein Block ein Feld mit 1024 Plätzen zu 28 Bytes,
+  leer heisst lauter Nullen. Eine Tabelle brauchte rund 48 Bytes je Kachel,
+  gemessen in
+  [2026-10-24, Speicher im ersten Render](../messungen/2026-10-24-speicher-im-ersten-render.md).
+  An der Spitze im ersten Render der Testwelt ändert das nichts Messbares,
+  siehe [2026-10-25, Pixel-Hashes als Feld](../messungen/2026-10-25-pixel-hashes-als-feld.md).
 - **Die Pyramide eines Updates** baut die Eltern von der Platte nur über
   Kindern ohne Treffer im Hash: über neuen Pixeln, über entfernten Kindern,
   über Kindern, die ein abgebrochener Lauf schrieb oder `--resume` liegen

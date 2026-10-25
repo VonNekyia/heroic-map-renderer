@@ -1,13 +1,15 @@
 /**
  * Keine Prüfung, eine Messung: 1000 Banner und 1000 Nadeln auf zwei Ebenen,
- * bei dpr 1 und 3, CPU 1× und 4×, je Laden, Ziehen, Rad und Pinch. Gemessen
- * werden Frames, lange Aufgaben, JS-Heap, DOM-Knoten und die Pixel aller
- * Leinwände der Icons. Kacheln gibt es keine, Höhen stehen am Objekt: Es
- * zählt nur, was die Orte kosten. Läuft nur mit `STRESS=1`; `AUS` nennt
- * eine Datei, an die jede Zeile als JSON angehängt wird.
+ * bei dpr 1 und 3, CPU 1× und 4×, je Laden, Ziehen, Rad und Pinch, hinein und
+ * hinaus getrennt. Gemessen werden Frames, lange Aufgaben, JS-Heap,
+ * DOM-Knoten und die Pixel der Leinwände der Icons im DOM. Kacheln gibt es
+ * keine, Höhen stehen am Objekt: Es zählt nur, was die Orte kosten. Läuft nur
+ * mit `STRESS=1`; `AUS` nennt eine Datei, an die jede Zeile als JSON
+ * angehängt wird, `VERSUCH` hängt `&versuch=…` an die Adresse, `LAEUFE`
+ * setzt die Läufe je Zelle, Vorgabe 3.
  * Siehe docs/messungen/2026-10-24-viele-nadeln-und-banner.md.
  */
-import { expect, test, type Browser, type CDPSession, type Page } from '@playwright/test';
+import { test, type Browser, type CDPSession, type Page } from '@playwright/test';
 import { appendFileSync } from 'node:fs';
 import { BILDER, DEMO, png, STAEDTE, welt } from './ebenen-welt';
 
@@ -18,11 +20,19 @@ const NADELN = { id: 'beispiel:nadeln', name: { de: 'Nadeln', en: 'Pins' }, visi
 const SATZ = { foot: [12, 49], angle: 26.56505117707799 };
 const SPRITE = png(23, 51);
 
-/** Je Variante: Abstand im Raster in Blöcken, ob Banner einen Namen tragen, Zoom des Starts. */
-const VARIANTEN = {
+/**
+ * Je Variante: Abstand im Raster in Blöcken, ob Banner einen Namen tragen,
+ * Zoom des Starts. `dicht` hat alle Orte im Fenster, `weit` rund 9 %, `voll`
+ * rund 92 %; `voll` ist das „weit“ der ersten Reihe vom 24.10. In `fern`
+ * sind die Namen nach 0119 ausgeblendet.
+ */
+const VARIANTEN: Record<string, { abstand: number; namen: boolean; zoom: number; grenzen?: number }> = {
   dicht: { abstand: 4, namen: true, zoom: -4 },
-  weit: { abstand: 40, namen: true, zoom: -4 },
-  'weit-ohne-namen': { abstand: 40, namen: false, zoom: -4 },
+  voll: { abstand: 40, namen: true, zoom: -4 },
+  weit: { abstand: 40, namen: true, zoom: -2 },
+  'weit-ohne-namen': { abstand: 40, namen: false, zoom: -2 },
+  // Eine grosse Welt ganz von weit: 400 Blöcke Abstand, Grenzen so weit, dass Zoom −10 erlaubt ist; die Namen sind dort nach 0119 aus.
+  fern: { abstand: 400, namen: true, zoom: -10, grenzen: 1_048_576 },
 };
 
 /** 2000 Orte auf einem Raster 45 × 45 um (0, 0), abwechselnd Banner und Nadel. */
@@ -87,6 +97,16 @@ const abschnitt = (page: Page, von: number, bis: number): Promise<Abschnitt> =>
 
 const jetzt = (page: Page) => page.evaluate(() => performance.now());
 
+/** Wie viele Icons im Fenster liegen, nicht nur im DOM. */
+const imFenster = (page: Page) =>
+  page.locator('.nadel-icon').evaluateAll(
+    (icons) =>
+      icons.filter((e) => {
+        const r = e.getBoundingClientRect();
+        return r.right > 0 && r.bottom > 0 && r.left < innerWidth && r.top < innerHeight;
+      }).length,
+  );
+
 /** Misst, was `tu` auslöst, bis 600 ms danach. */
 async function miss(page: Page, tu: () => Promise<unknown>): Promise<Abschnitt> {
   const von = await jetzt(page);
@@ -95,8 +115,8 @@ async function miss(page: Page, tu: () => Promise<unknown>): Promise<Abschnitt> 
   return abschnitt(page, von, await jetzt(page));
 }
 
-async function lauf(browser: Browser, variante: keyof typeof VARIANTEN, dpr: number, cpu: number): Promise<object> {
-  const v = VARIANTEN[variante];
+async function lauf(browser: Browser, variante: string, dpr: number, cpu: number): Promise<object> {
+  const v = VARIANTEN[variante]!;
   // Ein eigener Kontext je Lauf, mit dpr und Touch; die Basis der Seite aus dem Projekt.
   const { baseURL } = test.info().project.use;
   const context = await browser.newContext({ baseURL, viewport: { width: 1280, height: 800 }, deviceScaleFactor: dpr, hasTouch: true });
@@ -107,7 +127,8 @@ async function lauf(browser: Browser, variante: keyof typeof VARIANTEN, dpr: num
     liste: () => [STAEDTE, NADELN],
     datei: (name) => (name === 'staedte' ? { ...STAEDTE, objects: banner } : name === 'nadeln' ? { ...NADELN, objects: nadeln } : undefined),
     baum: { path: '2x1-se', camera: '2:1' },
-    mehr: { bounds: [-65536, -65536, 65536, 65536] },
+    // Mit weiten Grenzen auch eine tiefe Pyramide, sonst kachelt Leaflet das Fenster weit draussen mit Hunderttausenden Kacheln der Stufe 0.
+    mehr: { bounds: [-(v.grenzen ?? 65536), -(v.grenzen ?? 65536), v.grenzen ?? 65536, v.grenzen ?? 65536], ...(v.grenzen ? { minZoom: -12 } : {}) },
     bild: (n) => BILDER[n],
     weitere: (pfad) => {
       const rest = pfad.startsWith('beispiel/banner/staedte/2x1-se/') ? pfad.slice('beispiel/banner/staedte/2x1-se/'.length) : undefined;
@@ -120,9 +141,20 @@ async function lauf(browser: Browser, variante: keyof typeof VARIANTEN, dpr: num
   const cdp: CDPSession = await context.newCDPSession(page);
   await cdp.send('Emulation.setCPUThrottlingRate', { rate: cpu });
   const start = Date.now();
-  await page.goto(`${DEMO}&tree=2x1-se&at=0,64,0&zoom=${v.zoom}`);
-  await expect(page.locator('.nadel-icon')).toHaveCount(2000, { timeout: 300_000 });
-  const laden_ms = Date.now() - start;
+  await page.goto(`${DEMO}&tree=2x1-se&at=0,64,0&zoom=${v.zoom}${process.env.VERSUCH ? `&versuch=${process.env.VERSUCH}` : ''}`);
+  // Bis die Zahl der Icons 1 s lang steht: Nach 0128 hängen nur die im Fenster mit Rand.
+  let [zahl, seit] = [-1, Date.now()];
+  // Höchstens 120 s; danach gilt, was steht.
+  for (const bis = Date.now() + 120_000; Date.now() < bis; ) {
+    const n = await page.locator('.nadel-icon').count();
+    if (n !== zahl) [zahl, seit] = [n, Date.now()];
+    else if (zahl > 0 && Date.now() - seit > 1000) break;
+    await page.waitForTimeout(100);
+  }
+  const laden_ms = seit - start;
+  const imFensterStart = await imFenster(page);
+  const zoomStart = Number(new URL(page.url()).searchParams.get('zoom'));
+  const namenWeg = await page.locator('.namen-weg').count();
   const laden = await abschnitt(page, 0, await jetzt(page));
   await page.waitForTimeout(1000);
   const b = { x: 640, y: 400 };
@@ -138,37 +170,37 @@ async function lauf(browser: Browser, variante: keyof typeof VARIANTEN, dpr: num
     await page.mouse.up();
   });
   if (process.env.SPUR) appendFileSync(`${process.env.SPUR}-${variante}-${dpr}-${cpu}-${Date.now()}.json`, await browser.stopTracing());
-  const rad = await miss(page, async () => {
-    for (const d of [-120, -120, -120, 120, 120, 120]) {
+  // Hinein und hinaus getrennt: Hinaus kommen viele Orte auf einmal ins Fenster.
+  const rasten = (d: number) => async () => {
+    for (let i = 0; i < 3; i++) {
       await page.mouse.wheel(0, d);
       await page.waitForTimeout(500);
     }
-  });
-  const pinch = await miss(page, async () => {
-    for (const scaleFactor of [2, 0.5]) await cdp.send('Input.synthesizePinchGesture', { x: b.x, y: b.y, scaleFactor, relativeSpeed: 600, gestureSourceType: 'touch' });
-  });
+  };
+  const radRein = await miss(page, rasten(-120));
+  const radRaus = await miss(page, rasten(120));
+  const pinch = (scaleFactor: number) => () => cdp.send('Input.synthesizePinchGesture', { x: b.x, y: b.y, scaleFactor, relativeSpeed: 600, gestureSourceType: 'touch' });
+  const pinchRein = await miss(page, pinch(2));
+  const pinchRaus = await miss(page, pinch(0.5));
   const zustand = await page.evaluate(() => {
     const icons = [...document.querySelectorAll('.nadel-icon')];
     const leinwand = [...document.querySelectorAll<HTMLCanvasElement>('.nadel-icon canvas')].reduce((s, c) => s + c.width * c.height * 4, 0);
-    const imAusschnitt = icons.filter((e) => {
-      const r = e.getBoundingClientRect();
-      return r.right > 0 && r.bottom > 0 && r.left < innerWidth && r.top < innerHeight;
-    }).length;
-    return { leinwand_mib: Math.round((leinwand / 2 ** 20) * 10) / 10, imAusschnitt };
+    return { leinwand_mib: Math.round((leinwand / 2 ** 20) * 10) / 10, imDom: icons.length };
   });
+  const imFensterEnde = await imFenster(page);
   await cdp.send('HeapProfiler.collectGarbage');
   const { usedSize } = (await cdp.send('Runtime.getHeapUsage')) as { usedSize: number };
   const { nodes } = (await cdp.send('Memory.getDOMCounters')) as { nodes: number };
   await context.close();
-  return { variante, dpr, cpu, laden_ms, laden, ziehen, rad, pinch, ...zustand, heap_mb: Math.round(usedSize / 1e5) / 10, dom_knoten: nodes };
+  return { stand: process.env.STAND ?? '', imDomGeladen: zahl, imFensterStart, imFensterEnde, zoomStart, namenWeg, variante, dpr, cpu, laden_ms, laden, ziehen, radRein, radRaus, pinchRein, pinchRaus, ...zustand, heap_mb: Math.round(usedSize / 1e5) / 10, dom_knoten: nodes };
 }
 
-for (const variante of Object.keys(VARIANTEN) as (keyof typeof VARIANTEN)[]) {
+for (const variante of Object.keys(VARIANTEN)) {
   for (const dpr of [1, 3]) {
     for (const cpu of [1, 4]) {
       test(`${variante} dpr ${dpr} CPU ${cpu}×`, async ({ browser }) => {
         test.setTimeout(1_200_000);
-        for (let n = 1; n <= 3; n++) {
+        for (let n = 1; n <= Number(process.env.LAEUFE ?? 3); n++) {
           const zeile = JSON.stringify({ n, ...(await lauf(browser, variante, dpr, cpu)) });
           console.log(zeile);
           if (process.env.AUS) appendFileSync(process.env.AUS, `${zeile}\n`);

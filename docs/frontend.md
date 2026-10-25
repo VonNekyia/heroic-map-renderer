@@ -75,6 +75,14 @@ Beim Öffnen holt die Seite, was nicht aufeinander wartet, zugleich
   nimmt die Karte diese Antwort, sonst holt sie den ersten Baum wie bisher.
 - **Danach** in dieser Reihe: `map.json`, die Karte, dann je Ebene ihre Datei,
   bei Bannern mit Entwurf `satz.json` und die Sprites, und die Kartenschrift.
+- **`satz.json` mit der Datei:** Trägt der Eintrag in `layers.json`
+  `designs: true`, geht `satz.json` zugleich mit der Datei der Ebene los,
+  bei einer Aktionsebene nach ihrer Antwort aus `api/` (`satzVorab` in
+  `ladeEbene`). Nennt die Datei dann doch keinen Entwurf, bleibt die Antwort
+  ungenutzt. Ohne das Feld wie bisher erst nach der Datei. Siehe
+  [Ebenen](benutzung/ebenen.md), „Liste der Ebenen“; gemessen in
+  [satz.json mit der Datei](messungen/2026-10-24-satz-mit-der-datei.md):
+  das erste Banner eine Umlaufzeit früher.
 - **Gemessen** in [Start der Webkarte](messungen/2026-10-24-start-der-webkarte.md):
   bei 150 ms Umlaufzeit kommt das erste Objekt einer Ebene 330 ms früher, mit
   `?tree=` 530 ms früher, die erste Kachel mit `?tree=` 180 ms früher.
@@ -478,6 +486,21 @@ Stil aller Nachkommen neu, auch der Kacheln. Ohne Deckung bekommt das Pane
 wird dabei neu gebaut. Die Breite eines Namens im Bogen misst ein Kontext
 für alle Banner.
 
+Ganz ausgeblendete Namen nimmt die Karte aus dem Layout: Eine Dauer nach
+`namen-weg` setzt `namenAn` am Pane `namen-aus`, und die Namen werden
+`display: none`. Die Dauer steht nur in `--namen-dauer` in
+[`style.css`](../web/src/style.css), auch für die Transition; `ebenen.ts`
+liest sie bei jedem Wechsel, denn beim Start gilt das Stylesheet womöglich
+noch nicht. Fällt `namen-weg` vorher wieder, verwirft `namenAn` den
+Zeitgeber; geht es hinein, kommen die Namen erst ins Layout und blenden dann
+ein. Weit draussen zieht die Karte so mit 41 % weniger langen Aufgaben, das
+Rad hinein mit 61 % weniger; über die Schwelle hinaus kostet der Pinch 15 %
+mehr, siehe
+[Namen aus dem Layout](messungen/2026-10-24-namen-aus-dem-layout.md).
+`transition-behavior: allow-discrete` ginge ohne JS, aber Firefox geht
+`display` damit nicht über, laut den Daten von MDN zu `transition-behavior`
+(Bug 1882408); dort verschwände der Name schon zu Beginn des Zooms.
+
 ![Eine Ebene auf dem Ufer der Testwelt, links schräg in 2:1, rechts von oben](bilder/ebenen-testwelt.webp)
 
 *Wie es entsteht: [Ebenen](benutzung/ebenen.md), „Zeichnen“.*
@@ -496,6 +519,13 @@ für alle Banner.
   nicht höher ist, sonst ganz unten. „Reihe des Servers“ unter der Liste,
   nur bei umgestellter Reihe, löscht den Eintrag. Panes und Liste folgen
   derselben Reihe; „Mitspieler“ bleibt oben.
+- **Zoomgrenze,** nach [0131](entscheidungen/0131-zoomgrenze-je-ebene.md):
+  Mit `maxBlocksPerPixel` aus `layers.json` lädt und zeigt die Karte eine
+  Ebene nur, solange ein CSS-Pixel höchstens so viele Blöcke zeigt
+  (`imBereich`). Nach jedem Zoom hängt `bereichAnwenden` sie aus oder ein,
+  ohne neu zu laden; eine offene Tafel schliesst dabei, der Fokus geht an
+  die Karte. Die Zeile in der Liste bleibt angehakt und steht jenseits der
+  Grenze gedimmt mit „(beim Hineinzoomen)“.
 - **Laden:** Eine Ebene lädt erst, wenn sie an ist. Alle 30 Sekunden und
   beim Zurückkehren auf den Tab fragt die Karte `layers.json` mit
   `cache: 'no-cache'` nach und lädt neu, was an ist und eine neue `version`
@@ -570,13 +600,32 @@ für alle Banner.
     oder taugt er nicht, zeichnet `nadelIcon` die Nadel;
   - auf jeder Stufe gleich gross, nur der Name nicht, siehe oben. Ein
     Pixel des Bilds ist `k = max(1, round(devicePixelRatio))` Pixel des
-    Geräts breit, die Leinwand also `k`-mal so gross wie das Bild und
-    `b · k / devicePixelRatio` Pixel des Bildschirms breit. So bleibt jedes
-    Pixel gleich breit, auch bei 1,25 oder 1,5;
+    Geräts breit, das Icon also `b · k / devicePixelRatio` Pixel des
+    Bildschirms breit. So bleibt jedes Pixel gleich breit, auch bei 1,25
+    oder 1,5;
+  - ein Banner als `<img>` mit der Adresse seines Sprites oder `image`, mit
+    `pixelated`, nach [0129](entscheidungen/0129-banner-als-bild.md): Alle
+    Banner mit demselben Bild teilen es. Nadel und Kopf zeichnet die Karte
+    in eine Leinwand, `k`-mal so gross wie das Bild; sie haben keine
+    Adresse, und die CSP erlaubt Bilder nur von `'self'`;
   - übereinander: je Ebene ein Pane, `z-index` 510 + Rang in der Reihe der Liste,
     über `shadowPane` (500) und unter `markerPane` (600), `tooltipPane`
     und der Tafel; in einer Ebene liegt das spätere oben;
-  - ohne Tafel kein Ziel für Maus und Tastatur.
+  - ohne Tafel kein Ziel für Maus und Tastatur;
+  - nur im Fenster mit Rand im DOM, nach
+    [0128](entscheidungen/0128-marker-nur-im-ausschnitt.md). Der Rand ist
+    ein Viertel des Fensters je Seite (`ORT_RAND`). Die Lage rechnet
+    `ladeEbene` für alle Orte; Icon und Marker baut `zeigeOrte` erst, wenn
+    ein Ort zum ersten Mal in den Rahmen kommt, je 32 zugleich, und gibt
+    nach `STUECK_MS` den Hauptfaden frei. Ein gebauter Marker bleibt bis zum
+    nächsten Laden der Ebene und wird nur aus- und eingehängt.
+  - **Neu gezählt** wird bei `moveend` und gleich nach dem Laden. Beim
+    Ziehen zählt die Karte höchstens einmal je Frame neu, sobald das
+    Fenster den inneren Rahmen verlässt, den halben Rand.
+  - **Bleiben** auch ausserhalb: ein Marker mit offener Tafel, sonst
+    schlösse Leaflet sie, und einer mit dem Fokus.
+  - **Tab** erreicht nur Nadeln und Banner im Fenster mit Rand. Ein Ort weit
+    ausserhalb ist kein Ziel, bis die Karte dorthin geht.
 - **Infotafel:** ein Popup von Leaflet, gebaut nur aus Elementen mit
   `textContent` und Bildern unter `images/` der Ebene, dunkel wie im Mod
   nach [Ebenen](benutzung/ebenen.md), „Infotafel“, in der Schrift der UI;
@@ -732,9 +781,11 @@ für alle Banner.
 - **Kartenschrift:** je Schriftzug ein SVG im Pane der Formen, mit
   `textPath` entlang des Pfads, neu gesetzt bei jedem Zoom und während des
   Zooms ausgeblendet:
-  - die Schrift IM FELL English SC, die TTF unverändert aus
-    `web/src/ebenen/schrift/`, mit `FontFace` geladen, sobald eine Ebene
-    Schrift oder den Namen einer Nadel oder eines Banners zeigt;
+  - die Schrift IM FELL English SC als WOFF2 aus
+    `web/src/ebenen/schrift/`, nach
+    [0130](entscheidungen/0130-kartenschrift-als-woff2.md), mit `FontFace`
+    geladen, sobald eine Ebene Schrift oder den Namen einer Nadel oder eines
+    Banners zeigt;
   - Höhe der Grossbuchstaben `size · scale · 2^(Zoom − maxZoom)` Pixel;
     die Schriftgrösse ist sie durch 1384/2048, die Oberkante des „H“ der
     Schrift. Unter 8 Pixeln aus, über 96 gedeckelt;

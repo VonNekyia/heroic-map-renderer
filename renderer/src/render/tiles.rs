@@ -1165,8 +1165,8 @@ mod tests {
     }
 
     /// Mit Schatten reicht das Gebiet einer Änderung so weit nach Südosten,
-    /// wie die Schatten ihrer Spalten fallen, 32 Blöcke diagonal; das Gefälle
-    /// braucht nichts über die 16 Blöcke hinaus. Bei scale 32 ist eine Kachel
+    /// wie die Schatten ihrer Spalten fallen, 32 Blöcke diagonal, mit
+    /// `slope` ebenso, denn die Schicht trägt den Schatten. Bei scale 32 ist eine Kachel
     /// 8 Blöcke breit: Die letzten liegen jenseits der Reserve von
     /// [`BLEED_BLOCKS`].
     /// Siehe docs/benutzung/updates.md, „Wo ein Update zeichnet“.
@@ -1195,10 +1195,9 @@ mod tests {
                 assert!(schatten.enthaelt(tile), "Block {x}, {z}");
             }
         }
-        assert_eq!(
-            gebiet(Some(Relief::Gefaelle)).kacheln(),
-            gebiet(None).kacheln()
-        );
+        // Auch mit `slope`, denn die Schicht trägt den Schatten.
+        assert_eq!(gebiet(Some(Relief::Gefaelle)).kacheln(), schatten.kacheln());
+        assert!(gebiet(None).kacheln().len() < schatten.kacheln().len());
     }
 
     /// Ein Gebiet aus einem Rechteck verhält sich wie das Rechteck, auf

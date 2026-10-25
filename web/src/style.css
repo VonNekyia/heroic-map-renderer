@@ -282,9 +282,15 @@ body {
   overflow: visible;
 }
 
-.nadel canvas {
+.nadel canvas,
+.nadel img {
   display: block;
   image-rendering: pixelated;
+}
+
+/* Eine Ebene jenseits ihrer Zoomgrenze, siehe docs/entscheidungen/0131-zoomgrenze-je-ebene.md. */
+.ebenen-zeile.ausser-bereich {
+  opacity: 0.6;
 }
 
 /* Der Name wie die Kartenschrift, nicht wie die UI: Farbe und Kontur der
@@ -305,19 +311,32 @@ body {
 
 /* Weit draussen wird der Name stufenlos kleiner und blendet aus, so lange
    und so geschwungen wie der Zoom von Leaflet; `namenNachZoom` in ebenen.ts
-   setzt die Werte. Siehe docs/entscheidungen/0119-namen-stufenlos-icons-fest.md. */
+   setzt die Werte. Siehe docs/entscheidungen/0119-namen-stufenlos-icons-fest.md.
+   Die Dauer steht nur hier; ebenen.ts liest sie für `namen-aus`. Keine
+   Variable für Skins. */
+:root {
+  --namen-dauer: 250ms;
+}
+
 .nadel-name,
 .nadel-bogen {
   opacity: var(--name-deck, 1);
   transition:
-    transform 0.25s cubic-bezier(0, 0, 0.25, 1),
-    opacity 0.25s cubic-bezier(0, 0, 0.25, 1),
-    visibility 0.25s;
+    transform var(--namen-dauer) cubic-bezier(0, 0, 0.25, 1),
+    opacity var(--namen-dauer) cubic-bezier(0, 0, 0.25, 1),
+    visibility var(--namen-dauer);
 }
 
 .namen-weg .nadel-name,
 .namen-weg .nadel-bogen {
   visibility: hidden;
+}
+
+/* Nach dem Ausblenden ganz aus dem Layout: weit draussen zieht und zoomt die
+   Karte so ohne die Namen. Siehe docs/frontend.md, „Ebenen“. */
+.namen-aus .nadel-name,
+.namen-aus .nadel-bogen {
+  display: none;
 }
 
 /* Der Name eines Banners im Bogen: ein SVG mit dem Ursprung am Fuss, die

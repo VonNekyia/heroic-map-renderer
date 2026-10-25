@@ -76,6 +76,7 @@ das Frontend liest die Datei in `web/src/main.ts`.
 | `look` | `"map"` die Karte, `"cinematic"` oder `"flat"`; fehlt es, die Karte | „Look“ unten |
 | `lookHash` | Fingerabdruck der Werte von Cinematic, 16 Hexziffern; nur mit `"cinematic"` | „Look“ unten |
 | `relief` | das Relief von oben, `"slope"` oder `"shadows"`, `--relief`; fehlt ohne | „Look“ unten |
+| `reliefTiles` | Pfadmuster der Schicht des Reliefs, relativ zum Baum, heute `relief/{z}/{x}/{y}.webp`; steht mit `relief` | [Relief von oben](../renderer/relief.md), „Die Schicht“ |
 | `seaLevel` | Wasserspiegel der Dimension in Blöcken, oder `null` | „Die Welt“ unten |
 | `area` | das Rechteck der Welt, das der Baum zeichnet, `[x0, z0, x1, z1]` in Blöcken | „Die Welt“ unten |
 | `areaFixed` | `true`, wenn `area` mit `--area` gewählt ist; fehlt sonst | „Die Welt“ unten |
@@ -479,10 +480,33 @@ vor #72 und zeigt die Karte. Einen anderen Wert nimmt kein Lauf an.
   er einen Chunk liest, auch mit `--resume`, siehe
   [Zoomstufen](zoomstufen.md), „Ein Baum, ein look“.
 - **`relief`** steht nur mit `--relief`, in `top-north` aus `s` mit
-  `"map"`, siehe [Relief von oben](../renderer/relief.md). Einen anderen
+  `"map"`, siehe [Relief von oben](../renderer/relief.md). Die Kacheln
+  tragen dieses Relief. `reliefTiles` nennt dazu die Schicht, aus der ein
+  Client die anderen Arten rechnet; ein Baum aus einem Stand vor der Schicht
+  hat das Feld nicht. Ein neues Format der Schicht bekäme ein neues Feld,
+  siehe „Die Schicht lesen“. Einen anderen
   Wert nimmt nur ein voller Lauf an, siehe [Updates](updates.md), „Relief
   wechseln“.
 - **`--pyramid`** behält alle drei Felder.
+
+## Die Schicht lesen
+
+So rechnet ein Client aus einer Kachel und ihrer Schicht die drei Arten des
+Reliefs, für jeden Pixel der Kachel mit Alpha über 0. Pixel mit Alpha 0
+bleiben, auch wo die Schicht oder der Rest etwas zeigt. Wie die Schicht
+entsteht, steht in [Relief von oben](../renderer/relief.md), „Die
+Schicht“.
+
+- **Der Code** c steht in Rot der Schicht, 0 bis 17. Einen grösseren liest
+  ein Client wie 4. Fehlt die Schicht einer Kachel, gilt überall 4.
+- **Die Faktoren**, gerechnet in f32:
+  - `slope`: f = 1 + 0,12 · ((c mod 9) − 4) / 2, begrenzt auf 0,76 bis 1,24.
+  - `shadows`: dasselbe, ab c = 9 mal 0,75.
+  - f_k ist der Faktor der Art, die `relief` nennt, die der Kachel.
+- **Ohne Relief:** Wo der Rest Alpha 255 hat, seine Farbe; sonst je Kanal
+  round(k / f_k) der Kachel k. Das trifft die Farbe ohne Relief auf ±1.
+- **Eine Art:** die Farbe ohne Relief mal ihren Faktor, je Kanal gerundet
+  und bei 255 gekappt. Für die Art in `relief` ist das genau die Kachel.
 
 ## Wann sie geschrieben wird
 

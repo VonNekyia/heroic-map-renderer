@@ -141,8 +141,8 @@ export default [
   { name: 'bogen-nie-kleiner', datei: 'src/style.css', alt: '  transform: scale(var(--name-teil, 1));\n  transform-origin: 0 0;', neu: '  transform-origin: 0 0;', spec: 'tests/ebenen.spec.ts', titel: 'nach 0119 bleiben Nadeln' },
   { name: 'grenze-eine-stufe-frueher', datei: 'src/ebenen.ts', alt: 'const NAMEN = { grenze: 1 / 16,', neu: 'const NAMEN = { grenze: 1 / 8,', spec: 'tests/ebenen.spec.ts', titel: 'nach 0119 bleiben Nadeln' },
   { name: 'namen-nie-weg', datei: 'src/ebenen.ts', alt: 'const deck = Math.min(1, Math.max(0, (NAME.s * teil - NAMEN.weg) / (NAMEN.voll - NAMEN.weg)));', neu: 'const deck = Math.min(1, NAME.s * teil);', spec: 'tests/ebenen.spec.ts', titel: 'nach 0119 bleiben Nadeln' },
-  { name: 'weg-ohne-uebergang', datei: 'src/style.css', alt: '    opacity 0.25s cubic-bezier(0, 0, 0.25, 1),\n', neu: '', spec: 'tests/ebenen.spec.ts', titel: 'nach 0119 bleiben Nadeln' },
-  { name: 'unsichtbar-sofort', datei: 'src/style.css', alt: ',\n    visibility 0.25s;', neu: ';', spec: 'tests/ebenen.spec.ts', titel: 'nach 0119 bleiben Nadeln' },
+  { name: 'weg-ohne-uebergang', datei: 'src/style.css', alt: '    opacity var(--namen-dauer) cubic-bezier(0, 0, 0.25, 1),\n', neu: '', spec: 'tests/ebenen.spec.ts', titel: 'nach 0119 bleiben Nadeln' },
+  { name: 'unsichtbar-sofort', datei: 'src/style.css', alt: ',\n    visibility var(--namen-dauer);', neu: ';', spec: 'tests/ebenen.spec.ts', titel: 'nach 0119 bleiben Nadeln' },
   { name: 'weg-bleibt-ziel', datei: 'src/ebenen.ts', alt: "el.classList.toggle('namen-weg', namen.deck === 0);", neu: "el.classList.toggle('namen-weg', namen.deck < 0);", spec: 'tests/ebenen.spec.ts', titel: 'nach 0119 bleiben Nadeln' },
   // Köpfe in Ebenen, 0118.
   { name: 'kopf-nie-an-der-nadel', datei: 'src/ebenen.ts', alt: '    if (gesicht) return', neu: "    if (gesicht && n.size === 'small') return", spec: 'tests/ebenen.spec.ts', titel: 'nach 0118 zeigt eine Nadel mit head' },
@@ -165,4 +165,28 @@ export default [
   { name: 'ebenen-erst-nach-karte', datei: 'src/main.ts', alt: 'satz: satz ?? undefined, token, vorab }).catch(', neu: 'satz: satz ?? undefined, token, vorab: void vorab }).catch(', spec: 'tests/smoke.spec.ts', titel: 'beim Start gehen layers.json und api/ich los' },
   { name: 'baum-ohne-pruefung', datei: 'src/main.ts', alt: 'gewuenscht && BAUM_NAME.test(gewuenscht) ?', neu: 'gewuenscht && (BAUM_NAME.test(gewuenscht) || true) ?', spec: 'tests/smoke.spec.ts', titel: '?tree= ohne den Namen eines Baums' },
   { name: 'vorab-baum-ungenutzt', datei: 'src/main.ts', alt: '(baum?.path === gewuenscht ? await vorabBaum : undefined) ??', neu: '(baum?.path === gewuenscht && !vorabBaum ? await vorabBaum : undefined) ??', spec: 'tests/smoke.spec.ts', titel: 'mit ?tree= geht map.json dieses Baums mit trees.json los' },
+  // Marker nur im Ausschnitt, 0128.
+  { name: 'alle-orte-im-dom', datei: 'src/ebenen.ts', alt: '(rahmen.contains(ll) ? [i] : [])', neu: '(rahmen.contains(ll) || true ? [i] : [])', spec: 'tests/ebenen.spec.ts', titel: 'nach 0128 hat ein Ort nur im Fenster mit Rand' },
+  { name: 'orte-nie-ausgehaengt', datei: 'src/ebenen.ts', alt: 'if (!rahmen.contains((l as L.Marker).getLatLng()) && !fest(l as L.Marker)) gruppe.removeLayer(l);', neu: 'if (!rahmen && !fest(l as L.Marker)) gruppe.removeLayer(l);', spec: 'tests/ebenen.spec.ts', titel: 'nach 0128 hat ein Ort nur im Fenster mit Rand' },
+  { name: 'orte-ohne-rand', datei: 'src/ebenen.ts', alt: 'const rahmen = fenster.pad(ORT_RAND);', neu: 'const rahmen = fenster.pad(0);', spec: 'tests/ebenen.spec.ts', titel: 'nach 0128 hat ein Ort nur im Fenster mit Rand' },
+  { name: 'orte-erst-beim-loslassen', datei: 'src/ebenen.ts', alt: "  map.on('move', orteBeimZiehen);", neu: "  map.on('move', () => void orteBeimZiehen);", spec: 'tests/ebenen.spec.ts', titel: 'nach 0128 kommt ein Ort schon beim Ziehen' },
+  { name: 'tafel-nicht-fest', datei: 'src/ebenen.ts', alt: ' || (offen !== undefined && offen.element() === element && map.hasLayer(offen.popup));', neu: ';', spec: 'tests/ebenen.spec.ts', titel: 'nach 0128 bleibt ein Marker mit offener Tafel' },
+  { name: 'fokus-nicht-fest', datei: 'src/ebenen.ts', alt: 'return element.contains(document.activeElement) ||', neu: 'return false ||', spec: 'tests/ebenen.spec.ts', titel: 'nach 0128 bleibt ein Marker mit offener Tafel' },
+  // Banner als Bild, 0129.
+  { name: 'banner-als-leinwand', datei: 'src/ebenen.ts', alt: 'if (bild instanceof HTMLImageElement) {', neu: 'if (bild instanceof HTMLImageElement && bild.width < 0) {', spec: 'tests/ebenen.spec.ts', titel: 'Banner teilen sich ein Bild' },
+  { name: 'bild-geglaettet', datei: 'src/style.css', alt: '.nadel canvas,\n.nadel img {', neu: '.nadel canvas {', spec: 'tests/ebenen.spec.ts', titel: 'nach 0129 ist ein Pixel des Banners' },
+  // satz.json mit der Datei, A3 Punkt 2.
+  { name: 'designs-ungelesen', datei: 'src/ebenen.ts', alt: '    designs: wert.designs === true,', neu: '    designs: wert.designs === 1,', spec: 'tests/ebenen.spec.ts', titel: 'mit designs: true in layers.json' },
+  { name: 'satz-vorab-ungenutzt', datei: 'src/ebenen.ts', alt: 'satzDaten(await (satzVorab ?? json(satzAdresse, 4096)))', neu: 'satzDaten(await (satzVorab && json(satzAdresse, 4096)))', spec: 'tests/ebenen.spec.ts', titel: 'mit designs: true in layers.json' },
+  // Zoomgrenze je Ebene, 0131.
+  { name: 'grenze-ignoriert', datei: 'src/ebenen.ts', alt: 'e.maxBlocksPerPixel === undefined || 1 /', neu: 'e.maxBlocksPerPixel !== -1 || 1 /', spec: 'tests/ebenen.spec.ts', titel: 'nach 0131 holt die Karte' },
+  { name: 'grenze-verkehrt', datei: 'src/ebenen.ts', alt: '<= e.maxBlocksPerPixel * (1 + 1e-9)', neu: '>= e.maxBlocksPerPixel * (1 + 1e-9)', spec: 'tests/ebenen.spec.ts', titel: 'nach 0131 holt die Karte' },
+  { name: 'grenze-echt-kleiner', datei: 'src/ebenen.ts', alt: '<= e.maxBlocksPerPixel * (1 + 1e-9)', neu: '< e.maxBlocksPerPixel', spec: 'tests/ebenen.spec.ts', titel: 'nach 0131 holt die Karte' },
+  { name: 'grenze-in-stufen', datei: 'src/ebenen.ts', alt: '1 / (blockBreite(blick) * 2 ** (map.getZoom() - maxZoom))', neu: '1 / (4 * 2 ** (map.getZoom() - maxZoom))', spec: 'tests/ebenen.spec.ts', titel: 'nach 0131 gilt die Zoomgrenze in Blöcken' },
+  { name: 'hinein-neu-geladen', datei: 'src/ebenen.ts', alt: 'if (drin && (!g || g.version !== e.version)) void ladeEbene', neu: 'if (drin) void ladeEbene', spec: 'tests/ebenen.spec.ts', titel: 'nach 0131 holt die Karte' },
+  // Namen ganz aus dem Layout, V4 aus dem Stresstest.
+  { name: 'namen-aus-sofort', datei: 'src/ebenen.ts', alt: "setTimeout(() => el.classList.add('namen-aus'), namenDauer())", neu: "setTimeout(() => el.classList.add('namen-aus'), 0 * namenDauer())", spec: 'tests/ebenen.spec.ts', titel: 'nach dem Ausblenden aus 0119 sind die Namen' },
+  { name: 'namen-aus-zeitgeber-bleibt', datei: 'src/ebenen.ts', alt: '    clearTimeout(namenAus.get(el));\n', neu: '', spec: 'tests/ebenen.spec.ts', titel: 'nach dem Ausblenden aus 0119 sind die Namen' },
+  { name: 'namen-springen-ein', datei: 'src/ebenen.ts', alt: '      void el.offsetWidth;\n', neu: '', spec: 'tests/ebenen.spec.ts', titel: 'nach dem Ausblenden aus 0119 sind die Namen' },
+  { name: 'namen-dauer-ohne-einheit', datei: 'src/ebenen.ts', alt: "return wert.endsWith('ms') ? zahl : zahl * 1000;", neu: "return wert.endsWith('ms') ? zahl : zahl;", spec: 'tests/ebenen.spec.ts', titel: 'nach dem Ausblenden aus 0119 sind die Namen' },
 ];

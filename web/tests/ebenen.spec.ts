@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { createHash } from 'node:crypto';
 import { deflateSync } from 'node:zlib';
 import { projiziere, zweiZuEins } from '../src/pick';
-import { aufDemSchirm, BILDER, DEMO, fuss, HAFEN, KREISE, LEER, png, STAEDTE, staedte, welt } from './ebenen-welt';
+import { aufDemSchirm, BILDER, DEMO, fuss, HAFEN, KREISE, LEER, pixelAufPixel, png, STAEDTE, staedte, welt } from './ebenen-welt';
 
 test('ohne layers.json gibt es keine Liste der Ebenen, und die Karte fragt bis zum Neuladen nicht nach', async ({ page }) => {
   const meldungen: string[] = [];
@@ -166,11 +166,19 @@ for (const [richtung, drehe] of [
     // Gefälle in x und z, eine leere Zelle unter den vier um die Nadel. Gekrümmt in x,
     // damit der Mittelwert der Nachbarn vom Umkreis abhängt.
     const hoehe = (i: number, j: number) => (i === 9 && j === -4 ? LEER : 10 + 2 * i * i + 3 * j);
+    // Westlich von x = 0 fehlen die Regionen. Nach 0128 hat nur ein Ort im Fenster mit Rand einen Marker: „Ohne“ liegt
+    // darum nah, mit allen Zellen seiner Rechnung samt Nachbarn in der fehlenden Region.
+    const mitLuecke = (i: number, j: number) => (i < 0 ? undefined : hoehe(i, j));
     const zwischen = { ...HAFEN, id: 'zwischen', name: 'Zwischen', at: [35.5, -14.5] };
-    const ohne = { ...HAFEN, id: 'ohne', name: 'Ohne', at: [600.5, -14.5] };
-    await welt(page, staedte([zwischen, ohne], { mehr: { seaLevel: 40, direction: richtung }, hoehe }));
-    await page.goto(DEMO);
-    await expect(page.locator('.nadel-icon')).toHaveCount(2);
+    const ohne = { ...HAFEN, id: 'ohne', name: 'Ohne', at: [-12.5, -14.5] };
+    // Auf ihrer Höhe stehen beide über der Welt, wo keine Kachel liegt. Gemessen wird darum gegen eine Nadel mit y am
+    // Ort von Zwischen; dass eine Nadel mit y richtig steht, prüft der Test davor gegen die Kacheln.
+    const bezug = { ...HAFEN, id: 'bezug', name: 'Bezug', at: [35.5, -14.5], y: 40 };
+    await welt(page, staedte([zwischen, ohne, bezug], { mehr: { seaLevel: 40, direction: richtung }, hoehe: mitLuecke }));
+    // Nach 0128 hat nur ein Ort im Fenster mit Rand einen Marker: die Mitte zwischen ihnen, das Fenster hoch genug.
+    await page.setViewportSize({ width: 1280, height: 1600 });
+    await page.goto(`${DEMO}&at=12,90,-15`);
+    await expect(page.locator('.nadel-icon')).toHaveCount(3);
     // Die Regel aus ebenen.md, hier unabhängig nachgebaut.
     const zelle = (i: number, j: number) => {
       const eigen = hoehe(i, j);
@@ -183,13 +191,17 @@ for (const [richtung, drehe] of [
     const [i, j, tx, tz] = [Math.floor(fx), Math.floor(fz), fx - Math.floor(fx), fz - Math.floor(fz)];
     expect([i, j, i + 1, j + 1]).toEqual([8, -5, 9, -4]);
     const h = (zelle(i, j) * (1 - tx) + zelle(i + 1, j) * tx) * (1 - tz) + (zelle(i, j + 1) * (1 - tx) + zelle(i + 1, j + 1) * tx) * tz + 1;
+    const [rx, rz] = drehe(35.5, -14.5);
+    const r = projiziere(rx, 41, rz, zweiZuEins(16));
+    const bei = await fuss(page, 'Bezug');
     for (const [name, x, y, z] of [
       ['Zwischen', 35.5, h, -14.5],
       // Keine Höhen dort, kein Nachbar: seaLevel + 1.
-      ['Ohne', 600.5, 41, -14.5],
+      ['Ohne', -12.5, 41, -14.5],
     ] as const) {
       const [bx, bz] = drehe(x, z);
-      const soll = await aufDemSchirm(page, ...projiziere(bx, y, bz, zweiZuEins(16)));
+      const p = projiziere(bx, y, bz, zweiZuEins(16));
+      const soll = [bei[0]! + p[0] - r[0], bei[1]! + p[1] - r[1]];
       const ist = await fuss(page, name);
       expect(Math.abs(ist[0]! - soll[0]!), `${name} x`).toBeLessThanOrEqual(1);
       expect(Math.abs(ist[1]! - soll[1]!), `${name} y`).toBeLessThanOrEqual(1);
@@ -344,8 +356,11 @@ test('nach 0119 bleiben Nadeln, Köpfe und Banner auf jeder Stufe gleich gross; 
     // Erst nach dem Übergang von CSS messen.
     await page.waitForTimeout(300);
     const stil = await namen.evaluateAll((l) => l.map((e) => [getComputedStyle(e).transform, Number(getComputedStyle(e).opacity), getComputedStyle(e).visibility]));
-    for (const [transform, opacity, sichtbar] of stil) {
-      expect(transform, `Zoom ${zoom}`).toMatch(new RegExp(`^matrix\\(${teil}, 0, 0, ${teil}, `));
+    const anzeige = await namen.evaluateAll((l) => l.map((e) => getComputedStyle(e).display));
+    for (const [i, [transform, opacity, sichtbar]] of stil.entries()) {
+      // Ganz ausgeblendet sind die Namen aus dem Layout und haben kein transform mehr; ihre Grösse steht dann nur am Pane.
+      if (deck > 0) expect(transform, `Zoom ${zoom}`).toMatch(new RegExp(`^matrix\\(${teil}, 0, 0, ${teil}, `));
+      else expect(anzeige[i], `Zoom ${zoom}`).toBe('none');
       expect(opacity, `Zoom ${zoom}`).toBe(deck);
       expect(sichtbar, `Zoom ${zoom}`).toBe(deck > 0 ? 'visible' : 'hidden');
     }
@@ -465,7 +480,7 @@ test('mit design zeigt die Karte das Sprite ihres Satzes, mit capital das aus kr
   const anfragen = await welt(page, spriteWelt([stadt, haupt], { path: '2x1-se', camera: '2:1' }, '2x1-se', { 'nordreich.png': png(23, 51), 'krone/nordreich.png': png(23, 51) }));
   await page.goto(`${DEMO}&tree=2x1-se&at=35,0,-15`);
   const icon = (name: string) => page.locator(`.nadel-icon[title="${name}"]`);
-  await expect(icon('Hauptstadt').locator('canvas')).toHaveJSProperty('width', 23);
+  await expect(icon('Hauptstadt').locator('img')).toHaveJSProperty('naturalWidth', 23);
   for (const name of ['Hafenstadt', 'Hauptstadt']) {
     // Die linke obere Ecke auf Ort − foot, das SVG des Namens am Fuss, um den Winkel gedreht.
     expect(await icon(name).evaluate((e) => [(e as HTMLElement).style.marginLeft, (e as HTMLElement).style.marginTop]), name).toEqual(['-12px', '-49px']);
@@ -481,6 +496,37 @@ test('mit design zeigt die Karte das Sprite ihres Satzes, mit capital das aus kr
   ]);
 });
 
+for (const designs of [true, false]) {
+  test(`mit designs: ${designs} in layers.json geht satz.json ${designs ? 'schon mit der Datei der Ebene los' : 'erst nach ihr los'}`, async ({ page }) => {
+    const stadt = { id: 'stadt', type: 'banner', at: [30.5, -20.5], design: 'nordreich', name: 'Hafenstadt' };
+    const anfragen = await welt(page, {
+      ...spriteWelt([stadt], { path: '2x1-se', camera: '2:1' }, '2x1-se', { 'nordreich.png': png(23, 51) }),
+      liste: () => [{ ...STAEDTE, ...(designs ? { designs: true } : {}) }],
+    });
+    // Die Datei der Ebene hängt, bis der Test sie freigibt; später angemeldet, geht vor.
+    let frei = () => {};
+    const gehalten = new Promise<void>((r) => (frei = r));
+    let angefragt = false;
+    await page.route('**/tiles-demo/layers/beispiel/staedte.json', async (route) => {
+      angefragt = true;
+      await gehalten;
+      await route.fallback();
+    });
+    const satz = () => anfragen.some((a) => a.startsWith('beispiel/banner/staedte/2x1-se/satz.json'));
+    await page.goto(`${DEMO}&tree=2x1-se&at=35,0,-15`);
+    await expect.poll(() => angefragt).toBe(true);
+    if (designs) await expect.poll(satz).toBe(true);
+    else {
+      await page.waitForTimeout(500);
+      expect(satz()).toBe(false);
+    }
+    frei();
+    // Danach wie immer: das Sprite des Satzes, satz.json genau einmal.
+    await expect(page.locator('.nadel-icon[title="Hafenstadt"] img')).toHaveJSProperty('naturalWidth', 23);
+    expect(anfragen.filter((a) => a.startsWith('beispiel/banner/staedte/2x1-se/satz.json'))).toHaveLength(1);
+  });
+}
+
 test('ein Baum von oben nimmt den Satz oben; fehlt das Sprite, zeigt die Karte image, ohne image übergeht sie das Banner mit Meldung', async ({ page }) => {
   const meldungen: string[] = [];
   page.on('console', (m) => meldungen.push(m.text()));
@@ -492,8 +538,8 @@ test('ein Baum von oben nimmt den Satz oben; fehlt das Sprite, zeigt die Karte i
   await page.goto(`${DEMO}&tree=top-north-s`);
   await expect(page.locator('.nadel-icon')).toHaveCount(2);
   // Das Bild mit seinem Fuss unten mittig, das Sprite mit dem aus satz.json.
-  await expect(page.locator('.nadel-icon[title="Mit Bild"] canvas')).toHaveJSProperty('width', 22);
-  await expect(page.locator('.nadel-icon[title="Da"] canvas')).toHaveJSProperty('width', 20);
+  await expect(page.locator('.nadel-icon[title="Mit Bild"] img')).toHaveJSProperty('naturalWidth', 22);
+  await expect(page.locator('.nadel-icon[title="Da"] img')).toHaveJSProperty('naturalWidth', 20);
   expect(anfragen.some((a) => a.startsWith('beispiel/banner/staedte/oben/satz.json'))).toBe(true);
   await expect.poll(() => meldungen.some((m) => m.includes('Banner ohne') && m.includes('übergangen'))).toBe(true);
   expect(meldungen.some((m) => m.includes('Banner mit') && m.includes('nimmt image'))).toBe(true);
@@ -503,7 +549,7 @@ test('ohne trees.json gibt es keinen Satz: Die Karte zeigt image und fragt unter
   const stadt = { id: 'stadt', type: 'banner', at: [30.5, -20.5], design: 'nordreich', image: 'images/fahne.png', name: 'Hafenstadt' };
   const anfragen = await welt(page, staedte([stadt], { bild: (n) => (n === 'fahne.png' ? png(22, 40) : BILDER[n]) }));
   await page.goto(`${DEMO}&at=35,0,-15`);
-  await expect(page.locator('.nadel-icon[title="Hafenstadt"] canvas')).toHaveJSProperty('width', 22);
+  await expect(page.locator('.nadel-icon[title="Hafenstadt"] img')).toHaveJSProperty('naturalWidth', 22);
   expect(anfragen.filter((a) => a.includes('/banner/'))).toEqual([]);
   await expect(page.locator('.nadel-icon[title="Hafenstadt"] .nadel-bogen g')).toHaveAttribute('transform', 'rotate(0)');
 });
@@ -526,18 +572,19 @@ test('ein Banner bis 32 × 64 steht Pixel auf Pixel, der Fuss bei ⌊Breite / 2�
       return g && png(...g);
     },
   }));
-  await page.goto(DEMO);
+  // Beide ganz im Fenster, für den Screenshot.
+  await page.goto(`${DEMO}&at=25,5,-25`);
   await expect(page.locator('.nadel-icon')).toHaveCount(2);
   for (const [name, [b, h], [x, z]] of [
     ['Gross', [32, 64], [20.5, -30.5]],
     ['Schmal', [21, 40], [30.5, -20.5]],
   ] as const) {
-    const leinwand = page.locator(`.nadel-icon[title="${name}"] canvas`);
-    expect(await leinwand.evaluate((c: HTMLCanvasElement) => [c.width, c.height, c.getBoundingClientRect().width, c.getBoundingClientRect().height]), name).toEqual([b, h, b, h]);
-    const ist = await leinwand.evaluate((c: HTMLCanvasElement) => [...c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data]);
-    const soll: number[] = [];
-    for (let py = 0; py < h; py++) for (let px = 0; px < b; px++) soll.push((px * 7) % 256, (py * 3) % 256, 128, 255);
-    expect(ist, name).toEqual(soll);
+    const bild = page.locator(`.nadel-icon[title="${name}"] img`);
+    expect(await bild.evaluate((i: HTMLImageElement) => [i.naturalWidth, i.naturalHeight, i.getBoundingClientRect().width, i.getBoundingClientRect().height]), name).toEqual([b, h, b, h]);
+    // Auf dem Schirm, ohne den Namen im Bogen am Fuss: die oberen h − 8 Zeilen.
+    const { fehler, geprueft } = await pixelAufPixel(page, bild, 1, 8);
+    expect(fehler, name).toEqual([]);
+    expect(geprueft, name).toBeGreaterThanOrEqual((b - 2) * (h - 10));
     // Der Anker genau, ohne die Toleranz von 1 px unten: ⌊Breite / 2⌋, die Unterkante.
     expect(await page.locator(`.nadel-icon[title="${name}"]`).evaluate((e) => [(e as HTMLElement).style.marginLeft, (e as HTMLElement).style.marginTop]), name).toEqual([`-${Math.floor(b / 2)}px`, `-${h}px`]);
     // fuss misst bei ⌊Breite / 2⌋ von links; y + 1 ist die Oberseite des Blocks.
@@ -551,18 +598,28 @@ test('ein Banner bis 32 × 64 steht Pixel auf Pixel, der Fuss bei ⌊Breite / 2�
   expect(anfragen.filter((a) => a !== 'beispiel/staedte.json').sort()).toEqual(['beispiel/images/breit.png', 'beispiel/images/gross.png', 'beispiel/images/hoch.png', 'beispiel/images/schmal.png']);
 });
 
-test('eine Nadel mit Namen lädt die Kartenschrift, auch ohne Banner und Kartenschrift in der Ebene', async ({ page }) => {
+test('eine Nadel mit Namen lädt die Kartenschrift, auch ohne Banner und Kartenschrift in der Ebene; nach 0130 als WOFF2', async ({ page }) => {
+  const schriften: { url: string; typ: string | undefined }[] = [];
+  page.on('response', (r) => {
+    if (/\.(woff2|ttf|otf|woff)$/.test(new URL(r.url()).pathname)) schriften.push({ url: new URL(r.url()).pathname, typ: r.headers()['content-type'] });
+  });
   await welt(page, staedte([HAFEN]));
   await page.goto(DEMO);
   await expect(page.locator('.nadel-name')).toHaveText('Hafenstadt');
   await expect.poll(() => page.evaluate(() => [...document.fonts].some((f) => f.family === 'Kartenschrift' && f.status === 'loaded'))).toBe(true);
+  // Genau eine Schrift, die WOFF2 aus dem Build, mit ihrem Typ.
+  expect(schriften).toHaveLength(1);
+  expect(schriften[0]!.url).toMatch(/\/IMFeENsc28P-[^/]+\.woff2$/);
+  expect(schriften[0]!.typ).toBe('font/woff2');
 });
 
 test('Banner teilen sich ein Bild: die Karte holt es einmal', async ({ page }) => {
   const fahne = (id: string, at: [number, number]) => ({ id, type: 'banner', at, image: 'images/nation.png', name: id });
   const anfragen = await welt(page, staedte([fahne('A', [20.5, -30.5]), fahne('B', [30.5, -20.5]), fahne('C', [40.5, -10.5])], { bild: (n) => (n === 'nation.png' ? png(22, 40) : undefined) }));
   await page.goto(DEMO);
-  await expect(page.locator('.nadel-icon canvas')).toHaveCount(3);
+  // Drei Bilder mit derselben Adresse, keine Leinwand: Der Browser hält es einmal.
+  await expect(page.locator('.nadel-icon img')).toHaveCount(3);
+  await expect(page.locator('.nadel-icon canvas')).toHaveCount(0);
   expect(anfragen.filter((a) => a.includes('images/'))).toEqual(['beispiel/images/nation.png']);
 });
 
@@ -908,29 +965,34 @@ test('ein Banner mit Tafel: Die Tafel steht um seine Höhe versetzt über ihm; E
 });
 
 for (const [dpr, k] of [
+  [1, 1],
   [1.25, 1],
   [1.5, 2],
   [2, 2],
+  [3, 3],
 ] as const) {
   test.describe(`bei devicePixelRatio ${dpr}`, () => {
     test.use({ deviceScaleFactor: dpr });
 
-    test(`ein Pixel des Banners ist ${k} Pixel des Geräts breit, jedes gleich`, async ({ page }) => {
-      const fahne = { id: 'fahne', type: 'banner', at: [35.5, -14.5], image: 'images/fahne.png', name: 'Fahne' };
+    test(`nach 0129 ist ein Pixel des Banners ${k} Pixel des Geräts breit, jedes gleich, auf dem Schirm nicht verschmiert`, async ({ page }) => {
+      // Ohne Namen: Der Bogen am Fuss läge über den unteren Zeilen.
+      const fahne = { id: 'fahne', type: 'banner', at: [35.5, -14.5], image: 'images/fahne.png' };
       await welt(page, staedte([fahne], { bild: (n) => (n === 'fahne.png' ? png(21, 40) : undefined) }));
       await page.goto(`${DEMO}&at=35,0,-15`);
-      const leinwand = page.locator('.nadel-icon[title="Fahne"] canvas');
-      await expect(leinwand).toHaveCount(1);
-      const [w, h, cssW, cssH] = await leinwand.evaluate((c: HTMLCanvasElement) => [c.width, c.height, c.getBoundingClientRect().width, c.getBoundingClientRect().height]);
-      expect([w, h]).toEqual([21 * k, 40 * k]);
-      // So gross auf dem Schirm wie die Leinwand in Pixeln des Geräts; das Layout rechnet in 1/64 Pixel.
+      const bild = page.locator('.nadel-icon img');
+      await expect(bild).toHaveCount(1);
+      await expect(bild).toHaveJSProperty('complete', true);
+      const [w, h, cssW, cssH] = await bild.evaluate((i: HTMLImageElement) => [i.naturalWidth, i.naturalHeight, i.getBoundingClientRect().width, i.getBoundingClientRect().height]);
+      expect([w, h]).toEqual([21, 40]);
+      // k Pixel des Geräts je Pixel des Bilds; das Layout rechnet in 1/64 Pixel.
       expect(Math.abs(cssW * dpr - 21 * k)).toBeLessThan(1 / 32);
       expect(Math.abs(cssH * dpr - 40 * k)).toBeLessThan(1 / 32);
-      expect(await page.locator('.nadel-icon[title="Fahne"]').evaluate((e) => Number.parseFloat((e as HTMLElement).style.marginLeft))).toBeCloseTo((-10 * k) / dpr, 3);
-      const ist = await leinwand.evaluate((c: HTMLCanvasElement) => [...c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data]);
-      const soll: number[] = [];
-      for (let py = 0; py < 40 * k; py++) for (let px = 0; px < 21 * k; px++) soll.push((Math.floor(px / k) * 7) % 256, (Math.floor(py / k) * 3) % 256, 128, 255);
-      expect(ist).toEqual(soll);
+      expect(await page.locator('.nadel-icon').evaluate((e) => Number.parseFloat((e as HTMLElement).style.marginLeft))).toBeCloseTo((-10 * k) / dpr, 3);
+      // Jedes Pixel des Geräts ganz im Bild trägt genau eine Farbe der Quelle, die nächste: kein Glätten, auch bei 1,25 und 1,5.
+      const { fehler, geprueft } = await pixelAufPixel(page, bild, k);
+      expect(fehler).toEqual([]);
+      // Am Rand kann der Browser je eine Spalte und Zeile anschneiden; das Innere zählt.
+      expect(geprueft).toBeGreaterThanOrEqual((21 - 3) * (40 - 3));
     });
   });
 }
@@ -951,14 +1013,15 @@ test('ändert sich devicePixelRatio ohne resize, zeichnet die Karte die Icons ne
   const fahne = { id: 'fahne', type: 'banner', at: [35.5, -14.5], image: 'images/fahne.png', name: 'Fahne' };
   await welt(page, staedte([fahne], { bild: (n) => (n === 'fahne.png' ? png(22, 40) : undefined) }));
   await page.goto(`${DEMO}&at=35,0,-15`);
-  const leinwand = page.locator('.nadel-icon[title="Fahne"] canvas');
-  await expect(leinwand).toHaveJSProperty('width', 22);
+  const bild = page.locator('.nadel-icon[title="Fahne"] img');
+  const breite = () => bild.evaluate((i) => i.getBoundingClientRect().width);
+  await expect.poll(breite).toBe(22);
+  // Bei 1,5 ist k = 2: 44 Pixel des Geräts, also 44 / 1,5 Pixel des Schirms.
   const cdp = await page.context().newCDPSession(page);
   const { width, height } = page.viewportSize()!;
-  await cdp.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 2, mobile: false });
+  await cdp.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1.5, mobile: false });
   await page.evaluate(() => (window as unknown as { anfragen: MediaQueryList[] }).anfragen.at(-1)!.dispatchEvent(new Event('change')));
-  await expect(leinwand).toHaveJSProperty('width', 44);
-  expect(await leinwand.evaluate((c) => c.getBoundingClientRect().width)).toBe(22);
+  await expect.poll(async () => Math.abs((await breite()) - 44 / 1.5)).toBeLessThan(1 / 32);
 });
 
 test('Escape und ein Klick daneben schliessen zuerst nur die Tafel: Der festgehaltene Block bleibt, ein neuer wird nicht festgehalten', async ({ page }) => {
@@ -1230,4 +1293,191 @@ test('was über die Grenzen geht oder nicht auf die Webkarte gehört, übergeht 
   await expect(page.locator('.tafel img')).toHaveCount(0);
   expect(meldungen.some((m) => m.includes('max 21'))).toBe(true);
   expect(meldungen.some((m) => m.includes('width und height'))).toBe(true);
+});
+
+/** Von oben genordet, 4 Pixel je Block; Zoom 0 zeigt 320 × 180 Blöcke, der Rahmen nach 0128 reicht 240 Blöcke von der Mitte. */
+const WEIT = { camera: 'top-north', scale: 4, projection: { azimuth: 'north', u: 4, v: 4, y: 0 }, minZoom: -10, bounds: [-4096, -4096, 4096, 4096] };
+const NAH = { ...HAFEN, id: 'nah', name: 'Nah', at: [0.5, 0.5], panel: undefined };
+/** 400 Blöcke östlich: auf Zoom 0 ausserhalb des Rahmens, auf −1 darin, aber nicht im Fenster, auf −2 im Fenster. */
+const FERN = { ...HAFEN, id: 'fern', name: 'Fern', at: [400.5, 0.5] };
+const fern = (page: Page) => page.locator('.nadel-icon[title="Fern"]');
+const imFenster = (page: Page) => fern(page).evaluate((e) => e.getBoundingClientRect().left < innerWidth);
+/** Zoomt mit den Knöpfen um eine Stufe und wartet, bis die Adresse sie nennt, also nach `moveend`. */
+async function stufe(page: Page, knopf: 'in' | 'out'): Promise<void> {
+  const vorher = Number(new URL(page.url()).searchParams.get('zoom'));
+  await page.locator(`.leaflet-control-zoom-${knopf}`).click();
+  await expect.poll(() => Number(new URL(page.url()).searchParams.get('zoom'))).toBe(vorher + (knopf === 'in' ? 1 : -1));
+}
+
+test('nach 0128 hat ein Ort nur im Fenster mit Rand einen Marker: Hinauszoomen baut ihn, Hineinzoomen hängt ihn aus', async ({ page }) => {
+  await welt(page, staedte([NAH, FERN], { mehr: WEIT }));
+  await page.goto(`${DEMO}&at=0,0,0&zoom=0`);
+  await expect(page.locator('.nadel-icon[title="Nah"]')).toHaveCount(1);
+  await expect(fern(page)).toHaveCount(0);
+  // Auf −1 im Rahmen, aber noch rechts ausserhalb des Fensters: Der Rand baut ihn vorab.
+  await stufe(page, 'out');
+  await expect(fern(page)).toHaveCount(1);
+  expect(await imFenster(page)).toBe(false);
+  await stufe(page, 'out');
+  await expect.poll(() => imFenster(page)).toBe(true);
+  // Zurück auf 0: wieder ausgehängt, der nahe bleibt.
+  await stufe(page, 'in');
+  await stufe(page, 'in');
+  await expect(fern(page)).toHaveCount(0);
+  await expect(page.locator('.nadel-icon[title="Nah"]')).toHaveCount(1);
+});
+
+test('nach 0128 kommt ein Ort schon beim Ziehen dazu, nicht erst beim Loslassen', async ({ page }) => {
+  await welt(page, staedte([NAH, FERN], { mehr: WEIT }));
+  await page.goto(`${DEMO}&at=0,0,0&zoom=0`);
+  await expect(page.locator('.nadel-icon[title="Nah"]')).toHaveCount(1);
+  await expect(fern(page)).toHaveCount(0);
+  // 800 px nach links sind 200 Blöcke: Fern liegt dann 200 Blöcke rechts der Mitte, im Rahmen.
+  await page.mouse.move(1000, 360);
+  await page.mouse.down();
+  await page.mouse.move(200, 360, { steps: 20 });
+  await expect(fern(page)).toHaveCount(1);
+  await page.mouse.up();
+});
+
+test('nach 0128 bleibt ein Marker mit offener Tafel oder mit dem Fokus, auch ausserhalb des Rahmens', async ({ page }) => {
+  await welt(page, staedte([NAH, FERN], { mehr: WEIT }));
+  await page.goto(`${DEMO}&at=0,0,0&zoom=-2`);
+  await expect.poll(() => imFenster(page)).toBe(true);
+  // Mit gehaltener Tafel zurück auf 0: Er liegt weit ausserhalb, bleibt aber, und die Tafel bleibt offen.
+  await fern(page).click();
+  await expect(page.locator('.leaflet-popup')).toBeVisible();
+  await stufe(page, 'in');
+  await stufe(page, 'in');
+  await expect(fern(page)).toHaveCount(1);
+  expect(await imFenster(page)).toBe(false);
+  await expect(page.locator('.leaflet-popup')).toBeVisible();
+  // Geschlossen und einmal verschoben: Er weicht.
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.leaflet-popup')).toHaveCount(0);
+  await page.mouse.move(640, 360);
+  await page.mouse.down();
+  await page.mouse.move(600, 360, { steps: 4 });
+  await page.mouse.up();
+  await expect(fern(page)).toHaveCount(0);
+  // Mit dem Fokus: hinaus, fokussieren, mit dem Rad um die Mitte hinein.
+  await page.goto(`${DEMO}&at=0,0,0&zoom=-2`);
+  await expect.poll(() => imFenster(page)).toBe(true);
+  await fern(page).focus();
+  await page.mouse.move(640, 360);
+  for (let i = 0; i < 4; i++) {
+    await page.mouse.wheel(0, -120);
+    await page.waitForTimeout(300);
+  }
+  await expect.poll(() => imFenster(page)).toBe(false);
+  await expect(fern(page)).toHaveCount(1);
+  expect(await fern(page).evaluate((e) => e === document.activeElement)).toBe(true);
+});
+
+/** Die Städte mit einer Zoomgrenze in layers.json. */
+const mitGrenze = (objekte: object[], grenze: number, mehr: object) => ({
+  ...staedte(objekte, { mehr }),
+  liste: () => [{ ...STAEDTE, maxBlocksPerPixel: grenze }],
+});
+const datei = (anfragen: string[]) => anfragen.filter((a) => a === 'beispiel/staedte.json').length;
+
+test('nach 0131 holt die Karte eine Ebene jenseits ihrer Zoomgrenze nicht, genau auf der Grenze zeigt sie sie; hinaus hängt sie aus, ohne neue Anfrage', async ({ page }) => {
+  // Von oben 4 Pixel je Block: Zoom −2 ist genau 1 Block je Pixel, −3 sind 2.
+  const anfragen = await welt(page, mitGrenze([NAH], 1, WEIT));
+  await page.goto(`${DEMO}&at=0,0,0&zoom=-3`);
+  await expect(page.locator('.ebenen-zeile.ausser-bereich')).toHaveCount(1);
+  await expect(page.locator('.ebenen-zeile .ebenen-bereich')).toHaveText('(beim Hineinzoomen)');
+  await page.waitForTimeout(500);
+  expect(datei(anfragen)).toBe(0);
+  await expect(page.locator('.nadel-icon')).toHaveCount(0);
+  // Genau auf der Grenze: sichtbar.
+  await stufe(page, 'in');
+  await expect(page.locator('.nadel-icon[title="Nah"]')).toHaveCount(1);
+  await expect(page.locator('.ebenen-zeile.ausser-bereich')).toHaveCount(0);
+  expect(datei(anfragen)).toBe(1);
+  // Hinaus hängt sie aus, hinein wieder ein, ohne die Datei noch einmal zu holen.
+  await stufe(page, 'out');
+  await expect(page.locator('.nadel-icon')).toHaveCount(0);
+  await stufe(page, 'in');
+  await expect(page.locator('.nadel-icon[title="Nah"]')).toHaveCount(1);
+  expect(datei(anfragen)).toBe(1);
+});
+
+test('nach 0131 gilt die Zoomgrenze in Blöcken, nicht in Stufen: im iso mit scale 16 dieselbe Grenze an anderer Stufe', async ({ page }) => {
+  // 2:1 mit scale 16: Ein Block ist auf der feinsten Stufe √(8² + 4²) ≈ 8,9 Pixel breit; Zoom −3 sind 0,89 Blöcke je Pixel, −4 sind 1,79.
+  const anfragen = await welt(page, mitGrenze([{ ...NAH, at: [35.5, -14.5] }], 1, { bounds: [-65536, -65536, 65536, 65536] }));
+  await page.goto(`${DEMO}&at=35,0,-15&zoom=-3`);
+  await expect(page.locator('.nadel-icon[title="Nah"]')).toHaveCount(1);
+  await stufe(page, 'out');
+  await expect(page.locator('.nadel-icon')).toHaveCount(0);
+  await page.goto(`${DEMO}&at=35,0,-15&zoom=-4`);
+  await expect(page.locator('.ebenen-zeile.ausser-bereich')).toHaveCount(1);
+  await page.waitForTimeout(500);
+  expect(datei(anfragen)).toBe(1);
+});
+
+test('nach 0131 schliesst eine offene Tafel, wenn ihre Ebene beim Hinauszoomen über die Grenze fällt', async ({ page }) => {
+  await welt(page, mitGrenze([{ ...HAFEN, at: [0.5, 0.5] }], 1, WEIT));
+  await page.goto(`${DEMO}&at=0,0,0&zoom=-2`);
+  await page.locator('.nadel-icon[title="Hafenstadt"]').click();
+  await expect(page.locator('.leaflet-popup')).toBeVisible();
+  await stufe(page, 'out');
+  await expect(page.locator('.leaflet-popup')).toHaveCount(0);
+  await expect(page.locator('.nadel-icon')).toHaveCount(0);
+});
+
+test('nach dem Ausblenden aus 0119 sind die Namen ganz aus dem Layout, erst nach der Dauer; schnell zurück bleibt es aus, und hinein blenden sie wieder ein', async ({ page }) => {
+  const dorf = { ...HAFEN, id: 'dorf', name: 'Dorf', size: 'small', at: [30.5, -20.5], panel: undefined };
+  // Von oben 4 Pixel je Block: Zoom −7 ist der Name ganz da, auf −8 ausgeblendet.
+  const vonOben = { camera: 'top-north', scale: 4, projection: { azimuth: 'north', u: 4, v: 4, y: 0 }, minZoom: -10 };
+  await welt(page, staedte([dorf], { mehr: vonOben }));
+  await page.goto(`${DEMO}&at=35,0,-15&zoom=-7`);
+  await expect(page.locator('.nadel-name')).toHaveText('Dorf');
+  await page.waitForTimeout(300);
+  // Je Bild: ob das Pane `namen-aus` trägt, `display` und `opacity` des Namens; `zurueck` klickt nach so vielen ms wieder hinein.
+  const verlauf = (zurueck?: number) =>
+    page.evaluate(async (zurueck) => {
+      const name = document.querySelector('.nadel-name')!;
+      const pane = name.closest('.leaflet-pane')!;
+      (document.querySelector('.leaflet-control-zoom-out') as HTMLElement).click();
+      const start = performance.now();
+      const werte: { t: number; aus: boolean; display: string; opacity: number }[] = [];
+      let geklickt = false;
+      while (performance.now() < start + (zurueck === undefined ? 600 : 1600)) {
+        await new Promise(requestAnimationFrame);
+        const t = performance.now() - start;
+        if (zurueck !== undefined && !geklickt && t >= zurueck) {
+          (document.querySelector('.leaflet-control-zoom-in') as HTMLElement).click();
+          geklickt = true;
+        }
+        werte.push({ t, aus: pane.classList.contains('namen-aus'), display: getComputedStyle(name).display, opacity: Number(getComputedStyle(name).opacity) });
+      }
+      return werte;
+    }, zurueck);
+  // Hinaus: während des Ausblendens angezeigt, danach `display: none`.
+  const hinaus = await verlauf();
+  expect(hinaus.filter((w) => w.t < 200).every((w) => !w.aus && w.display !== 'none'), JSON.stringify(hinaus)).toBe(true);
+  expect(hinaus.at(-1)!.aus).toBe(true);
+  expect(hinaus.at(-1)!.display).toBe('none');
+  // Hinein: sofort wieder im Layout und weich eingeblendet, nicht aufgesprungen.
+  const hinein = await page.evaluate(async () => {
+    const name = document.querySelector('.nadel-name')!;
+    (document.querySelector('.leaflet-control-zoom-in') as HTMLElement).click();
+    const werte: number[] = [];
+    const ende = performance.now() + 450;
+    while (performance.now() < ende) {
+      await new Promise(requestAnimationFrame);
+      if (getComputedStyle(name).display !== 'none') werte.push(Number(getComputedStyle(name).opacity));
+    }
+    return werte;
+  });
+  expect(hinein.some((o) => o > 0.05 && o < 0.95), JSON.stringify(hinein)).toBe(true);
+  expect(hinein.at(-1)).toBe(1);
+  await page.waitForTimeout(300);
+  // Zurück, bevor der Zeitgeber feuert: Während der Animation des Zooms schluckt Leaflet einen Klick, darum hier eine
+  // Dauer von 1000 ms, gesetzt per CSSOM, und zurück nach 400 ms; `namen-aus` darf nicht hinterher kommen.
+  await page.evaluate(() => document.documentElement.style.setProperty('--namen-dauer', '1000ms'));
+  const kurz = await verlauf(400);
+  expect(kurz.some((w) => w.aus), JSON.stringify(kurz)).toBe(false);
+  expect(kurz.at(-1)!.display).not.toBe('none');
 });

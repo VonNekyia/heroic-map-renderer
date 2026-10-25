@@ -1,5 +1,5 @@
 /** Eine Welt für die Tests der Ebenen: der Demobaum mit Höhen und Ebenen, die der Test liefert. */
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { crc32, deflateSync } from 'node:zlib';
 
@@ -65,8 +65,11 @@ export interface Welt {
   datei: (name: string) => object | undefined;
   /** Felder für map.json. */
   mehr?: object;
-  /** Höhe einer Zelle nach ihrem Index in der Welt; ohne Angabe eben auf 0. Regionen mit x ≥ 512 fehlen. */
-  hoehe?: (i: number, j: number) => number;
+  /**
+   * Höhe einer Zelle nach ihrem Index in der Welt; ohne Angabe eben auf 0.
+   * Regionen mit x ≥ 512 fehlen, ebenso eine mit `undefined` an ihrer ersten Zelle.
+   */
+  hoehe?: (i: number, j: number) => number | undefined;
   /**
    * Der Boden ohne Laub, als `ground` in map.json, wie `hoehe`; ohne Angabe kein `ground`.
    * `undefined` an der ersten Zelle einer Region: Ihre Datei fehlt.
@@ -151,3 +154,58 @@ export const aufDemSchirm = (page: Page, px: number, py: number) =>
     const kachel = document.querySelector('.kacheln img[src$="/2/0/0.webp"]')!.getBoundingClientRect();
     return [kachel.left + px, kachel.top + py];
   }, [px, py] as [number, number]);
+
+/**
+ * Prüft ein Icon aus `png` auf dem Schirm, in Pixeln des Geräts, aus einem
+ * Screenshot. Nicht verschmiert heisst: Jedes Pixel des Geräts ganz im
+ * Element trägt genau eine Farbe der Quelle, nie eine Mischung, und jedes
+ * Pixel der Quelle im Innern deckt genau `k` × `k` Pixel des Geräts. Wo das
+ * Bild an ganzen Pixeln des Geräts beginnt, legt der Browser fest; darum
+ * zählt die Prüfung, statt den Ursprung nachzurechnen. Gibt die Abweichungen
+ * zurück, leer, wenn alles stimmt, und die Zahl der geprüften Pixel der
+ * Quelle. `ohneUnten` lässt so viele Zeilen der Quelle unten weg, etwa unter
+ * dem Namen im Bogen. Gilt für Leinwand und `<img>` gleich.
+ */
+export async function pixelAufPixel(page: Page, ziel: Locator, k: number, ohneUnten = 0): Promise<{ fehler: string[]; geprueft: number }> {
+  const box = (await ziel.boundingBox())!;
+  const bild = (await page.screenshot({ scale: 'device', animations: 'disabled' })).toString('base64');
+  return page.evaluate(
+    async ({ bild, box, k, ohneUnten }) => {
+      const bytes = Uint8Array.from(atob(bild), (c) => c.charCodeAt(0));
+      // createImageBitmap aus einem Blob lädt keine Adresse; die Content-Security-Policy der Seite bleibt unberührt.
+      const bmp = await createImageBitmap(new Blob([bytes], { type: 'image/png' }));
+      const ctx = new OffscreenCanvas(bmp.width, bmp.height).getContext('2d')!;
+      ctx.drawImage(bmp, 0, 0);
+      const d = devicePixelRatio;
+      const [x0, y0] = [Math.ceil(box.x * d), Math.ceil(box.y * d)];
+      const [x1, y1] = [Math.floor((box.x + box.width) * d), Math.floor((box.y + box.height) * d - ohneUnten * k)];
+      if (x0 < 0 || y0 < 0 || x1 > bmp.width || y1 > bmp.height) return { fehler: ['das Icon liegt nicht ganz im Fenster'], geprueft: 0 };
+      const daten = ctx.getImageData(x0, y0, x1 - x0, y1 - y0).data;
+      const fehler: string[] = [];
+      const zahl = new Map<string, number>();
+      for (let o = 0; o < daten.length; o += 4) {
+        const [r, g, b] = [daten[o]!, daten[o + 1]!, daten[o + 2]!];
+        // Aus png: (x · 7, y · 3, 128) mit x < 37 und y < 86, also eindeutig; alles andere ist gemischt.
+        if (r % 7 !== 0 || g % 3 !== 0 || b !== 128) {
+          if (fehler.length < 5) fehler.push(`gemischt bei (${x0 + ((o / 4) % (x1 - x0))}, ${y0 + Math.floor(o / 4 / (x1 - x0))}): ${r},${g},${b}`);
+          continue;
+        }
+        const s = `${r / 7},${g / 3}`;
+        zahl.set(s, (zahl.get(s) ?? 0) + 1);
+      }
+      const xs = [...zahl.keys()].map((s) => Number(s.split(',')[0]));
+      const ys = [...zahl.keys()].map((s) => Number(s.split(',')[1]));
+      const [ax, bx, ay, by] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+      let geprueft = 0;
+      // Der Rand kann angeschnitten sein; im Innern muss jedes Pixel der Quelle da sein, k × k gross.
+      for (let sy = ay + 1; sy < by; sy++)
+        for (let sx = ax + 1; sx < bx; sx++) {
+          geprueft++;
+          const n = zahl.get(`${sx},${sy}`) ?? 0;
+          if (n !== k * k && fehler.length < 5) fehler.push(`Pixel (${sx}, ${sy}) der Quelle deckt ${n} statt ${k * k}`);
+        }
+      return { fehler, geprueft };
+    },
+    { bild, box, k, ohneUnten },
+  );
+}

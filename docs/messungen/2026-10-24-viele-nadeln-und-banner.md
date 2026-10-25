@@ -19,6 +19,13 @@ Eigene Ebenen sind die Leinwände nicht, Chromium zeigt nur 4. Im Versuch
 bringt eine Leinwand ohne Beschleunigung nichts, `<img>` für die Banner
 −30 % p95; beides bleibt weit über 33 ms.
 
+**Richtiggestellt am 24.10.:** „weit“ ist hier nicht weit. Am Start liegen
+1834 der 2000 Orte im Fenster, 92 %, nicht 179. Die 179 waren die Zahl am
+Ende, nach dem Pinch, und die Variante war daran geeicht. Alle Zahlen hier
+gelten also für eine Ansicht, in der fast alles sichtbar ist. Die Reihe mit
+wirklich weiter Ansicht folgt mit der Entscheidung zu Markern nur im
+Ausschnitt.
+
 ## Aufbau
 
 - **Szene:** gebaut von `web/tests/messung-viele-orte.spec.ts` auf dem
@@ -28,8 +35,8 @@ bringt eine Leinwand ohne Beschleunigung nichts, `<img>` für die Banner
 - **Varianten:**
   - `dicht`: Raster 45 × 45 mit 4 Blöcken Abstand; am Start alle 2000 im
     Ausschnitt.
-  - `weit`: 40 Blöcke Abstand; am Start 179 im Ausschnitt, 9 %. So sieht
-    es auf einer echten Karte aus.
+  - `weit`: 40 Blöcke Abstand, Zoom −4; am Start 1834 im Fenster, 92 %.
+    Gedacht war eine weite Ansicht, siehe die Richtigstellung oben.
   - `weit-ohne-namen`: wie `weit`, die Banner ohne Namen.
 - **Ohne Kacheln:** Jede Kachel ist 404. Es zählt nur, was die Orte kosten.
 - **Browser:** Chromium aus Playwright, headless, 1280 × 800, je Lauf ein
@@ -51,7 +58,10 @@ bringt eine Leinwand ohne Beschleunigung nichts, `<img>` für die Banner
 
 ## Ablauf
 
-Am 24.10. unter `messung.lock`, ohne Spiel, am eigenen `vite preview`. Je
+Am 24.10. unter `messung.lock`, ohne Spiel, an `vite preview`. Richtiggestellt:
+Es war nicht das eigene, das an `::1` lauschte, sondern das, welches
+Playwright mit `PW_PORT` selbst startete, mit einem Build des Arbeitsbaums.
+Der war in dieser Reihe master, die Zahlen gelten also für master. Je
 Zelle drei Läufe hintereinander, 13 min. Danach eine Chrome-Spur nur des
 Ziehens (`SPUR`), drei Läufe in der Zelle „weit, dpr 3, CPU 4×“. Die Spur
 bremst selbst, ihre Zeiten liegen darum über denen der Reihe.
@@ -85,9 +95,8 @@ Der JS-Heap liegt überall bei 9,3 bis 9,6 MB.
 
   Alle drei sind überschritten.
 - **Das Rad** bleibt glatt, p95 17 ms, auch unter der Bremse.
-- **„dicht“ und „weit“ kosten fast gleich viel,** obwohl am Start 2000 statt
-  179 Orte im Ausschnitt liegen. Es zählt, wie viele im DOM stehen, nicht wie
-  viele man sieht.
+- **„dicht“ und „weit“ kosten fast gleich viel.** Beide haben fast alle
+  Orte im Fenster, 2000 und 1834.
 - **Die Namen** kosten rund ein Drittel der DOM-Knoten, 15 119 gegen 9 118,
   und beim Ziehen unter der Bremse rund 25 % der langen Aufgaben.
 - **Die Leinwand** ist von der Variante unabhängig und wächst mit k². k =
@@ -123,7 +132,9 @@ gleich verteilt:
 ## Versuch V1 und V2
 
 Zwei kleine Wege, gemessen in „weit“ und „dicht“ bei dpr 3 und CPU 4×, je
-drei Läufe gegen master. Der Code liegt unter dem Tag
+drei Läufe gegen master, in derselben Ansicht wie oben mit fast allen Orten
+im Fenster. Auch hier lief der Build des Arbeitsbaums, den Playwright
+startete; die Wege schaltete die Adresse, `?versuch=`. Der Code liegt unter dem Tag
 `versuch/icons-leinwand-img`, siehe
 [Icons als Leinwand oder Bild](../versuche/icons-leinwand-oder-bild.md).
 
@@ -163,6 +174,8 @@ selbst; die Zeiten gelten nur untereinander.
 - **Beide bleiben über 33 ms.** Auch V1 + V2 zusammen kommt nicht darunter.
   Nach dem Plan ist damit V3 dran, nur Marker im Ausschnitt; dafür kommt
   zuerst ein Plan.
+- **Eine erste Reihe zu V3** ist verworfen: Alle ihre Läufe trafen denselben
+  Build.
 
 ## Nebenbei gerechnet
 

@@ -538,7 +538,9 @@ Ein Beispiel aus dem Testvektor, entpackt:
 
 - **Nur mit `--manifest`,** am Ende jedes Laufs, der Kacheln schreiben
   kann: voller Lauf, Ausschnitt, Update und `--pyramid`, vor dem Stand, mit
-  der Zeile `Manifest:   <n> Kacheln, <MB> gepackt, in <s> s`.
+  der Zeile `Manifest:   <n> Kacheln, <MB> gepackt, in <s> s -> <pfad>`.
+  Mit `--relief` dazu je eines für Schicht und Rest, mit eigener Zeile,
+  siehe [Server](benutzung/server.md), „Die Schicht des Reliefs“.
 - **Ohne `--manifest`** entfernt ein Lauf, der Kacheln schreibt, am Ende ein
   altes Manifest: Danach stimmte es nicht mehr. Das Plugin gibt den Schalter
   darum bei jedem Lauf eines Baums, den es anbietet.

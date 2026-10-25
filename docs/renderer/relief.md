@@ -96,6 +96,9 @@ siehe [0132](../entscheidungen/0132-relief-als-schicht.md).
   verschwindet mit ihr. Schneidet das Relief einer Kachel nichts mehr ab,
   zeigt ihr alter Rest sofort nichts mehr und verschwindet am Ende des
   Laufs. Ein voller Lauf ohne Relief nimmt den Ordner weg.
+- **Für den Mod** liefert der Server Schicht und Rest mit eigenen
+  Manifesten und Strömen aus, siehe [Server](../benutzung/server.md), „Die
+  Schicht des Reliefs“.
 
 ## Wo es zeichnet
 

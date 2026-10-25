@@ -16,8 +16,8 @@ pub mod tint;
 
 pub use gpu::Gpu;
 pub use metatile::{
-    BLEED_BLOCKS, ChunkCache, Draw, Relief, ScreenRect, draw_all, draw_list, mit_relief,
-    render_area, render_area_with, render_area_without_culling, streifenbreite,
+    BLEED_BLOCKS, ChunkCache, Draw, Relief, Reliefschicht, ScreenRect, draw_all, draw_list,
+    mit_relief, render_area, render_area_with, render_area_without_culling, streifenbreite,
 };
 pub use projection::{Kamera, Projection, Richtung};
 pub use pyramid::{MapInfo, ProjectionInfo, Verkleinern, depth, merge, parents, shrink};

@@ -278,10 +278,11 @@ Um jeden geänderten Chunk ein Gebiet, `gebiet_der_aenderungen` in
   geänderten lesen, wie im Vorlauf umgekehrt, siehe
   [Cinematic](../renderer/cinematic.md), „Der Vorlauf“, und der Rand des
   Bloom auf jeder nativen Stufe.
-- **Mit `--relief shadows`** dazu die Chunks bis 2 nach Südosten: So weit
-  fällt der Schatten einer Spalte, siehe
-  [Relief von oben](../renderer/relief.md), „Schatten“. Das Gefälle von
-  `slope` braucht einen Block und liegt in den 16 daneben.
+- **Mit `--relief`** dazu die Chunks bis 2 nach Südosten: So weit fällt
+  der Schatten einer Spalte, siehe [Relief von oben](../renderer/relief.md),
+  „Schatten“. Das gilt auch für `slope`, dessen Gefälle nur einen Block
+  braucht, denn die Schicht trägt den Schatten, siehe ebenda, „Die
+  Schicht“.
 - Projiziert samt der Reserve für überstehende Sprites, dann aufgerundet auf
   Kacheln der gröbsten nativen Stufe wie bei einem Ausschnitt, siehe
   [Kacheln exportieren](kacheln.md), „Ein Ausschnitt“.
@@ -293,11 +294,12 @@ in einem Chunk: Licht im Chunk daneben, Schatten im Himmelslicht weit
 darunter, Licht über dem höchsten Block, einen Chunk, der fertig wird,
 und einen, der nur sein Biom wechselt, je neben einem hohen Nachbarn, und
 mit Cinematic den Schatten eines Turms bis vier Chunks weit, aus `se`,
-`nw` und `north-45`. Mit `--relief shadows` prüfen
+`nw` und `north-45`. Mit Relief prüfen
 `gebiet_mit_schatten_reicht_32_bloecke_nach_suedosten` das Gebiet und
 `relief_update_reicht_so_weit_wie_der_schatten` in
 `renderer/tests/cli.rs` ein Update gegen einen vollen Lauf, mit dem
-Schatten eines Turms jenseits der 16 Blöcke.
+Schatten eines Turms jenseits der 16 Blöcke, mit `slope` und mit
+`shadows`.
 
 Alle Stücke zusammen sind das Gebiet des Laufs, eine Menge solcher Kacheln
 (`Gebiet` in `tiles.rs`). Der Vorlauf liest nur die Chunks, deren Spalte es
@@ -510,9 +512,9 @@ nicht passt (`update_braucht_den_stand_und_dieselben_assets`):
   [0098](../entscheidungen/0098-der-zeichenstand-statt-des-builds.md) und
   [0101](../entscheidungen/0101-zeichenstand-je-look.md).
   - **Mit Relief** gehen dazu sein Name und `ZEICHENSTAND_RELIEF` ein, ab
-    0122 1. Ohne Relief bleibt der Abdruck, wie er war. Steigt er, rendern
-    nur Bäume mit Relief neu, siehe
-    [0122](../entscheidungen/0122-relief-von-oben.md).
+    0122 1, seit der Schicht 2 ([0132](../entscheidungen/0132-relief-als-schicht.md)).
+    Ohne Relief bleibt der Abdruck, wie er war. Steigt er, rendern nur Bäume
+    mit Relief neu, siehe [0122](../entscheidungen/0122-relief-von-oben.md).
   - **Ein Stand von v0.4.0 oder v0.5.0** trägt noch den Fingerabdruck der
     ausführbaren Datei für Linux oder Windows. Er gilt als Zeichenstand 1 mit den
     Tabellen von v0.5.0, `ZEICHENSTAND_1`: Ein Update nimmt ihn an, solange
@@ -559,6 +561,7 @@ voller Lauf an (`pruefe_relief` in
   `--resume`: „Relief:     …/map.json gehört zu einem Baum ohne Relief,
   dieser Lauf zeichnet mit Relief slope und jede Kachel neu“. Danach geht
   `--update` wieder.
+- **Ohne Relief** nimmt der volle Lauf die Schicht in `relief` weg.
 - **Geprüft** in `relief_wechselt_nur_mit_vollem_lauf` in
   `renderer/tests/cli.rs`.
 

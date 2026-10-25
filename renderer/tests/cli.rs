@@ -6530,47 +6530,180 @@ fn boden_mit_turm(x: i32, y: i32, z: i32) -> &'static str {
     }
 }
 
-/// Mit `--relief shadows` zeichnet ein Update auch, wohin der Schatten
-/// einer Änderung fällt, über den Chunk daneben hinaus, und gleicht danach
-/// einem vollen Lauf. Die Kachel dort hat sich wirklich geändert: Bei
-/// scale 32 ist eine Kachel 8 Blöcke breit, und die Kachel (5, 5) liegt
+/// Mit Relief zeichnet ein Update auch, wohin der Schatten einer Änderung
+/// fällt, über den Chunk daneben hinaus, und gleicht danach einem vollen
+/// Lauf. Mit `slope` auch: Die Schicht trägt den Schatten. Die Schicht der
+/// Kachel dort hat sich wirklich geändert, mit `shadows` auch die Kachel:
+/// Bei scale 32 ist eine Kachel 8 Blöcke breit, und die Kachel (5, 5) liegt
 /// ausserhalb der 16 Blöcke um den Chunk samt der Reserve von 3 Blöcken
 /// für überstehende Sprites.
 /// Siehe docs/benutzung/updates.md, „Wo ein Update zeichnet“.
 #[test]
 fn relief_update_reicht_so_weit_wie_der_schatten() {
     let chunks = [(0, 0), (1, 1), (2, 2)];
-    let welt = tempdir();
-    let baue = |block: fn(i32, i32, i32) -> &'static str, zeit: u32| {
-        common::write_world_sections(welt.path(), &chunks, 0..=3, block, |_, _| None);
-        common::setze_stempel(welt.path(), 0, 0, zeit);
-    };
-    let extra = [
-        "--camera",
-        "top-north",
-        "--scale",
-        "32",
-        "--relief",
-        "shadows",
-    ];
-    baue(boden, 1);
-    let baum = neuer_baum("top-north-s");
-    gelungen(&export(welt.path(), baum.path(), &extra));
-    let vorher = schnappschuss(baum.path());
+    for relief in ["slope", "shadows"] {
+        let welt = tempdir();
+        let baue = |block: fn(i32, i32, i32) -> &'static str, zeit: u32| {
+            common::write_world_sections(welt.path(), &chunks, 0..=3, block, |_, _| None);
+            common::setze_stempel(welt.path(), 0, 0, zeit);
+        };
+        let extra = ["--camera", "top-north", "--scale", "32", "--relief", relief];
+        baue(boden, 1);
+        let baum = neuer_baum("top-north-s");
+        gelungen(&export(welt.path(), baum.path(), &extra));
+        let vorher = schnappschuss(baum.path());
 
-    baue(boden_mit_turm, 2);
-    let update: Vec<&str> = extra.iter().copied().chain(["--update"]).collect();
-    let log = String::from_utf8_lossy(&gelungen(&export(welt.path(), baum.path(), &update)).stdout)
-        .into_owned();
-    assert!(log.contains("Update:     1 Chunks geändert"), "{log}");
-    let voll = neuer_baum("top-north-s");
-    gelungen(&export(welt.path(), voll.path(), &extra));
-    gleiche_baeume(baum.path(), voll.path(), "--relief shadows --update");
-    let fern = format!("{}/5/5.webp", max_zoom(voll.path()));
-    assert_ne!(
-        vorher.get(&fern),
-        schnappschuss(voll.path()).get(&fern),
-        "{fern}"
+        baue(boden_mit_turm, 2);
+        let update: Vec<&str> = extra.iter().copied().chain(["--update"]).collect();
+        let log =
+            String::from_utf8_lossy(&gelungen(&export(welt.path(), baum.path(), &update)).stdout)
+                .into_owned();
+        assert!(
+            log.contains("Update:     1 Chunks geändert"),
+            "{relief}: {log}"
+        );
+        let voll = neuer_baum("top-north-s");
+        gelungen(&export(welt.path(), voll.path(), &extra));
+        gleiche_baeume(
+            baum.path(),
+            voll.path(),
+            &format!("--relief {relief} --update"),
+        );
+        let nachher = schnappschuss(voll.path());
+        let fern = format!("{}/5/5.webp", max_zoom(voll.path()));
+        let schicht = format!("relief/{fern}");
+        assert_ne!(
+            vorher.get(&schicht),
+            nachher.get(&schicht),
+            "{relief}: {schicht}"
+        );
+        assert_eq!(
+            vorher.get(&fern) != nachher.get(&fern),
+            relief == "shadows",
+            "{relief}: {fern}"
+        );
+    }
+}
+
+/// Das Gelände nach den Änderungen, mit hellen Blöcken an den Hängen: Dort
+/// schneidet das Relief bei 255 ab.
+fn hell_am_hang(x: i32, y: i32, z: i32) -> &'static str {
+    match mit_aenderungen(x, y, z) {
+        "minecraft:blauwuerfel" if (x + z).rem_euclid(3) == 0 => "minecraft:shroomlight",
+        block => block,
+    }
+}
+
+/// Die Schicht trägt beide Reliefs: Die Kachel ohne Relief mal den Faktor
+/// aus dem Code ihrer Schicht ist auf jeder Stufe die Kachel mit `slope`
+/// und die mit `shadows`, Pixel für Pixel, gerechnet wie im Renderer. Beide
+/// Läufe schreiben dieselben Codes, und `map.json` nennt sie. Der Rest
+/// liegt genau, wo das eingebackene Relief bei 255 abschneidet, mit der
+/// Farbe ohne Relief; mit ihm rechnet ein Client die Kachel ohne Relief auf
+/// ±1 zurück, wie `map.json` es beschreibt.
+/// Siehe docs/renderer/relief.md, „Die Schicht“.
+#[test]
+fn relief_schicht_ergibt_das_relief() {
+    let welt = tempdir();
+    baue_update_welt(welt.path(), hell_am_hang, &[], 1);
+    let baum = |relief: Option<&str>| {
+        let baum = neuer_baum("top-north-s");
+        let mut extra = vec!["--camera", "top-north", "--scale", "8"];
+        extra.extend(
+            relief
+                .map(|relief| ["--relief", relief])
+                .into_iter()
+                .flatten(),
+        );
+        gelungen(&export(welt.path(), baum.path(), &extra));
+        baum
+    };
+    let (ohne, slope, shadows) = (baum(None), baum(Some("slope")), baum(Some("shadows")));
+    let info = |baum: &Path| -> serde_json::Value {
+        serde_json::from_str(&std::fs::read_to_string(baum.join("map.json")).unwrap()).unwrap()
+    };
+    assert!(info(ohne.path()).get("reliefTiles").is_none());
+    assert_eq!(info(slope.path())["reliefTiles"], "relief/{z}/{x}/{y}.webp");
+    let codes_von = |baum: &Path| -> BTreeMap<String, Vec<u8>> {
+        schnappschuss(baum)
+            .into_iter()
+            .filter(|(rel, _)| rel.starts_with("relief/") && !rel.starts_with("relief/rest/"))
+            .collect()
+    };
+    assert!(
+        dateien(ohne.path())
+            .iter()
+            .all(|rel| !rel.starts_with("relief/"))
+    );
+    assert_eq!(codes_von(slope.path()), codes_von(shadows.path()));
+
+    let (mut kacheln_geprueft, mut geneigt, mut im_schatten) = (0, 0, 0);
+    let mut geschnitten = [0, 0];
+    for z in 0..=max_zoom(ohne.path()) {
+        for (tile, pfad) in kacheln(ohne.path(), z) {
+            let rel = format!("{z}/{}/{}.webp", tile.x, tile.y);
+            let plain = image::open(&pfad).unwrap().into_rgba8();
+            let codes = image::open(slope.path().join("relief").join(&rel))
+                .unwrap()
+                .into_rgba8();
+            geneigt += codes.pixels().filter(|c| c[3] > 0 && c[0] % 9 != 4).count();
+            im_schatten += codes.pixels().filter(|c| c[3] > 0 && c[0] >= 9).count();
+            for (i, (schatten, baum)) in [(false, &slope), (true, &shadows)].into_iter().enumerate()
+            {
+                let mit = image::open(baum.path().join(&rel)).unwrap().into_rgba8();
+                let rest = std::fs::metadata(baum.path().join("relief/rest").join(&rel))
+                    .is_ok()
+                    .then(|| {
+                        image::open(baum.path().join("relief/rest").join(&rel))
+                            .unwrap()
+                            .into_rgba8()
+                    });
+                for (x, y, p) in plain.enumerate_pixels() {
+                    if p[3] == 0 {
+                        continue;
+                    }
+                    let c = codes.get_pixel(x, y)[0];
+                    let n = f32::from(c % 9) - 4.0;
+                    let mut faktor = (1.0f32 + 0.12 * (n / 2.0)).clamp(1.0 - 0.24, 1.0 + 0.24);
+                    if schatten && c >= 9 {
+                        faktor *= 0.75;
+                    }
+                    let roh = p.0.map(|k| (f32::from(k) * faktor).round());
+                    let k = mit.get_pixel(x, y);
+                    for j in 0..3 {
+                        assert_eq!(
+                            k[j],
+                            roh[j].min(255.0) as u8,
+                            "{rel} ({x}, {y}), Schatten {schatten}"
+                        );
+                    }
+                    let abgeschnitten = roh[..3].iter().any(|&v| v > 255.0);
+                    let r = rest.as_ref().map(|rest| *rest.get_pixel(x, y));
+                    assert_eq!(
+                        r.is_some_and(|r| r[3] == 255),
+                        abgeschnitten,
+                        "Rest {rel} ({x}, {y}), Schatten {schatten}"
+                    );
+                    geschnitten[i] += usize::from(abgeschnitten);
+                    // Zurück wie im Client: der Rest, sonst durch den Faktor.
+                    for j in 0..3 {
+                        let zurueck = match r {
+                            Some(r) if r[3] == 255 => r[j],
+                            _ => (f32::from(k[j]) / faktor).round().min(255.0) as u8,
+                        };
+                        assert!(
+                            zurueck.abs_diff(p[j]) <= 1,
+                            "zurück {rel} ({x}, {y}), Schatten {schatten}"
+                        );
+                    }
+                }
+            }
+            kacheln_geprueft += 1;
+        }
+    }
+    assert!(
+        kacheln_geprueft > 0 && geneigt > 0 && im_schatten > 0 && geschnitten[0] > 0,
+        "{kacheln_geprueft}, {geneigt}, {im_schatten}, {geschnitten:?}"
     );
 }
 
@@ -6663,6 +6796,33 @@ fn relief_wechselt_nur_mit_vollem_lauf() {
     assert_eq!(schnappschuss(baum.path()), ohne);
     let log = String::from_utf8_lossy(&gelungen(&lauf(&["--update"])).stdout).into_owned();
     assert!(log.contains("nichts zu zeichnen"), "{log}");
+}
+
+/// Schneidet das Relief nach einer Änderung nirgends mehr ab, verschwindet
+/// der Rest: Ein Update gleicht danach Byte für Byte einem vollen Lauf.
+/// Siehe docs/renderer/relief.md, „Die Schicht“.
+#[test]
+fn relief_rest_verschwindet_mit_dem_abschneiden() {
+    let welt = tempdir();
+    baue_update_welt(welt.path(), hell_am_hang, &[], 1);
+    let extra = ["--camera", "top-north", "--scale", "8", "--relief", "slope"];
+    let rest = |baum: &Path| {
+        dateien(baum)
+            .into_iter()
+            .filter(|rel| rel.starts_with("relief/rest/"))
+            .count()
+    };
+    let baum = neuer_baum("top-north-s");
+    gelungen(&export(welt.path(), baum.path(), &extra));
+    assert!(rest(baum.path()) > 0);
+
+    baue_update_welt(welt.path(), mit_aenderungen, &UPDATE_CHUNKS, 2);
+    let update: Vec<&str> = extra.iter().copied().chain(["--update"]).collect();
+    gelungen(&export(welt.path(), baum.path(), &update));
+    let voll = neuer_baum("top-north-s");
+    gelungen(&export(welt.path(), voll.path(), &extra));
+    assert_eq!(rest(voll.path()), 0);
+    gleiche_baeume(baum.path(), voll.path(), "Rest nach dem Update");
 }
 
 /// `--relief` gibt es nur von oben, genordet aus Süden, und nicht mit

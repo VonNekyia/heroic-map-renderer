@@ -2477,12 +2477,14 @@ fn write_tiles(
     // Mit Relief die Schicht in `relief/` und ihr Rest, mit eigenen Hashes.
     let schicht_dir = dir.join(SCHICHT);
     let rest_dir = schicht_dir.join(REST);
-    let hashes_der_schicht = relief.map(|_| {
-        (
-            pixel::Pixel::neu(&schicht_dir, pixel::KODIERSTAND),
-            pixel::Pixel::neu(&rest_dir, pixel::KODIERSTAND),
-        )
-    });
+    let hashes_der_schicht = relief
+        .map(|_| -> Result<_> {
+            Ok((
+                pixel::Pixel::neu(&schicht_dir, pixel::KODIERSTAND)?,
+                pixel::Pixel::neu(&rest_dir, pixel::KODIERSTAND)?,
+            ))
+        })
+        .transpose()?;
     let ohne_rest = Mutex::new(BTreeSet::new());
     let schicht = hashes_der_schicht.as_ref().map(|(schicht, rest)| Schicht {
         dir: &schicht_dir,

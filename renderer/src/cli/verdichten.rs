@@ -52,7 +52,7 @@ pub(super) fn verdichte(dir: &Path, mit_manifest: bool) -> Result<()> {
         schreibe_info(dir, &info, None)?;
     }
     let manifest = manifest::Lauf::beginne(dir, mit_manifest)?;
-    let hashes = Pixel::neu(dir, pixel::KODIERSTAND);
+    let hashes = Pixel::neu(dir, pixel::KODIERSTAND)?;
     let mut summe = BTreeMap::<&str, usize>::new();
     for z in (alt.min_zoom..=alt.max_zoom).rev() {
         let mut je_block: BTreeMap<(i32, i32), Vec<(TileId, SystemTime)>> = BTreeMap::new();
@@ -190,7 +190,7 @@ mod tests {
             .unwrap()
             .set_modified(damals)
             .unwrap();
-        let hashes = Pixel::neu(dir, 1);
+        let hashes = Pixel::neu(dir, 1).unwrap();
         let beginn = SystemTime::now();
 
         let erst = verdichte_kachel(dir, 4, tile, damals, beginn, &hashes).unwrap();
@@ -207,7 +207,12 @@ mod tests {
         // erkennt die Kachel daran, ohne zu kodieren.
         hashes.schliesse_block(4, pixel::block(tile)).unwrap();
         let hash = pixel::hash(&verlauf(), Packen::Kompakt);
-        assert!(Pixel::neu(dir, 1).gleich(4, tile, &hash, &pfad).is_some());
+        assert!(
+            Pixel::neu(dir, 1)
+                .unwrap()
+                .gleich(4, tile, &hash, &pfad)
+                .is_some()
+        );
 
         // Nach dem Beginn geschrieben, etwa von einem Export daneben.
         let jetzt = SystemTime::now();
@@ -217,7 +222,7 @@ mod tests {
         );
         // Zwischen Auflisten und Tausch geschrieben.
         std::fs::write(&pfad, encode_webp(&verlauf(), Packen::Schnell).unwrap()).unwrap();
-        let spaeter = Pixel::neu(dir, 2);
+        let spaeter = Pixel::neu(dir, 2).unwrap();
         assert_eq!(
             verdichte_kachel(dir, 4, tile, damals, beginn, &spaeter).unwrap(),
             Kachel::Fremd

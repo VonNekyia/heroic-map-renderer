@@ -2465,7 +2465,10 @@ fn write_tiles(
     }
     // Was schon dieselben Pixel zeigt, kodiert der Lauf nicht, auf keiner
     // Stufe.
-    let hashes = pixel::Pixel::neu(dir, pixel::KODIERSTAND);
+    let hashes = pixel::Pixel::neu(dir, pixel::KODIERSTAND)?;
+    // Die Blöcke der Basis schreibt der Lauf, sobald ihre letzte Kachel
+    // fertig ist; mit einem Thread hält er so nur eine Spalte im Speicher.
+    hashes.erwarte(max_zoom, &reihe);
     let ablage = Ablage {
         packen,
         hashes: Some(&hashes),
@@ -2474,12 +2477,14 @@ fn write_tiles(
     // Mit Relief die Schicht in `relief/` und ihr Rest, mit eigenen Hashes.
     let schicht_dir = dir.join(SCHICHT);
     let rest_dir = schicht_dir.join(REST);
-    let hashes_der_schicht = relief.map(|_| {
-        (
-            pixel::Pixel::neu(&schicht_dir, pixel::KODIERSTAND),
-            pixel::Pixel::neu(&rest_dir, pixel::KODIERSTAND),
-        )
-    });
+    let hashes_der_schicht = relief
+        .map(|_| -> Result<_> {
+            Ok((
+                pixel::Pixel::neu(&schicht_dir, pixel::KODIERSTAND)?,
+                pixel::Pixel::neu(&rest_dir, pixel::KODIERSTAND)?,
+            ))
+        })
+        .transpose()?;
     let ohne_rest = Mutex::new(BTreeSet::new());
     let schicht = hashes_der_schicht.as_ref().map(|(schicht, rest)| Schicht {
         dir: &schicht_dir,
@@ -2527,6 +2532,7 @@ fn write_tiles(
                 if let Some(speicher) = &speicher {
                     speicher.abgeben(max_zoom, tile, None)?;
                 }
+                hashes.fertig(max_zoom, tile)?;
                 return Ok(None);
             }
             // Die Schicht vor der Kachel: Steht eine Kachel neu da, steht ihre
@@ -2547,6 +2553,7 @@ fn write_tiles(
             if let Some(speicher) = &speicher {
                 speicher.abgeben(max_zoom, tile, Some(image))?;
             }
+            hashes.fertig(max_zoom, tile)?;
             Ok(Some((bytes, liegt)))
         },
     )?;

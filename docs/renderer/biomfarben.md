@@ -53,11 +53,10 @@ verdrahtet das in `BlockColors.createDefault`, und der Renderer tut es in
 Gras-Colormap, dazu die Stiele von Blütenteppich und Wildblumen, Laub und
 Ranken (`vine`) nach der Laub-Colormap, Laubstreu nach `dry_foliage`,
 Fichten- und Birkenlaub und Seerosen fest, der Wasserkessel nach dem
-Wasser des Bioms. Alles andere mit `tintindex` bleibt ungefärbt: Kirsch-
-und Blasseichenlaub tragen ihre Farbe in der Textur, Redstone und die
-Stiele von Kürbis und Melone färben im Spiel nach ihren Eigenschaften und
-machen auf einer Karte keine Fläche. Feste Farben rastert der Renderer
-gleich ins Sprite. Eigene Laubfarben eines Plugins ersetzen die Farbe auf
+Wasser des Bioms. Redstone und die Stiele von Kürbis und Melone färben nach
+ihrem Zustand, siehe „Nach dem Zustand“. Alles andere mit `tintindex`
+bleibt ungefärbt: Kirsch- und Blasseichenlaub tragen ihre Farbe in der
+Textur. Feste Farben rastert der Renderer gleich ins Sprite. Eigene Laubfarben eines Plugins ersetzen die Farbe auf
 tönbarem Laub, auch auf Fichte und Birke, und tönen auch Kirsch-,
 Blasseichen-, Azaleen- und Pappellaub, siehe
 [Eigene Laubfarben](../benutzung/laubfarben.md).
@@ -73,6 +72,32 @@ Zwei Ausnahmen aus `BlockTintSources`:
   Hälfte (`half=upper`) nimmt die Farbe am Block darunter. Im Renderer ist
   das `tinted_below` in `colors.rs`, gemischt wird dann auf der Höhe der
   unteren Hälfte.
+
+## Nach dem Zustand
+
+Drei Blöcke färben nach einer Eigenschaft ihres Zustands, fest, ohne Biom
+(`source_of_state` in
+[`renderer/src/assets/colors.rs`](../../renderer/src/assets/colors.rs)).
+Fehlt die Eigenschaft, gilt 0.
+
+- **Redstone** (`redstone_wire`) nach `power`, wie
+  `BlockTintSources.redstone` und `RedStoneWireBlock.COLORS` in 26.2: mit
+  f = power / 15 ist Rot 0,6 · f + 0,4, bei 0 aber 0,3; Grün
+  0,7 · f² − 0,5 und Blau 0,6 · f² − 0,7, beide auf 0 bis 1 begrenzt; je
+  Kanal floor(v · 255) in f32.
+
+  | `power` | 0 | 1 | 5 | 9 | 12 | 13 | 14 | 15 |
+  |---|---|---|---|---|---|---|---|---|
+  | Farbe | 4C0000 | 700000 | 990000 | C10000 | E00000 | EA0600 | F41B00 | FF3200 |
+
+- **Kürbis- und Melonenstiel** nach `age` 0 bis 7, wie
+  `BlockTintSources.stem`: Rot 32 · age, Grün 255 − 8 · age, Blau 4 · age,
+  von 00FF00 bis E0C71C.
+- **Angewachsene Stiele** fest E0C71C, `BlockTintSources.constant`.
+
+Die Werte stehen in `farbe_nach_dem_zustand` in
+[`renderer/src/assets/colors.rs`](../../renderer/src/assets/colors.rs)
+fest. Belegt per javap am Client-JAR 26.2, siehe „Belege“.
 
 ## Biom je Block
 
@@ -229,7 +254,10 @@ Belegt am Client-JAR von 26.2 mit javap: `BiomeManager.getBiome`,
 `WorldgenRandom`, `LegacyRandomSource` und `BitRandomSource`; welche Blöcke
 wie färben, `BlockColors.createDefault` und `BlockTintSources`, darin
 `doubleTallGrass` (`BlockTintSources$2`) mit `pos.below()` für die obere
-Hälfte und `BLANK_LAYER` als `constant(-1)`.
+Hälfte und `BLANK_LAYER` als `constant(-1)`; für „Nach dem Zustand“
+`redstone` (`BlockTintSources$10`) über `RedStoneWireBlock.getColorForPower`
+und das Feld `COLORS`, `stem` (`BlockTintSources$11`), `ARGB.colorFromFloat`
+mit `as8BitChannel` und die feste Farbe der angewachsenen Stiele.
 
 Die Sollwerte der Tests für Seed, Zoom und Rauschen gibt
 [`renderer/src/world/Biomwerte.java`](../../renderer/src/world/Biomwerte.java)

@@ -205,8 +205,8 @@ Belegt per `javap` am Client von 26.2 in `MapItem.update`,
   siehe „Die Karte des Spiels“.
 - **Ausgeschnittene Flächen** zählen ganz oder gar nicht, siehe „Farbe je
   Zustand“.
-- **Pflanzen aus Kreuzen** liegen von oben flach, wie in `top-north` bei
-  jedem scale. Eine, deren Textur den Pixel nicht zur Hälfte deckt, fehlt
+- **Pflanzen** kippen von oben, wie in `top-north` bei jedem scale, siehe
+  [Die Kamera](kamera.md), „Pflanzen von oben“. Eine, deren Textur den Pixel nicht zur Hälfte deckt, fehlt
   bei scale 1 wie jede solche Fläche. Die Karte des Spiels nimmt jeden
   Block, dessen Farbe auf der Karte nicht `MapColor.NONE` ist.
 - **Nur die Richtung `s`:** Das Relief nimmt den Nachbarn im Norden als

@@ -517,9 +517,49 @@ impl Assets {
     /// Cinematic, statt ihn zu decken.
     /// Siehe docs/renderer/cinematic.md, „Bodenpflanzen“.
     pub fn bodenpflanze(&mut self, state: &BlockState) -> Result<bool> {
+        if let Some(pflanze) = self.bodenpflanze_in_der_untersten_wurzel(state) {
+            return Ok(pflanze);
+        }
         Ok(self.alternatives(state)?.iter().all(|(_, variants)| {
             !variants.is_empty() && variants.iter().all(|v| v.model.bodenpflanze)
         }))
+    }
+
+    /// Ob der Block in der untersten Wurzel, den Assets des Spiels, eine
+    /// Bodenpflanze ist, nach ihrer Blockstate-Datei und den `parent`-Ketten
+    /// in ihr allein: Ein Paket darüber, das Modelle ersetzt, nimmt einer
+    /// Pflanze so nicht ihre Art. `None`, wenn die unterste Wurzel den Block
+    /// nicht kennt oder ihre Datei nicht passt; dann gilt das oberste Pack.
+    /// Siehe docs/entscheidungen/0133-pflanzen-von-oben-gekippt.md.
+    fn bodenpflanze_in_der_untersten_wurzel(&self, state: &BlockState) -> Option<bool> {
+        let wurzel = self.packs.first()?;
+        let (namespace, name) = split_id(state.name());
+        let pfad = wurzel.listed(namespace, "blockstates", name, "json")?;
+        let mut def = BlockStateDef::read(&read_text(pfad).ok()?).ok()?;
+        let definition = Definition::of(state.name());
+        if let Some(definition) = definition {
+            def.instantiate(definition);
+        }
+        let alternativen = def.alternatives(state, definition.and_then(|d| d.index(state)))?;
+        let kette = |id: &str| {
+            let mut aktuell = Some(id.to_string());
+            for _ in 0..64 {
+                let modell = aktuell.take()?;
+                if vorlage_der_bodenpflanzen(&modell) {
+                    return Some(true);
+                }
+                let (namespace, name) = split_id(&modell);
+                let datei = wurzel.listed(namespace, "models", name, "json")?;
+                aktuell = ModelFile::read(&read_json(datei).ok()?).ok()?.parent;
+            }
+            None
+        };
+        Some(
+            !alternativen.is_empty()
+                && alternativen.iter().all(|(_, refs)| {
+                    !refs.is_empty() && refs.iter().all(|r| kette(&r.model).unwrap_or(false))
+                }),
+        )
     }
 
     /// Eine Modelldatei, wie `CuboidModel` sie liest ([`ModelFile::read`]).
@@ -553,7 +593,7 @@ fn find_file<'a>(
 
 /// Die Vorlagen der Bodenpflanzen in den Modellen des Spiels: das Kreuz,
 /// die Ebenen der Feldfrüchte, Blütenteppiche und Laub, die Vorlage des
-/// Seegrases.
+/// Seegrases, die Stiele von Kürbis und Melone.
 /// Siehe docs/renderer/cinematic.md, „Bodenpflanzen“.
 fn vorlage_der_bodenpflanzen(id: &str) -> bool {
     let (namespace, name) = split_id(id);
@@ -565,8 +605,10 @@ fn vorlage_der_bodenpflanzen(id: &str) -> bool {
                 | "block/cross_emissive"
                 | "block/crop"
                 | "block/template_seagrass"
+                | "block/stem_fruit"
         ) || name.starts_with("block/flowerbed_")
-            || name.starts_with("block/template_leaf_litter_"))
+            || name.starts_with("block/template_leaf_litter_")
+            || name.starts_with("block/stem_growth"))
 }
 
 /// `minecraft:block/stone` -> `("minecraft", "block/stone")`. Ohne Namensraum,
@@ -659,6 +701,50 @@ fn laengste_zahl(text: &str) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Ob ein Block Bodenpflanze ist, sagt die unterste Wurzel: Eine
+    /// Feldfrucht mit eigener Vorlage ohne `parent` aus einem Paket bleibt
+    /// eine. Ein Block, den nur das Paket kennt, folgt dessen Modellen.
+    /// Siehe docs/entscheidungen/0133-pflanzen-von-oben-gekippt.md.
+    #[test]
+    fn bodenpflanze_aus_der_untersten_wurzel() {
+        let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+        let mut nur_paket = Assets::open(vec![fixtures.join("assets-pflanzen-paket")]).unwrap();
+        let mut mit_wurzel = Assets::open(vec![
+            fixtures.join("assets-base"),
+            fixtures.join("assets-pflanzen-paket"),
+        ])
+        .unwrap();
+        let state = |name: &str| BlockState::parse(&format!("minecraft:{name}")).unwrap();
+        assert!(!nur_paket.bodenpflanze(&state("feldfrucht")).unwrap());
+        assert!(mit_wurzel.bodenpflanze(&state("feldfrucht")).unwrap());
+        assert!(mit_wurzel.bodenpflanze(&state("paketkreuz")).unwrap());
+        assert!(!mit_wurzel.bodenpflanze(&state("paketwuerfel")).unwrap());
+        assert!(!mit_wurzel.bodenpflanze(&state("einfarbig")).unwrap());
+    }
+
+    /// Die Vorlagen der Bodenpflanzen samt den Stielen von Kürbis und Melone,
+    /// nur im Namensraum des Spiels.
+    #[test]
+    fn vorlagen_der_bodenpflanzen() {
+        for id in [
+            "minecraft:block/cross",
+            "block/crop",
+            "minecraft:block/stem_growth0",
+            "minecraft:block/stem_growth7",
+            "minecraft:block/stem_fruit",
+            "minecraft:block/flowerbed_2",
+        ] {
+            assert!(vorlage_der_bodenpflanzen(id), "{id}");
+        }
+        for id in [
+            "minecraft:block/cube_all",
+            "paket:block/cross",
+            "minecraft:block/stem",
+        ] {
+            assert!(!vorlage_der_bodenpflanzen(id), "{id}");
+        }
+    }
 
     /// Wie `InputStreamReader` und `JsonReader`: kaputtes UTF-8 wird zu
     /// U+FFFD, genau ein Byte-Order-Mark vorn fällt weg.

@@ -354,42 +354,52 @@ folgt:
 ### Pflanzen von oben
 
 Von oben stünden die Flächen einer Bodenpflanze auf der Kante, und Wiesen,
-Felder und Seegras wären leer. Darum legt der Renderer sie flach, auf
-Wunsch des Users am 18.10., entschieden in
-[0108](../entscheidungen/0108-pflanzen-von-oben-flach.md). Die Regel, so
-genau, dass eine andere Ansicht wie die Minimap des Mods sie nachbauen kann:
+Felder und Seegras wären leer. Darum kippt der Renderer sie um 45° nach
+oben im Bild, eingepasst in ihren Block, auf Wunsch des Users am 24.10.,
+entschieden in [0133](../entscheidungen/0133-pflanzen-von-oben-gekippt.md).
+Die Minimap des Mods rechnet nach derselben Regel. Im Einzelnen:
 
 - **Welche Blöcke:** die Bodenpflanzen, wie Cinematic sie kennt, siehe
   [Cinematic](cinematic.md), „Bodenpflanzen“: wessen Modelle jeder
   Alternative von einer Vorlage des Kreuzes, der Feldfrucht, des Seegrases,
-  der Blütenteppiche oder des Laubs am Boden erben. Dazu gehören auch
-  Setzlinge, Pilze, Spinnennetz und die Amethystknospen.
-- **Welche Modelle:** Ein Modell, das schon eine Fläche zur Kamera hat,
-  bleibt, wie es ist, etwa Blütenteppiche und Laub am Boden.
-- **Was flach liegt:** die Textur der ersten senkrechten Fläche des
-  Modells, im Rechteck ihrer UV, über den ganzen Block:
-  - oben im Bild der Norden, links der Westen, wie das Bild in der Datei;
-  - eine Drehung oder Spiegelung der UV zählt nicht;
-  - 1/16 über dem Boden des Blocks, also über Ackerboden und Grund;
-  - getönt wie die Fläche, Gras und Farn also in der Farbe des Bioms.
-
-  Die übrigen Flächen des Modells fallen weg, ausser denen einer
-  Flüssigkeit; Seegras bleibt so unter seinem Wasser.
+  der Blütenteppiche, des Laubs am Boden oder der Stiele von Kürbis und
+  Melone erben. Ob ein Block das ist, sagt die unterste Wurzel, die Assets
+  des Spiels; ein Paket darüber, das Modelle ersetzt, nimmt einer Pflanze
+  nicht ihre Art. Nur ein Block, den die unterste Wurzel nicht kennt, folgt
+  dem obersten Pack (`Assets::bodenpflanze`). Beim Bambus kippen nur die
+  Flächen mit `leaves` im Namen ihrer Textur.
+- **Welche Modelle:** Hat ein Modell eine Fläche, die eher liegt als steht,
+  mit n_y ≥ cos 45° · |n|, kippt nichts, etwa bei Blütenteppichen und Laub
+  am Boden. Von seinen festen Flächen bleiben dann nur die liegenden.
+- **Wie es kippt** (`gekippt_von_oben` in
+  [`renderer/src/render/sprites.rs`](../../renderer/src/render/sprites.rs)):
+  - starr um die waagrechte Achse durch die Mitte des Blockbodens, die
+    Spitze nach oben im Bild, um 45°. In `top-north` aus `s` ist das
+    Norden, wie im Mod;
+  - danach wieder auf die alte Tiefe: Die tiefste Ecke aller Flächen liegt,
+    wo sie vorher lag;
+  - es bleiben die Flächen, die danach nach oben zeigen, mehr als `EDGE_ON`
+    ihrer Normalen, schattiert wie nach oben. Eine Ebene, die nach Osten
+    oder Westen schaut, steht auch gekippt auf der Kante und fällt weg.
+- **Eingepasst:** entlang der Kipprichtung, gemessen an den Flächen, die
+  bleiben. Über einen Block Spanne wird auf einen gestaucht, sonst so wenig
+  wie nötig in den Block geschoben. Ein volles Kreuz reicht gekippt von
+  −0,525 bis 0,818 und wird mit 0,744 gestaucht; ein halb so hohes, Spanne
+  0,99, nur geschoben. Quer zur Kipprichtung bleibt alles; eine Pflanze,
+  die breiter ist als ihr Block, ragt dort hinaus wie im Modell.
+- **Unter Wasser** bleiben die gekippten Flächen 1/64 unter der Oberfläche
+  der Flüssigkeit im Modell; Seegras und Kelp kippen so unter ihrem Wasser.
 - **Deckung** wie jede ausgeschnittene Fläche, siehe
-  [Nähte](naehte.md), „Ausgeschnitten statt gemischt“. Ein Pixel, den die
-  Textur nicht zur Hälfte deckt, zeigt den Grund. Bei 1 px je Block bleibt
-  so oft nur der Grund, siehe [Die einfarbige Ansicht](einfarbig.md).
-- **Getreide:** Die Reihen eines Felds bleiben bei 4, 2 und 1 px je Block
-  zu sehen; Gras verschwindet fast im Grasblock, wie im Spiel von oben.
+  [Nähte](naehte.md), „Ausgeschnitten statt gemischt“.
 - **Nur von oben,** `top` und `top-north` mit jedem scale, auch die
   einfarbige Ansicht. Schräg zeichnet jede Pflanze wie im Spiel.
-- **Nicht in Cinematic:** Dort bleiben die Kreuze, wie sie sind, und
-  verschwinden von oben. Sonst stiege der Zeichenstand von Cinematic für
-  jeden Baum, auch für die schrägen, die sich nicht ändern; siehe 0108.
+- **Nicht in Cinematic:** Dort bleiben die Pflanzen, wie sie sind.
 
-Den Code nennt `flach_von_oben` in
-[`renderer/src/render/sprites.rs`](../../renderer/src/render/sprites.rs),
-das Goldbild `metatile-pflanzen-top-north`, siehe
+Die Zahlen prüfen `kreuz_kippt_nach_norden_eingepasst` und die Tests daneben
+in [`renderer/src/render/sprites.rs`](../../renderer/src/render/sprites.rs),
+die Szene `pflanzen_kippen_von_oben` in
+[`renderer/tests/metatile.rs`](../../renderer/tests/metatile.rs) mit dem
+Goldbild `metatile-pflanzen-top-north`, siehe
 [Tests](../entwicklung/tests.md), „Goldbild“.
 
 ## Genordet

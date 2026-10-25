@@ -1,7 +1,7 @@
 ---
 title: "0108: Pflanzen liegen von oben flach"
 description: Warum der Renderer Bodenpflanzen in top und top-north als ihre Textur flach über den Block legt, statt sie mit ihren senkrechten Flächen verschwinden zu lassen; welche Varianten der User an der Vorschau verworfen hat, warum Cinematic bleibt und was das Neu-Rendern kostet.
-status: gilt
+status: abgelöst durch 0133
 date: 2026-10-18
 issues: [295]
 code:
@@ -10,6 +10,9 @@ code:
 ---
 
 # 0108: Pflanzen liegen von oben flach
+
+Abgelöst durch [0133](0133-pflanzen-von-oben-gekippt.md): Von oben kippen die
+Pflanzen jetzt.
 
 Löst den Teil von [0051](0051-kameras-und-richtungen.md) und
 [0052](0052-genordete-kameras.md) ab, nach dem Gras und Blumen von oben

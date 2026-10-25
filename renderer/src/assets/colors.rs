@@ -20,6 +20,7 @@ use super::dimension::mit_namensraum;
 use super::noise;
 use super::pack::{self, Pack};
 use super::{parse_json, read_text, split_id};
+use crate::world::BlockState;
 
 /// Eine Färbung als RGB-Faktor.
 pub type Tint = [u8; 3];
@@ -128,6 +129,51 @@ pub fn ungetoentes_laub(block: &str) -> bool {
 /// Siehe docs/entscheidungen/0081-eigene-laubfarben.md.
 pub fn laubton(farbe: u32) -> Tint {
     [(farbe >> 16) as u8, (farbe >> 8) as u8, farbe as u8]
+}
+
+/// Redstone je `power`, `RedStoneWireBlock.COLORS` in 26.2.
+/// Siehe docs/renderer/biomfarben.md, „Nach dem Zustand“.
+const REDSTONE: [Tint; 16] = [
+    [0x4C, 0x00, 0x00],
+    [0x70, 0x00, 0x00],
+    [0x7A, 0x00, 0x00],
+    [0x84, 0x00, 0x00],
+    [0x8E, 0x00, 0x00],
+    [0x99, 0x00, 0x00],
+    [0xA3, 0x00, 0x00],
+    [0xAD, 0x00, 0x00],
+    [0xB7, 0x00, 0x00],
+    [0xC1, 0x00, 0x00],
+    [0xCC, 0x00, 0x00],
+    [0xD6, 0x00, 0x00],
+    [0xE0, 0x00, 0x00],
+    [0xEA, 0x06, 0x00],
+    [0xF4, 0x1B, 0x00],
+    [0xFF, 0x32, 0x00],
+];
+/// Ein angewachsener Kürbis- oder Melonenstiel.
+const STIEL_ANGEWACHSEN: Tint = [0xE0, 0xC7, 0x1C];
+
+/// Wie [`source_of`], dazu die Blöcke, deren Farbe an ihrem Zustand hängt:
+/// Redstone nach `power`, Kürbis- und Melonenstiele nach `age`, wie
+/// `BlockTintSources.redstone` und `stem`. Ohne den Wert gilt 0.
+/// Siehe docs/renderer/biomfarben.md, „Nach dem Zustand“.
+pub fn source_of_state(state: &BlockState) -> Option<Source> {
+    let stufe = |key: &str| {
+        state
+            .prop(key)
+            .and_then(|v| v.parse::<u8>().ok())
+            .unwrap_or(0)
+    };
+    Some(match split_id(state.name()).1 {
+        "redstone_wire" => Source::Fixed(REDSTONE[usize::from(stufe("power").min(15))]),
+        "pumpkin_stem" | "melon_stem" => {
+            let age = stufe("age").min(7);
+            Source::Fixed([32 * age, 255 - 8 * age, 4 * age])
+        }
+        "attached_pumpkin_stem" | "attached_melon_stem" => Source::Fixed(STIEL_ANGEWACHSEN),
+        _ => return source_of(state.name()),
+    })
 }
 
 /// Ob ein Block seine Farbe am Block darunter nimmt: die obere Hälfte von
@@ -732,5 +778,50 @@ mod tests {
         assert!(tinted_below("minecraft:large_fern", Some("upper")));
         assert!(!tinted_below("minecraft:tall_grass", Some("lower")));
         assert!(!tinted_below("minecraft:sunflower", Some("upper")));
+    }
+
+    /// Redstone und Stiele nehmen ihre Farbe aus dem Zustand, mit den
+    /// Werten aus `BlockTintSources` in 26.2; alles andere wie
+    /// [`source_of`].
+    #[test]
+    fn farbe_nach_dem_zustand() {
+        let farbe = |text: &str| source_of_state(&BlockState::parse(text).unwrap());
+        assert_eq!(
+            farbe("minecraft:redstone_wire[power=0]"),
+            Some(Source::Fixed([0x4C, 0, 0]))
+        );
+        assert_eq!(
+            farbe("minecraft:redstone_wire[power=9]"),
+            Some(Source::Fixed([0xC1, 0, 0]))
+        );
+        assert_eq!(
+            farbe("minecraft:redstone_wire[power=13]"),
+            Some(Source::Fixed([0xEA, 0x06, 0]))
+        );
+        assert_eq!(
+            farbe("minecraft:redstone_wire[power=15]"),
+            Some(Source::Fixed([0xFF, 0x32, 0]))
+        );
+        assert_eq!(
+            farbe("minecraft:pumpkin_stem[age=0]"),
+            Some(Source::Fixed([0, 0xFF, 0]))
+        );
+        assert_eq!(
+            farbe("minecraft:melon_stem[age=3]"),
+            Some(Source::Fixed([0x60, 0xE7, 0x0C]))
+        );
+        assert_eq!(
+            farbe("minecraft:melon_stem[age=7]"),
+            Some(Source::Fixed([0xE0, 0xC7, 0x1C]))
+        );
+        assert_eq!(
+            farbe("minecraft:attached_pumpkin_stem[facing=north]"),
+            Some(Source::Fixed([0xE0, 0xC7, 0x1C]))
+        );
+        assert_eq!(
+            farbe("minecraft:spruce_leaves"),
+            Some(Source::Fixed(SPRUCE))
+        );
+        assert_eq!(farbe("minecraft:stone"), None);
     }
 }

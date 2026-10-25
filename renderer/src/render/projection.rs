@@ -236,6 +236,17 @@ impl Richtung {
         self.zurueck().versatz_in_den_blick(blick)
     }
 
+    /// Die Richtung der Welt, die im Blick oben liegt, als (x, z): von oben
+    /// die nach oben im Bild. Blickt die Kamera aus `s`, ist das Norden.
+    pub fn norden_im_blick(self) -> [f32; 2] {
+        match self.0 {
+            0 => [0.0, -1.0],
+            1 => [1.0, 0.0],
+            2 => [0.0, 1.0],
+            _ => [-1.0, 0.0],
+        }
+    }
+
     /// Wohin die Normale einer Fläche der Welt im Blick zeigt, wie
     /// [`Richtung::versatz_in_den_blick`].
     pub fn normale_in_den_blick(self, [x, y, z]: [f32; 3]) -> [f32; 3] {

@@ -44,7 +44,7 @@ const FLUID_BEHIND: f32 = 1e-3;
 /// lässt einer solchen Fläche eine Normale knapp neben null; echte
 /// Drehungen liegen weit darüber.
 /// Siehe docs/renderer/naehte.md, „Flächen parallel zur Blickrichtung“.
-const EDGE_ON: f32 = 1e-4;
+pub(super) const EDGE_ON: f32 = 1e-4;
 
 /// Die höchste Stufe des Himmels- und des Blocklichts, am Tag unter freiem
 /// Himmel, siehe [`brightness_rgb`].

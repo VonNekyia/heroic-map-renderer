@@ -20,7 +20,7 @@ use crate::world::{BlockState, Blockdaten};
 use super::kino::Kino;
 use super::look::Look;
 use super::metatile::{Relief, ohne_null};
-use super::rasterizer::{Lightmap, Raster, auf_den_vorderseiten, faces_camera, rastern};
+use super::rasterizer::{EDGE_ON, Lightmap, Raster, auf_den_vorderseiten, faces_camera, rastern};
 use super::sonne::{Masken, Sonnenform};
 use super::tint::BiomeTable;
 use super::{Kamera, Projection, Richtung, Sprite, render};
@@ -336,7 +336,7 @@ fn liegt(q: &Quad) -> bool {
 /// Zeigt die Fläche nach oben, mehr als `EDGE_ON` ihrer Normalen?
 fn nach_oben(q: &Quad) -> bool {
     let n = q.normal();
-    n[1] > 1e-4 * (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt()
+    n[1] > EDGE_ON * (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt()
 }
 
 /// Von oben stünden die senkrechten Flächen einer Pflanze auf der Kante.

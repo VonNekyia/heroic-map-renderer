@@ -15,7 +15,8 @@ code:
 # 0122: Relief von oben als Schalter
 
 Ergänzt [0101](0101-zeichenstand-je-look.md) um einen eigenen Zeichenstand
-für das Relief.
+für das Relief. Ergänzt durch [0132](0132-relief-als-schicht.md): die
+Schicht für den Mod.
 
 ## Anlass
 

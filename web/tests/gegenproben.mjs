@@ -141,8 +141,8 @@ export default [
   { name: 'bogen-nie-kleiner', datei: 'src/style.css', alt: '  transform: scale(var(--name-teil, 1));\n  transform-origin: 0 0;', neu: '  transform-origin: 0 0;', spec: 'tests/ebenen.spec.ts', titel: 'nach 0119 bleiben Nadeln' },
   { name: 'grenze-eine-stufe-frueher', datei: 'src/ebenen.ts', alt: 'const NAMEN = { grenze: 1 / 16,', neu: 'const NAMEN = { grenze: 1 / 8,', spec: 'tests/ebenen.spec.ts', titel: 'nach 0119 bleiben Nadeln' },
   { name: 'namen-nie-weg', datei: 'src/ebenen.ts', alt: 'const deck = Math.min(1, Math.max(0, (NAME.s * teil - NAMEN.weg) / (NAMEN.voll - NAMEN.weg)));', neu: 'const deck = Math.min(1, NAME.s * teil);', spec: 'tests/ebenen.spec.ts', titel: 'nach 0119 bleiben Nadeln' },
-  { name: 'weg-ohne-uebergang', datei: 'src/style.css', alt: '    opacity 0.25s cubic-bezier(0, 0, 0.25, 1),\n', neu: '', spec: 'tests/ebenen.spec.ts', titel: 'nach 0119 bleiben Nadeln' },
-  { name: 'unsichtbar-sofort', datei: 'src/style.css', alt: ',\n    visibility 0.25s;', neu: ';', spec: 'tests/ebenen.spec.ts', titel: 'nach 0119 bleiben Nadeln' },
+  { name: 'weg-ohne-uebergang', datei: 'src/style.css', alt: '    opacity var(--namen-dauer) cubic-bezier(0, 0, 0.25, 1),\n', neu: '', spec: 'tests/ebenen.spec.ts', titel: 'nach 0119 bleiben Nadeln' },
+  { name: 'unsichtbar-sofort', datei: 'src/style.css', alt: ',\n    visibility var(--namen-dauer);', neu: ';', spec: 'tests/ebenen.spec.ts', titel: 'nach 0119 bleiben Nadeln' },
   { name: 'weg-bleibt-ziel', datei: 'src/ebenen.ts', alt: "el.classList.toggle('namen-weg', namen.deck === 0);", neu: "el.classList.toggle('namen-weg', namen.deck < 0);", spec: 'tests/ebenen.spec.ts', titel: 'nach 0119 bleiben Nadeln' },
   // Köpfe in Ebenen, 0118.
   { name: 'kopf-nie-an-der-nadel', datei: 'src/ebenen.ts', alt: '    if (gesicht) return', neu: "    if (gesicht && n.size === 'small') return", spec: 'tests/ebenen.spec.ts', titel: 'nach 0118 zeigt eine Nadel mit head' },
@@ -184,4 +184,9 @@ export default [
   { name: 'grenze-echt-kleiner', datei: 'src/ebenen.ts', alt: '<= e.maxBlocksPerPixel * (1 + 1e-9)', neu: '< e.maxBlocksPerPixel', spec: 'tests/ebenen.spec.ts', titel: 'nach 0131 holt die Karte' },
   { name: 'grenze-in-stufen', datei: 'src/ebenen.ts', alt: '1 / (blockBreite(blick) * 2 ** (map.getZoom() - maxZoom))', neu: '1 / (4 * 2 ** (map.getZoom() - maxZoom))', spec: 'tests/ebenen.spec.ts', titel: 'nach 0131 gilt die Zoomgrenze in Blöcken' },
   { name: 'hinein-neu-geladen', datei: 'src/ebenen.ts', alt: 'if (drin && (!g || g.version !== e.version)) void ladeEbene', neu: 'if (drin) void ladeEbene', spec: 'tests/ebenen.spec.ts', titel: 'nach 0131 holt die Karte' },
+  // Namen ganz aus dem Layout, V4 aus dem Stresstest.
+  { name: 'namen-aus-sofort', datei: 'src/ebenen.ts', alt: "setTimeout(() => el.classList.add('namen-aus'), namenDauer())", neu: "setTimeout(() => el.classList.add('namen-aus'), 0 * namenDauer())", spec: 'tests/ebenen.spec.ts', titel: 'nach dem Ausblenden aus 0119 sind die Namen' },
+  { name: 'namen-aus-zeitgeber-bleibt', datei: 'src/ebenen.ts', alt: '    clearTimeout(namenAus.get(el));\n', neu: '', spec: 'tests/ebenen.spec.ts', titel: 'nach dem Ausblenden aus 0119 sind die Namen' },
+  { name: 'namen-springen-ein', datei: 'src/ebenen.ts', alt: '      void el.offsetWidth;\n', neu: '', spec: 'tests/ebenen.spec.ts', titel: 'nach dem Ausblenden aus 0119 sind die Namen' },
+  { name: 'namen-dauer-ohne-einheit', datei: 'src/ebenen.ts', alt: "return wert.endsWith('ms') ? zahl : zahl * 1000;", neu: "return wert.endsWith('ms') ? zahl : zahl;", spec: 'tests/ebenen.spec.ts', titel: 'nach dem Ausblenden aus 0119 sind die Namen' },
 ];

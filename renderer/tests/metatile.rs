@@ -6483,6 +6483,46 @@ fn welt_mit_pflanzen(dir: &TempDir) -> World {
     World::open(dir.path()).unwrap()
 }
 
+/// Eine Feldfrucht aus dem Testpaket, 32 Einheiten hoch und oben halb
+/// durchsichtig, kippt von oben genau wie dieselbe, über dem Block von Hand
+/// abgeschnitten: Was über dem Block leer ist, fällt vor dem Einpassen weg.
+/// Sonst stauchte es den sichtbaren Teil auf einen halben Block.
+/// Siehe docs/renderer/kamera.md, „Pflanzen von oben“.
+#[test]
+fn hohe_feldfrucht_ohne_leeren_rand() {
+    let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    let mut assets = Assets::open(vec![
+        fixtures.join("assets-base"),
+        fixtures.join("assets-pflanzen-paket"),
+    ])
+    .unwrap();
+    let projection = Projection::mit_kamera(16, Kamera::ObenNord);
+    let rect = ScreenRect {
+        x: 0,
+        y: 0,
+        width: 64,
+        height: 64,
+    };
+    let mut bild = |block: &'static str| {
+        let dir = tempdir();
+        common::write_world(dir.path(), &[(0, 0)], |x, y, z| match (y, x, z) {
+            (0, _, _) => "minecraft:grass_block",
+            (1, 2, 2) => block,
+            _ => "minecraft:air",
+        });
+        let world = World::open(dir.path()).unwrap();
+        let sprites = tabelle(&mut assets, &world, projection);
+        render_area(&world, &sprites, rect, Y_RANGE).unwrap()
+    };
+    let hoch = bild("minecraft:hohefrucht");
+    let kurz = bild("minecraft:kurzfrucht");
+    let gras = bild("minecraft:air");
+    let anders =
+        |a: &RgbaImage, b: &RgbaImage| a.pixels().zip(b.pixels()).filter(|(p, q)| p != q).count();
+    assert!(anders(&kurz, &gras) > 32, "die Feldfrucht zeigt sich");
+    assert_eq!(anders(&hoch, &kurz), 0, "wie von Hand abgeschnitten");
+}
+
 /// Von oben kippt eine Bodenpflanze um 45° nach Norden, eingepasst in ihren
 /// Block, statt mit ihren senkrechten Flächen zu verschwinden:
 /// - das Kreuz mit Westen blau, Osten rot und der dunklen Spitze im Norden,

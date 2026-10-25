@@ -339,10 +339,113 @@ fn nach_oben(q: &Quad) -> bool {
     n[1] > EDGE_ON * (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt()
 }
 
+/// Eine Fläche, die kippt, ohne was über und unter dem Block ganz
+/// durchsichtig ist: oben bis zum Deckenden ihrer Textur, mindestens bis
+/// y = 1, unten ebenso bis y = 0. Im Block bleibt sie, wie sie ist.
+/// Geschnitten wird nur, wenn ein Paar Kanten waagrecht liegt, entlang des
+/// anderen, die UV mit; `None`, wenn nichts bleibt.
+/// Siehe docs/renderer/kamera.md, „Pflanzen von oben“.
+fn ohne_leeren_rand(q: &Quad, textures: &Textures) -> Option<Quad> {
+    let y = q.corners.map(|[_, y, _]| y);
+    let unten = y.iter().copied().fold(f32::MAX, f32::min);
+    let oben = y.iter().copied().fold(f32::MIN, f32::max);
+    if unten >= 0.0 && oben <= 1.0 {
+        return Some(q.clone());
+    }
+    // Je Ecke die, mit der sie die nicht waagrechte Kante teilt.
+    let partner = if y[0] == y[1] && y[2] == y[3] && y[0] != y[3] {
+        [3, 2, 1, 0]
+    } else if y[1] == y[2] && y[3] == y[0] && y[0] != y[1] {
+        [1, 0, 3, 2]
+    } else {
+        return Some(q.clone());
+    };
+    let Some((deckend_unten, deckend_oben)) = deckend_in_y(q, textures) else {
+        return Some(q.clone());
+    };
+    let neu_oben = deckend_oben.max(oben.min(1.0));
+    let neu_unten = deckend_unten.min(unten.max(0.0));
+    if neu_oben >= oben && neu_unten <= unten {
+        return Some(q.clone());
+    }
+    if neu_oben <= neu_unten {
+        return None;
+    }
+    let mut neu = q.clone();
+    for (i, &j) in partner.iter().enumerate() {
+        let t = if y[i] > neu_oben {
+            (y[i] - neu_oben) / (y[i] - y[j])
+        } else if y[i] < neu_unten {
+            (neu_unten - y[i]) / (y[j] - y[i])
+        } else {
+            continue;
+        };
+        for k in 0..3 {
+            neu.corners[i][k] = q.corners[i][k] + (q.corners[j][k] - q.corners[i][k]) * t;
+        }
+        for k in 0..2 {
+            neu.uvs[i][k] = q.uvs[i][k] + (q.uvs[j][k] - q.uvs[i][k]) * t;
+        }
+    }
+    Some(neu)
+}
+
+/// Von wo bis wo in y die deckenden Texel einer Fläche reichen: Alpha über
+/// 0 im ersten Bild, über die Ecken jedes Texels im UV-Rechteck, denn y ist
+/// auf der Fläche affin in u und v. Ohne deckendes Texel
+/// `(f32::MAX, f32::MIN)`; `None`, wenn die UV keine Fläche aufspannen.
+fn deckend_in_y(q: &Quad, textures: &Textures) -> Option<(f32, f32)> {
+    let [a, b, c, _] = q.uvs.map(|[u, v]| [f64::from(u), f64::from(v)]);
+    let [ya, yb, yc, _] = q.corners.map(|[_, y, _]| f64::from(y));
+    let det = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+    if det.abs() < 1e-12 {
+        return None;
+    }
+    let du = ((yb - ya) * (c[1] - a[1]) - (b[1] - a[1]) * (yc - ya)) / det;
+    let dv = ((b[0] - a[0]) * (yc - ya) - (yb - ya) * (c[0] - a[0])) / det;
+    let y_bei = |u: f64, v: f64| ya + du * (u - a[0]) + dv * (v - a[1]);
+    let rand = |k: usize, f: fn(f64, f64) -> f64, start: f64| {
+        q.uvs.iter().map(|uv| f64::from(uv[k])).fold(start, f)
+    };
+    let (u0, u1) = (rand(0, f64::min, f64::MAX), rand(0, f64::max, f64::MIN));
+    let (v0, v1) = (rand(1, f64::min, f64::MAX), rand(1, f64::max, f64::MIN));
+    let bild = textures.image(q.texture);
+    let (breite, hoehe) = (f64::from(bild.width()), f64::from(bild.height()));
+    let texel = |uv: f64, n: f64, runden: fn(f64) -> f64| runden(uv * n).clamp(0.0, n) as u32;
+    let (mut unten, mut oben) = (f64::MAX, f64::MIN);
+    for ty in texel(v0, hoehe, f64::floor)..texel(v1, hoehe, f64::ceil) {
+        for tx in texel(u0, breite, f64::floor)..texel(u1, breite, f64::ceil) {
+            if bild.get_pixel(tx, ty)[3] == 0 {
+                continue;
+            }
+            let (ua, ub) = (
+                (f64::from(tx) / breite).max(u0),
+                (f64::from(tx + 1) / breite).min(u1),
+            );
+            let (va, vb) = (
+                (f64::from(ty) / hoehe).max(v0),
+                (f64::from(ty + 1) / hoehe).min(v1),
+            );
+            for (u, v) in [(ua, va), (ua, vb), (ub, va), (ub, vb)] {
+                let y = y_bei(u, v);
+                unten = unten.min(y);
+                oben = oben.max(y);
+            }
+        }
+    }
+    Some(if oben < unten {
+        (f32::MAX, f32::MIN)
+    } else {
+        (unten as f32, oben as f32)
+    })
+}
+
 /// Von oben stünden die senkrechten Flächen einer Pflanze auf der Kante.
 /// Darum kippen die Flächen, für die `kippt` gilt, starr um die waagrechte
 /// Achse durch die Mitte des Blockbodens, oben nach `norden` (x, z), um
-/// [`KIPPEN_GRAD`], und kommen zurück auf ihre alte Tiefe. Es bleiben die,
+/// [`KIPPEN_GRAD`], und kommen zurück auf ihre alte Tiefe. Vorher fällt weg,
+/// was über und unter dem Block ganz durchsichtig ist
+/// ([`ohne_leeren_rand`]). Es bleiben die,
 /// die danach nach oben zeigen, schattiert wie nach oben. Entlang `norden`
 /// werden sie so wenig wie nötig in den Block geschoben, über einen Block
 /// Spanne auf einen gestaucht. Unter Wasser bleiben sie
@@ -352,11 +455,16 @@ fn nach_oben(q: &Quad) -> bool {
 fn gekippt_von_oben(
     model: &BakedModel,
     norden: [f32; 2],
+    textures: &Textures,
     kippt: impl Fn(&Quad) -> bool,
 ) -> BakedModel {
     let [dx, dz] = norden.map(f64::from);
     let (sin, cos) = KIPPEN_GRAD.to_radians().sin_cos();
     let (gekippt, bleiben): (Vec<&Quad>, Vec<&Quad>) = model.quads.iter().partition(|q| kippt(q));
+    let gekippt: Vec<Quad> = gekippt
+        .into_iter()
+        .filter_map(|q| ohne_leeren_rand(q, textures))
+        .collect();
     let (mut alt, mut neu) = (f32::MAX, f32::MAX);
     let mut flaechen: Vec<Quad> = gekippt
         .iter()
@@ -379,7 +487,7 @@ fn gekippt_von_oben(
                 corners,
                 shade: Some(Face::Up),
                 cullface: None,
-                ..(*q).clone()
+                ..q.clone()
             }
         })
         .filter(nach_oben)
@@ -424,7 +532,11 @@ fn gekippt_von_oben(
 /// festen Flächen kippen. Hat ein Modell eine, die liegt, etwa ein
 /// Blütenteppich oder Laubstreu, kippt nichts; von seinen festen Flächen
 /// bleiben dann nur die liegenden.
-fn bodenpflanze_von_oben(models: &[(u32, BakedModel)], norden: [f32; 2]) -> Vec<(u32, BakedModel)> {
+fn bodenpflanze_von_oben(
+    models: &[(u32, BakedModel)],
+    norden: [f32; 2],
+    textures: &Textures,
+) -> Vec<(u32, BakedModel)> {
     models
         .iter()
         .map(|(weight, model)| {
@@ -439,7 +551,7 @@ fn bodenpflanze_von_oben(models: &[(u32, BakedModel)], norden: [f32; 2]) -> Vec<
                         .collect(),
                     ..model.clone()
                 },
-                false => gekippt_von_oben(model, norden, fest),
+                false => gekippt_von_oben(model, norden, textures, fest),
             };
             (*weight, model)
         })
@@ -1008,7 +1120,7 @@ impl SpriteSet {
         let oben = von_oben(&self.projection) && self.kino.is_none();
         let norden = self.projection.richtung().norden_im_blick();
         let models = if oben && bodenpflanze {
-            gekippt = bodenpflanze_von_oben(models, norden);
+            gekippt = bodenpflanze_von_oben(models, norden, assets.textures());
             &gekippt[..]
         } else if oben && state.name() == "minecraft:bamboo" {
             // Beim Bambus kippen nur die Blätter.
@@ -1017,7 +1129,7 @@ impl SpriteSet {
                 .iter()
                 .map(|(weight, model)| {
                     let blatt = |q: &Quad| textures.name(q.texture).contains("leaves");
-                    (*weight, gekippt_von_oben(model, norden, blatt))
+                    (*weight, gekippt_von_oben(model, norden, textures, blatt))
                 })
                 .collect::<Vec<_>>();
             &gekippt[..]
@@ -1874,7 +1986,7 @@ mod tests {
     /// Siehe docs/renderer/kamera.md, „Pflanzen von oben“.
     #[test]
     fn kreuz_kippt_nach_norden_eingepasst() {
-        let gekippt = gekippt_von_oben(&kreuz(1.0), [0.0, -1.0], |_| true);
+        let gekippt = gekippt_von_oben(&kreuz(1.0), [0.0, -1.0], &Textures::new(), |_| true);
         assert_eq!(gekippt.quads.len(), 2);
         assert!(
             gekippt
@@ -1905,7 +2017,7 @@ mod tests {
     /// Block geschoben, nicht gestaucht.
     #[test]
     fn halbes_kreuz_wird_nur_geschoben() {
-        let gekippt = gekippt_von_oben(&kreuz(0.5), [0.0, -1.0], |_| true);
+        let gekippt = gekippt_von_oben(&kreuz(0.5), [0.0, -1.0], &Textures::new(), |_| true);
         let (z0, z1) = spanne(&gekippt.quads, 2);
         assert!(z0.abs() < 1e-5, "{z0}");
         assert!((z1 - z0 - 0.99).abs() < 1e-3, "Spanne {}", z1 - z0);
@@ -1926,7 +2038,8 @@ mod tests {
                 [1.0, oben, 0.0],
             ])
         });
-        let gekippt = gekippt_von_oben(&model, [0.0, -1.0], |q| q.fluid.is_none());
+        let gekippt =
+            gekippt_von_oben(&model, [0.0, -1.0], &Textures::new(), |q| q.fluid.is_none());
         let pflanze: Vec<Quad> = gekippt
             .quads
             .iter()
@@ -1952,7 +2065,9 @@ mod tests {
         ]);
         let mut model = kreuz(1.0);
         model.quads.push(stange.clone());
-        let gekippt = gekippt_von_oben(&model, [0.0, -1.0], |q| q.corners != stange.corners);
+        let gekippt = gekippt_von_oben(&model, [0.0, -1.0], &Textures::new(), |q| {
+            q.corners != stange.corners
+        });
         assert_eq!(gekippt.quads.len(), 3);
         assert_eq!(gekippt.quads[0].corners, stange.corners);
         assert!(gekippt.quads[1..].iter().all(|q| q.shade == Some(Face::Up)));
@@ -1970,7 +2085,7 @@ mod tests {
         ]);
         let mut model = kreuz(1.0);
         model.quads.push(flach.clone());
-        let ergebnis = bodenpflanze_von_oben(&[(1, model)], [0.0, -1.0]);
+        let ergebnis = bodenpflanze_von_oben(&[(1, model)], [0.0, -1.0], &Textures::new());
         let [(_, oben)] = &ergebnis[..] else {
             panic!("ein Modell");
         };
@@ -1987,6 +2102,132 @@ mod tests {
         };
         assert!(liegt(&neigung(1.0)));
         assert!(!liegt(&neigung(1.01)));
+    }
+
+    /// Eine Textur 16 breit und `hoch` hoch, deren Zeilen, für die `leer`
+    /// gilt, ganz durchsichtig sind.
+    fn textur(
+        textures: &mut Textures,
+        hoch: u32,
+        leer: impl Fn(u32) -> bool,
+    ) -> crate::assets::texture::TextureId {
+        let bild = RgbaImage::from_fn(16, hoch, |_, y| {
+            image::Rgba([90, 160, 60, if leer(y) { 0 } else { 255 }])
+        });
+        textures.einfuegen("pflanze", bild, false)
+    }
+
+    /// Ein Kreuz von `unten` bis `oben` mit dieser Textur, v = 0 oben.
+    fn kreuz_von(unten: f32, oben: f32, texture: crate::assets::texture::TextureId) -> BakedModel {
+        let mut model = kreuz(oben - unten);
+        for q in &mut model.quads {
+            q.texture = texture;
+            for ecke in &mut q.corners {
+                ecke[1] += unten;
+            }
+        }
+        model
+    }
+
+    fn zugeschnitten(model: &BakedModel, textures: &Textures) -> Vec<Quad> {
+        model
+            .quads
+            .iter()
+            .filter_map(|q| ohne_leeren_rand(q, textures))
+            .collect()
+    }
+
+    /// Eine Feldfrucht aus einem Paket, 32 Einheiten hoch von y = −1/16, oben
+    /// halb durchsichtig: Über dem Block fällt der leere Teil weg, die UV
+    /// mit, unten bleibt sie. Gekippt gleicht sie dann einer, die nur bis
+    /// y = 1 reicht, statt auf einen halben Block gestaucht zu werden.
+    /// Siehe docs/renderer/kamera.md, „Pflanzen von oben“.
+    #[test]
+    fn leerer_rand_ueber_dem_block_faellt_weg() {
+        let mut textures = Textures::new();
+        let halb = textur(&mut textures, 32, |y| y < 16);
+        let paket = kreuz_von(-1.0 / 16.0, 31.0 / 16.0, halb);
+        let geschnitten = zugeschnitten(&paket, &textures);
+        assert_eq!(geschnitten.len(), 4);
+        assert_eq!(spanne(&geschnitten, 1), (-1.0 / 16.0, 1.0));
+        for q in &geschnitten {
+            for (ecke, uv) in q.corners.iter().zip(&q.uvs) {
+                let v = if ecke[1] == 1.0 { 15.0 / 32.0 } else { 1.0 };
+                assert!((uv[1] - v).abs() < 1e-6, "v {} bei y {}", uv[1], ecke[1]);
+            }
+        }
+        let gekippt = gekippt_von_oben(&paket, [0.0, -1.0], &textures, |_| true);
+        let soll = gekippt_von_oben(
+            &kreuz_von(-1.0 / 16.0, 1.0, halb),
+            [0.0, -1.0],
+            &textures,
+            |_| true,
+        );
+        assert_eq!(gekippt.quads.len(), soll.quads.len());
+        for (ist, soll) in gekippt.quads.iter().zip(&soll.quads) {
+            for (a, b) in ist.corners.iter().zip(&soll.corners) {
+                for k in 0..3 {
+                    assert!((a[k] - b[k]).abs() < 1e-5, "{a:?} statt {b:?}");
+                }
+            }
+        }
+    }
+
+    /// Im Block bleibt eine Fläche, wie sie ist, auch mit durchsichtigen
+    /// Zeilen oben wie bei den Blumen des Spiels; ebenso über dem Block, wo
+    /// die Textur deckt: Dort endet sie erst am Deckenden.
+    #[test]
+    fn deckendes_und_der_block_bleiben() {
+        let mut textures = Textures::new();
+        let blume = textur(&mut textures, 16, |y| y < 6);
+        let im_block = kreuz_von(0.0, 1.0, blume);
+        for (ist, alt) in zugeschnitten(&im_block, &textures)
+            .iter()
+            .zip(&im_block.quads)
+        {
+            assert_eq!((ist.corners, ist.uvs), (alt.corners, alt.uvs));
+        }
+        // 4 leere Zeilen von 32: deckend bis 31/16 − 4/16 = 27/16.
+        let hoch = textur(&mut textures, 32, |y| y < 4);
+        let geschnitten = zugeschnitten(&kreuz_von(-1.0 / 16.0, 31.0 / 16.0, hoch), &textures);
+        assert_eq!(spanne(&geschnitten, 1), (-1.0 / 16.0, 27.0 / 16.0));
+    }
+
+    /// Unter dem Block fällt der leere Teil ebenso weg, bis zum Deckenden,
+    /// höchstens bis y = 0.
+    #[test]
+    fn leerer_rand_unter_dem_block_faellt_weg() {
+        let mut textures = Textures::new();
+        // 16 Zeilen über 1,5 Blöcke, die unteren 4 leer: deckend bis
+        // 1 − 1,5 · 12/16 = −0,125.
+        let unten_leer = textur(&mut textures, 16, |y| y >= 12);
+        let geschnitten = zugeschnitten(&kreuz_von(-0.5, 1.0, unten_leer), &textures);
+        assert_eq!(spanne(&geschnitten, 1), (-0.125, 1.0));
+        let ganz_leer = textur(&mut textures, 16, |_| true);
+        let geschnitten = zugeschnitten(&kreuz_von(-0.5, 1.5, ganz_leer), &textures);
+        assert_eq!(
+            spanne(&geschnitten, 1),
+            (0.0, 1.0),
+            "ohne Deckendes auf den Block"
+        );
+    }
+
+    /// Ganz über dem Block und leer fällt eine Fläche weg. Liegt kein Paar
+    /// Kanten waagrecht, bleibt sie ungeschnitten.
+    #[test]
+    fn ganz_leer_weg_und_schief_bleibt() {
+        let mut textures = Textures::new();
+        let leer = textur(&mut textures, 16, |_| true);
+        assert!(zugeschnitten(&kreuz_von(1.25, 1.75, leer), &textures).is_empty());
+        let mut schief = viereck([
+            [0.0, 1.5, 0.0],
+            [0.0, -0.25, 0.25],
+            [1.0, -0.5, 1.0],
+            [1.0, 1.75, 0.75],
+        ]);
+        schief.texture = leer;
+        let ist = ohne_leeren_rand(&schief, &textures).expect("bleibt");
+        assert_eq!(ist.corners, schief.corners);
     }
     use crate::assets::model_of;
     use crate::render::rasterizer::over;
@@ -3238,6 +3479,62 @@ mod tests {
                 "{kamera}: eine Fläche steht fast auf der Kante, Kosinus {steil}"
             );
         }
+    }
+
+    /// Mit den Assets des Spiels schneidet [`ohne_leeren_rand`] nichts weg:
+    /// Wo eine Fläche einer Bodenpflanze, die kippt, aus dem Block ragt, wie
+    /// bei den Feldfrüchten bis y = −1/16, deckt ihre Textur dort. Die Bilder
+    /// bleiben so bitgleich. Alle Zustände aus `blocks.txt`, dazu die Blätter
+    /// des Bambus. Braucht die Asset-Wurzeln in `ASSETS` wie
+    /// [`toenungskarte_an_allen_vanilla_bloecken`], deshalb `#[ignore]`:
+    ///
+    /// ```bash
+    /// ASSETS="$PWD/vanilla-assets:$PWD/assets" cargo test --release --manifest-path renderer/Cargo.toml --lib vanilla_ohne_leeren_rand -- --ignored --nocapture
+    /// ```
+    ///
+    /// Siehe docs/renderer/kamera.md, „Pflanzen von oben“.
+    #[test]
+    #[ignore]
+    fn vanilla_ohne_leeren_rand() {
+        let wurzeln = std::env::var_os("ASSETS").expect("ASSETS auf die Asset-Wurzeln setzen");
+        let mut assets = Assets::open(std::env::split_paths(&wurzeln).collect()).unwrap();
+        let (mut flaechen, mut ragen) = (0, BTreeSet::new());
+        let mut geschnitten = Vec::new();
+        for st in &vanilla_zustaende() {
+            let bambus = st.name() == "minecraft:bamboo";
+            if !bambus && !assets.bodenpflanze(st).unwrap() {
+                continue;
+            }
+            for (_, model) in models_of(&mut assets, st, None).unwrap() {
+                let textures = assets.textures();
+                let fest = |q: &Quad| q.fluid.is_none();
+                let liegt_eine = model.quads.iter().any(|q| fest(q) && liegt(q));
+                for q in &model.quads {
+                    let kippt = if bambus {
+                        textures.name(q.texture).contains("leaves")
+                    } else {
+                        fest(q) && !liegt_eine
+                    };
+                    if !kippt {
+                        continue;
+                    }
+                    flaechen += 1;
+                    if q.corners.iter().any(|e| e[1] < 0.0 || e[1] > 1.0) {
+                        ragen.insert(st.name().to_string());
+                    }
+                    match ohne_leeren_rand(q, textures) {
+                        Some(neu) if neu.corners == q.corners && neu.uvs == q.uvs => {}
+                        _ => geschnitten.push(format!("{st}: {}", textures.name(q.texture))),
+                    }
+                }
+            }
+        }
+        println!(
+            "{flaechen} Flächen, die kippen; aus dem Block ragen sie bei {} Blöcken: {ragen:?}",
+            ragen.len()
+        );
+        assert!(flaechen > 0 && !ragen.is_empty(), "nichts geprüft");
+        assert!(geschnitten.is_empty(), "geschnitten: {geschnitten:#?}");
     }
 
     /// Alle Zustände aus `blocks.txt`, wie ein Zählwerk, das letzte Merkmal

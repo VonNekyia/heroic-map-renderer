@@ -1,0 +1,141 @@
+{
+  "parent": "minecraft:block/crop",
+  "textures": {
+    "crop": "minecraft:block/hohefrucht",
+    "particle": "minecraft:block/hohefrucht"
+  },
+  "elements": [
+    {
+      "from": [
+        4,
+        -1,
+        0
+      ],
+      "to": [
+        4,
+        16,
+        16
+      ],
+      "shade": false,
+      "faces": {
+        "west": {
+          "uv": [
+            0,
+            7.5,
+            16,
+            16
+          ],
+          "texture": "#crop"
+        },
+        "east": {
+          "uv": [
+            0,
+            7.5,
+            16,
+            16
+          ],
+          "texture": "#crop"
+        }
+      }
+    },
+    {
+      "from": [
+        12,
+        -1,
+        0
+      ],
+      "to": [
+        12,
+        16,
+        16
+      ],
+      "shade": false,
+      "faces": {
+        "west": {
+          "uv": [
+            0,
+            7.5,
+            16,
+            16
+          ],
+          "texture": "#crop"
+        },
+        "east": {
+          "uv": [
+            0,
+            7.5,
+            16,
+            16
+          ],
+          "texture": "#crop"
+        }
+      }
+    },
+    {
+      "from": [
+        0,
+        -1,
+        4
+      ],
+      "to": [
+        16,
+        16,
+        4
+      ],
+      "shade": false,
+      "faces": {
+        "north": {
+          "uv": [
+            0,
+            7.5,
+            16,
+            16
+          ],
+          "texture": "#crop"
+        },
+        "south": {
+          "uv": [
+            0,
+            7.5,
+            16,
+            16
+          ],
+          "texture": "#crop"
+        }
+      }
+    },
+    {
+      "from": [
+        0,
+        -1,
+        12
+      ],
+      "to": [
+        16,
+        16,
+        12
+      ],
+      "shade": false,
+      "faces": {
+        "north": {
+          "uv": [
+            0,
+            7.5,
+            16,
+            16
+          ],
+          "texture": "#crop"
+        },
+        "south": {
+          "uv": [
+            0,
+            7.5,
+            16,
+            16
+          ],
+          "texture": "#crop"
+        }
+      }
+    }
+  ]
+}

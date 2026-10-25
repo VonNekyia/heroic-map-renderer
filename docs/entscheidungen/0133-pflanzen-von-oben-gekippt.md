@@ -47,7 +47,8 @@ derselben Regel, entschieden dort in 0049.
 - **Zeichenstände:** `map` und `flat` steigen wegen des Kippens, `cinematic`
   wegen der Farben und weil die Stiele dort jetzt den Strahl zur Sonne
   dämpfen. In Cinematic kippt nichts. Jeder Baum braucht einen vollen Lauf.
-  Auf main kommt er mit dem für die Schicht des Reliefs (0132) zusammen.
+  Auf main kommt er mit dem für die Schicht des Reliefs zusammen,
+  [0132](0132-relief-als-schicht.md).
 
 ## Anders als im Mod
 

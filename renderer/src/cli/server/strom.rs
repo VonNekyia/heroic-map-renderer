@@ -53,16 +53,28 @@ pub(super) struct Eintrag {
 }
 
 /// Was in den Strom eines Baums kommt, in fester Reihenfolge, und die
-/// erwartete Grösse des ZIP: `map.json`, `manifest`, dann die Kacheln des
-/// Manifests bis `stufe`, von grob nach fein, innerhalb einer Stufe wie im
-/// Manifest. Mit `nach` nur die Kacheln nach dieser; steht sie nicht darin,
-/// alle. Die Grösse der Kacheln ist die aus dem Manifest.
-pub(super) fn plan(baum: &Path, stufe: u8, nach: Option<Lage>) -> Result<(Vec<Eintrag>, u64)> {
+/// erwartete Grösse des ZIP: `map.json`, nur `mit_karte`, `manifest`, dann
+/// die Kacheln des Manifests bis `stufe`, von grob nach fein, innerhalb
+/// einer Stufe wie im Manifest. Mit `nach` nur die Kacheln nach dieser;
+/// steht sie nicht darin, alle. Die Grösse der Kacheln ist die aus dem
+/// Manifest. Ohne Karte sind es Schicht oder Rest des Reliefs.
+pub(super) fn plan(
+    baum: &Path,
+    stufe: u8,
+    nach: Option<Lage>,
+    mit_karte: bool,
+) -> Result<(Vec<Eintrag>, u64)> {
     let karte = baum.join("map.json");
     let manifest = baum.join(MANIFEST);
-    let n_karte = std::fs::metadata(&karte)
-        .with_context(|| format!("{} lesen", karte.display()))?
-        .len();
+    let n_karte = if mit_karte {
+        Some(
+            std::fs::metadata(&karte)
+                .with_context(|| format!("{} lesen", karte.display()))?
+                .len(),
+        )
+    } else {
+        None
+    };
     let roh = std::fs::read(&manifest).with_context(|| format!("{} lesen", manifest.display()))?;
     let mut kacheln = Vec::new();
     for zeile in BufReader::new(GzDecoder::new(&roh[..])).lines() {
@@ -79,18 +91,19 @@ pub(super) fn plan(baum: &Path, stufe: u8, nach: Option<Lage>) -> Result<(Vec<Ei
     }
 
     let groesse = |name: &str, n: u64| KOPF + name.len() as u64 + n;
-    let mut erwartet =
-        groesse("map.json", n_karte) + groesse(MANIFEST, roh.len() as u64) + groesse(ENDE, 0);
-    let mut liste = vec![
-        Eintrag {
+    let mut erwartet = groesse(MANIFEST, roh.len() as u64) + groesse(ENDE, 0);
+    let mut liste = Vec::new();
+    if let Some(n) = n_karte {
+        erwartet += groesse("map.json", n);
+        liste.push(Eintrag {
             name: "map.json".into(),
             pfad: karte,
-        },
-        Eintrag {
-            name: MANIFEST.into(),
-            pfad: manifest,
-        },
-    ];
+        });
+    }
+    liste.push(Eintrag {
+        name: MANIFEST.into(),
+        pfad: manifest,
+    });
     for ((z, x, y), n) in kacheln {
         let name = format!("{z}/{x}/{y}.webp");
         erwartet += groesse(&name, n);
@@ -413,7 +426,7 @@ pub(super) mod tests {
     fn von_grob_nach_fein_bis_zur_stufe() {
         let dir = tempfile::tempdir().unwrap();
         baum(dir.path(), &KACHELN);
-        let (plan, erwartet) = super::plan(dir.path(), 1, None).unwrap();
+        let (plan, erwartet) = super::plan(dir.path(), 1, None, true).unwrap();
         assert_eq!(
             namen(&plan),
             [
@@ -452,11 +465,29 @@ pub(super) mod tests {
         }
     }
 
+    /// Schicht und Rest des Reliefs haben keine `map.json`: Ihr Strom
+    /// beginnt mit dem Manifest, sonst wie der eines Baums.
+    #[test]
+    fn ohne_karte_fuer_die_schicht() {
+        let dir = tempfile::tempdir().unwrap();
+        baum(dir.path(), &KACHELN);
+        std::fs::remove_file(dir.path().join("map.json")).unwrap();
+        let (plan, erwartet) = super::plan(dir.path(), 1, None, false).unwrap();
+        assert_eq!(
+            namen(&plan),
+            [MANIFEST, "0/0/0.webp", "1/0/1.webp", "1/0/0.webp"]
+        );
+        let (zip, bericht) = strom(&plan, |_| true);
+        assert_eq!((&bericht.ende, bericht.dateien), (&Ende::Fertig, 4));
+        assert_eq!(erwartet, zip.len() as u64);
+        assert!(super::plan(dir.path(), 1, None, true).is_err(), "mit Karte");
+    }
+
     #[test]
     fn nach_setzt_hinter_der_kachel_fort() {
         let dir = tempfile::tempdir().unwrap();
         baum(dir.path(), &KACHELN);
-        let (plan, erwartet) = super::plan(dir.path(), 2, Some((1, 0, 1))).unwrap();
+        let (plan, erwartet) = super::plan(dir.path(), 2, Some((1, 0, 1)), true).unwrap();
         assert_eq!(
             namen(&plan),
             [
@@ -483,13 +514,13 @@ pub(super) mod tests {
             + std::fs::metadata(dir.path().join(MANIFEST)).unwrap().len())
             as u64;
         assert_eq!(gebucht.into_inner(), vorn + rest, "gebucht nur, was ging");
-        let (unbekannt, _) = super::plan(dir.path(), 2, Some((7, 7, 7))).unwrap();
+        let (unbekannt, _) = super::plan(dir.path(), 2, Some((7, 7, 7)), true).unwrap();
         assert_eq!(
             unbekannt.len(),
             7,
             "eine Kachel, die das Manifest nicht nennt: alle"
         );
-        let (letzte, _) = super::plan(dir.path(), 2, Some((2, -1, 3))).unwrap();
+        let (letzte, _) = super::plan(dir.path(), 2, Some((2, -1, 3)), true).unwrap();
         assert_eq!(
             namen(&letzte),
             ["map.json", MANIFEST],
@@ -501,7 +532,7 @@ pub(super) mod tests {
     fn eine_geaenderte_oder_fehlende_datei_bleibt_gueltig() {
         let dir = tempfile::tempdir().unwrap();
         baum(dir.path(), &KACHELN);
-        let (plan, _) = super::plan(dir.path(), 2, None).unwrap();
+        let (plan, _) = super::plan(dir.path(), 2, None, true).unwrap();
         std::fs::write(dir.path().join("1/0/1.webp"), b"inzwischen neu und laenger").unwrap();
         std::fs::remove_file(dir.path().join("2/0/0.webp")).unwrap();
         let (zip, bericht) = strom(&plan, |_| true);
@@ -530,7 +561,7 @@ pub(super) mod tests {
     fn am_deckel_bricht_er_ab_ohne_ende() {
         let dir = tempfile::tempdir().unwrap();
         baum(dir.path(), &KACHELN);
-        let (plan, _) = super::plan(dir.path(), 2, None).unwrap();
+        let (plan, _) = super::plan(dir.path(), 2, None, true).unwrap();
         let mut frei = std::fs::metadata(dir.path().join("map.json"))
             .unwrap()
             .len()
@@ -566,7 +597,7 @@ pub(super) mod tests {
             .map(|(l, b)| (l.as_str(), b.as_slice()))
             .collect();
         baum(dir.path(), &kacheln);
-        let (plan, _) = super::plan(dir.path(), 3, None).unwrap();
+        let (plan, _) = super::plan(dir.path(), 3, None, true).unwrap();
         let (zip, _) = strom(&plan, |_| true);
         let (eintraege, ganz) = auspacken(&zip);
         assert!(ganz);

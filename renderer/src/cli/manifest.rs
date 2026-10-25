@@ -137,9 +137,10 @@ impl<'a> Lauf<'a> {
         tausche(&pfad, &daten, None, true)
             .with_context(|| format!("{} schreiben", pfad.display()))?;
         println!(
-            "Manifest:   {kacheln} Kacheln, {:.1} MB gepackt, in {:.1} s",
+            "Manifest:   {kacheln} Kacheln, {:.1} MB gepackt, in {:.1} s -> {}",
             daten.len() as f64 / 1_048_576.0,
-            started.elapsed().as_secs_f64()
+            started.elapsed().as_secs_f64(),
+            pfad.display()
         );
         self.ohne_marken()
     }

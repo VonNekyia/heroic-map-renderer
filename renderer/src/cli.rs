@@ -2052,6 +2052,11 @@ fn write_tiles(
             }
             0
         };
+        if mit_manifest && relief.is_some() {
+            for ordner in ordner_der_schicht(dir)? {
+                manifest::ohne_aenderung(&ordner)?;
+            }
+        }
         match stand {
             // Der alte Stand gilt weiter; ihn neu zu schreiben kostete nur
             // Zeit und Platte.
@@ -2344,6 +2349,12 @@ fn write_tiles(
     // Ab jetzt lässt sich der Baum wählen, auch während seines ersten Laufs.
     schreibe_baeume(wurzel)?;
     let manifest = manifest::Lauf::beginne(dir, mit_manifest)?;
+    let ordner = relief.map(|_| ordner_der_schicht(dir)).transpose()?;
+    let manifeste_der_schicht = ordner
+        .iter()
+        .flatten()
+        .map(|ordner| manifest::Lauf::beginne(ordner, mit_manifest))
+        .collect::<Result<Vec<_>>>()?;
     // Bricht der Lauf ab, zeigen Kacheln vielleicht, was der Stand nicht
     // kennt. Ein voller Lauf macht darum im alten Stand alles unbekannt; ein
     // Update und ein Ausschnitt legen ihr Gebiet ab, das nächste Update
@@ -2611,11 +2622,17 @@ fn write_tiles(
     // ohne Chunk, die --prune neu zusammensetzt.
     // Wer umstellt, ändert jede Kachel der Pyramide: Das Manifest liest den
     // ganzen Baum.
-    let angefasst =
-        (manifest.schreibt() && !matches!(bereich, Bereich::Welt) && !umstellen).then(|| {
+    // Die Schicht hat eigene Waisen, ihr Manifest darum eigene Eltern.
+    let (angefasst, angefasst_der_schicht) =
+        if manifest.schreibt() && !matches!(bereich, Bereich::Welt) && !umstellen {
             let basis: BTreeSet<TileId> = kandidaten.union(&veraltet).copied().collect();
-            manifest::mit_eltern(max_zoom, &basis, &waisen)
-        });
+            (
+                Some(manifest::mit_eltern(max_zoom, &basis, &waisen)),
+                Some(manifest::mit_eltern(max_zoom, &basis, &waisen_der_schicht)),
+            )
+        } else {
+            (None, None)
+        };
     let (z, kandidaten, gezeigt, nativ_im_speicher) = render_coarser(
         world,
         assets,
@@ -2808,6 +2825,13 @@ fn write_tiles(
     )?;
     schreibe_baeume(wurzel)?;
     melde_karte(&info, anzahl, im_gebiet, &path);
+    let angefasst_der_schicht = angefasst_der_schicht.map(|mut alle| {
+        alle.extend(weg_der_schicht.iter().chain(&weg_des_rests));
+        alle
+    });
+    for lauf in manifeste_der_schicht {
+        lauf.schliesse(angefasst_der_schicht.as_ref())?;
+    }
     manifest.schliesse(angefasst.as_ref())?;
     // Zuletzt: Bricht der Lauf vorher ab, gilt der alte Stand, und das
     // nächste Update zeichnet dieselben Stellen noch einmal.
@@ -5486,6 +5510,16 @@ struct Ablage<'a> {
 /// Siehe docs/renderer/relief.md, „Die Schicht“.
 const SCHICHT: &str = "relief";
 const REST: &str = "rest";
+
+/// Die Ordner der Schicht und ihres Rests, angelegt. Jeder trägt sein
+/// eigenes Manifest; das des Baums bleibt so, wie es ohne Schicht wäre.
+/// Siehe docs/benutzung/server.md, „Die Schicht des Reliefs“.
+fn ordner_der_schicht(dir: &Path) -> Result<[PathBuf; 2]> {
+    let schicht = dir.join(SCHICHT);
+    let rest = schicht.join(REST);
+    std::fs::create_dir_all(&rest).with_context(|| format!("{} anlegen", rest.display()))?;
+    Ok([schicht, rest])
+}
 
 /// Die Schicht des Reliefs: ein Baum im Ordner [`SCHICHT`], der Rest einer
 /// in [`REST`] darin, beide mit eigenen Hashes. Eine Kachel, die nichts

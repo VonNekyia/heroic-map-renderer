@@ -2622,17 +2622,18 @@ fn write_tiles(
     // ohne Chunk, die --prune neu zusammensetzt.
     // Wer umstellt, ändert jede Kachel der Pyramide: Das Manifest liest den
     // ganzen Baum.
-    // Die Schicht hat eigene Waisen, ihr Manifest darum eigene Eltern.
-    let (angefasst, angefasst_der_schicht) =
-        if manifest.schreibt() && !matches!(bereich, Bereich::Welt) && !umstellen {
+    // Mit Schicht zählen ihre Waisen, die die des Baums umfassen; alle drei
+    // Manifeste ziehen dieselben Kacheln nach.
+    let angefasst =
+        (manifest.schreibt() && !matches!(bereich, Bereich::Welt) && !umstellen).then(|| {
             let basis: BTreeSet<TileId> = kandidaten.union(&veraltet).copied().collect();
-            (
-                Some(manifest::mit_eltern(max_zoom, &basis, &waisen)),
-                Some(manifest::mit_eltern(max_zoom, &basis, &waisen_der_schicht)),
-            )
-        } else {
-            (None, None)
-        };
+            let waisen = if relief.is_some() {
+                &waisen_der_schicht
+            } else {
+                &waisen
+            };
+            manifest::mit_eltern(max_zoom, &basis, waisen)
+        });
     let (z, kandidaten, gezeigt, nativ_im_speicher) = render_coarser(
         world,
         assets,
@@ -2825,12 +2826,8 @@ fn write_tiles(
     )?;
     schreibe_baeume(wurzel)?;
     melde_karte(&info, anzahl, im_gebiet, &path);
-    let angefasst_der_schicht = angefasst_der_schicht.map(|mut alle| {
-        alle.extend(weg_der_schicht.iter().chain(&weg_des_rests));
-        alle
-    });
     for lauf in manifeste_der_schicht {
-        lauf.schliesse(angefasst_der_schicht.as_ref())?;
+        lauf.schliesse(angefasst.as_ref())?;
     }
     manifest.schliesse(angefasst.as_ref())?;
     // Zuletzt: Bricht der Lauf vorher ab, gilt der alte Stand, und das

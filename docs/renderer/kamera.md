@@ -371,13 +371,32 @@ Die Minimap des Mods rechnet nach derselben Regel. Im Einzelnen:
 - **Welche Modelle:** Hat ein Modell eine Fläche, die eher liegt als steht,
   mit n_y ≥ cos 45° · |n|, kippt nichts, etwa bei Blütenteppichen und Laub
   am Boden. Von seinen festen Flächen bleiben dann nur die liegenden.
+- **Vorher fällt Leeres ausserhalb des Blocks weg** (`ohne_leeren_rand`):
+  Ragt eine Fläche, die kippt, über y = 1 oder unter y = 0 hinaus und ist
+  ihre Textur dort ganz durchsichtig, schneidet der Renderer sie ab. Sonst
+  mässe das Einpassen den leeren Teil mit, und eine Feldfrucht aus einem
+  Paket, 32 Einheiten hoch und oben leer, füllte nur einen halben Block.
+  - Deckend heisst Alpha über 0 im ersten Bild, im UV-Rechteck der Fläche.
+    Wie weit das Deckende in y reicht, zählt über die Ecken jedes deckenden
+    Texels; y ist auf der Fläche affin in u und v.
+  - Die neue Oberkante ist max(Oberkante des Deckenden, min(Oberkante, 1)),
+    die neue Unterkante min(Unterkante des Deckenden, max(Unterkante, 0)).
+    Im Block bleibt alles, auch durchsichtige Ränder wie bei den Blumen.
+    Ohne deckendes Texel bleibt der Teil im Block; liegt die Fläche ganz
+    ausserhalb, fällt sie weg.
+  - Geschnitten wird waagrecht und nur, wenn ein Paar Kanten waagrecht
+    liegt, entlang des anderen Paars, die UV mit. Sonst bleibt die Fläche
+    ganz.
+  - Mit den Assets des Spiels schneidet das nichts: Die Feldfrüchte und
+    Stiele ragen bis y = −1/16, ihre Textur deckt dort. So prüft es
+    `vanilla_ohne_leeren_rand`. Abgestimmt mit dem Mod am 25.10.
 - **Wie es kippt** (`gekippt_von_oben` in
   [`renderer/src/render/sprites.rs`](../../renderer/src/render/sprites.rs)):
   - starr um die waagrechte Achse durch die Mitte des Blockbodens, die
     Spitze nach oben im Bild, um 45°. In `top-north` aus `s` ist das
     Norden, wie im Mod;
   - danach wieder auf die alte Tiefe: Die tiefste Ecke aller Flächen liegt,
-    wo sie vorher lag;
+    wo sie vorher lag, gemessen nach dem Abschneiden;
   - es bleiben die Flächen, die danach nach oben zeigen, mehr als `EDGE_ON`
     ihrer Normalen, schattiert wie nach oben. Eine Ebene, die nach Osten
     oder Westen schaut, steht auch gekippt auf der Kante und fällt weg.

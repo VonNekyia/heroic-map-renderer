@@ -1,6 +1,6 @@
 ---
 title: "0133: Pflanzen von oben gekippt"
-description: Warum der Renderer Bodenpflanzen von oben um 45° nach oben im Bild kippt und in ihren Block einpasst, statt ihre erste Fläche flach zu legen; dass die unterste Wurzel sagt, was eine Pflanze ist, dass nur eine liegende Fläche ein Modell stehen lässt, dass Redstone und Stiele nach ihrem Zustand färben, warum die Zeichenstände aller drei Looks steigen und was anders ist als im Mod; löst 0108 ab.
+description: Warum der Renderer Bodenpflanzen von oben um 45° nach oben im Bild kippt und in ihren Block einpasst, statt ihre erste Fläche flach zu legen; dass die unterste Wurzel sagt, was eine Pflanze ist, dass nur eine liegende Fläche ein Modell stehen lässt, dass Redstone und Stiele nach ihrem Zustand färben, warum die Zeichenstände aller drei Looks steigen und was anders ist als im Mod, dazu der Nachtrag, dass Leeres ausserhalb des Blocks vor dem Kippen wegfällt; löst 0108 ab.
 status: gilt
 date: 2026-10-24
 issues: []
@@ -49,6 +49,25 @@ derselben Regel, entschieden dort in 0049.
   dämpfen. In Cinematic kippt nichts. Jeder Baum braucht einen vollen Lauf.
   Auf main kommt er mit dem für die Schicht des Reliefs zusammen,
   [0132](0132-relief-als-schicht.md).
+
+## Nachtrag 25.10.: Leeres ausserhalb des Blocks
+
+Ein Paket mit Feldfrüchten von 32 Einheiten Höhe, oben durchsichtig, kam
+gestaucht auf einen halben Block heraus: Das Einpassen mass auch den leeren
+Teil über dem Block. Darum schneidet der Renderer vor dem Kippen ab, was
+über y = 1 oder unter y = 0 liegt und dort ganz durchsichtig ist. Die Regel
+steht in [Die Kamera](../renderer/kamera.md), „Pflanzen von oben“.
+
+- **Nur ausserhalb des Blocks:** Ein Schnitt auf das ganze deckende
+  Rechteck änderte die Blumen des Spiels mit ihren durchsichtigen Rändern.
+  Regel des Reviewers, im Mod und im Renderer gleich, abgestimmt am 25.10.
+- **Kein neuer Zeichenstand:** Mit den Assets des Spiels schneidet die
+  Regel nichts, geprüft an allen Zuständen von 26.3
+  (`vanilla_ohne_leeren_rand`). Die Packs auf main ändern daran nichts:
+  Keines bringt Modelle oder Texturen von Pflanzen, und der Renderer liest
+  dort nur die Assets des Spiels. Ein Baum mit einem Paket wie oben
+  zeichnet nach einem vollen Lauf richtig; ein Update zieht nur nach, was
+  es anfasst.
 
 ## Anders als im Mod
 

@@ -1,6 +1,6 @@
 ---
 title: "0132: Relief als Schicht für den Mod"
-description: Warum die Kacheln das Relief aus --relief eingebacken behalten und der Renderer daneben je Kachel eine Schicht mit 18 Codes je Pixel schreibt, aus der der Mod ohne, slope und shadows rechnet; das Format in map.json, warum auch slope bis zum Schatten zeichnet, ZEICHENSTAND_RELIEF 2, was der Mod nur genähert zurückrechnet und was verworfen ist; ergänzt 0122.
+description: Warum die Kacheln das Relief aus --relief eingebacken behalten und der Renderer daneben je Kachel eine Schicht mit 18 Codes je Pixel schreibt, aus der der Mod ohne, slope und shadows rechnet; das Format in map.json, warum auch slope bis zum Schatten zeichnet, ZEICHENSTAND_RELIEF 2, was der Mod nur genähert zurückrechnet, wie Schicht und Rest mit eigenem Manifest und Strom ausgeliefert werden und was verworfen ist; ergänzt 0122.
 status: gilt
 date: 2026-10-24
 issues: []
@@ -10,6 +10,9 @@ code:
   - renderer/src/render/stand.rs
   - renderer/src/render/pyramid.rs
   - renderer/src/cli.rs
+  - renderer/src/cli/manifest.rs
+  - renderer/src/cli/server.rs
+  - renderer/src/cli/server/strom.rs
 ---
 
 # 0132: Relief als Schicht für den Mod
@@ -77,8 +80,24 @@ Renderer:
   erst eine eigene Entscheidung aus. Auf der Testwelt sind es 4,6 %, 60,3 MB
   in 60 % der Basiskacheln, gemessen in
   [2026-10-25, Update mit der Schicht des Reliefs](../messungen/2026-10-25-update-mit-relief-schicht.md).
-  Der Renderer schreibt ihn; ob PR 2 ihn ausliefert, entscheidet der
-  Reviewer.
+  Der User entschied am 25.10.: der Rest ganz, mit Pyramide, statt nur auf
+  der Basis oder ohne.
+
+## Ausliefern
+
+Abgestimmt mit dem Reviewer, dem Mod und dem Plugin am 24. und 25.10. Die
+Einzelheiten stehen in [Server](../benutzung/server.md), „Die Schicht des
+Reliefs“.
+
+- **Wie je ein Baum:** Schicht und Rest haben je ein eigenes Manifest und
+  einen eigenen Strom, `/download/<baum>/relief.zip` und
+  `/download/<baum>/relief/rest.zip`, ohne `map.json`. Der Mod nimmt dafür
+  denselben Weg wie für einen Baum, nur mit anderem Pfad.
+- **Der Baum bleibt Byte für Byte:** Manifest und Strom des Baums nennen
+  nichts aus der Schicht. Ältere Mods brechen bei fremden Zeilen im
+  Manifest oder Einträgen im Strom ab.
+- **Prüfsummen:** Das Plugin bietet die Manifeste von Schicht und Rest mit
+  eigener Prüfsumme an, neben der des Baums.
 
 ## Was es kostet
 
@@ -108,6 +127,11 @@ auf der ganzen Testwelt bei scale 4 gegen eingebackenes `slope` ohne Schicht:
 - **Kacheln ohne Relief, der Server mischt beim Ausliefern:** Kosten je
   Anfrage und ein Cache. Wer die Kacheln statisch ausliefert, zeigte kein
   Relief.
+- **Schicht und Rest in Manifest und Strom des Baums:** Ältere Mods brächen
+  ab, siehe „Ausliefern“.
+- **Der Rest im Strom der Schicht:** Namen wie `rest/<z>/…` und `?nach=`
+  bräuchten im Mod einen eigenen Weg. Zwei Ströme in der Form eines Baums
+  liest er mit dem Weg, den er schon hat.
 - **`relief` als Objekt** mit Standard und Schicht: Das Feld wechselte
   seinen Typ, und alte Clients läsen es falsch. Ein Feld daneben passt zu
   `heights` und `heightsCell`.

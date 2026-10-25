@@ -1,6 +1,6 @@
 ---
 title: "Server: --serve"
-description: Wie der Renderer Karte und Kacheln selbst ausliefert, für Plugin, EXE und von Hand; Schalter, Pfade, Header, ETag und 304, MIME, 404, die Grenzen am offenen Netz, HTTPS aus PEM, das Ende mit stdin, den Download mit Token für den Mod, einzeln und als ein Strom im ZIP, die Webkarte je Spieler mit Anmeldung oder Erkennung per IP, auch über einen Namen nur mit IPv4, Aktionsebenen, Knöpfen und Mitspielern unter /api/ und die Angaben der Seite zur Laufzeit.
+description: Wie der Renderer Karte und Kacheln selbst ausliefert, für Plugin, EXE und von Hand; Schalter, Pfade, Header, ETag und 304, MIME, 404, die Grenzen am offenen Netz, HTTPS aus PEM, das Ende mit stdin, den Download mit Token für den Mod, einzeln und als ein Strom im ZIP, auch Schicht und Rest des Reliefs, die Webkarte je Spieler mit Anmeldung oder Erkennung per IP, auch über einen Namen nur mit IPv4, Aktionsebenen, Knöpfen und Mitspielern unter /api/ und die Angaben der Seite zur Laufzeit.
 code:
   - renderer/src/cli/server.rs
   - renderer/src/cli/server/strom.rs
@@ -69,7 +69,9 @@ Server:     http://127.0.0.1:8080 mit ./tiles unter /tiles/ und ./web/dist unter
   | `<baum>/map.json`, `<baum>/manifest` | Angaben und Manifest eines Baums |
   | `<baum>/heights/<x>.<z>.bin`, `<baum>/ground/<x>.<z>.bin` | dasselbe für einen Baum ohne Wurzel |
   | `<baum>/<z>/<x>/<y>.webp` | eine Kachel |
-  | `map.json`, `manifest`, `<z>/<x>/<y>.webp` | dasselbe für einen einzelnen Baum als Wurzel |
+  | `<baum>/relief/manifest`, `<baum>/relief/<z>/<x>/<y>.webp` | Manifest und Kacheln der Schicht des Reliefs, siehe „Die Schicht des Reliefs“ |
+  | `<baum>/relief/rest/manifest`, `<baum>/relief/rest/<z>/<x>/<y>.webp` | dasselbe für ihren Rest |
+  | `map.json`, `manifest`, `<z>/<x>/<y>.webp` | dasselbe für einen einzelnen Baum als Wurzel, ohne Schicht |
   | `layers.json` | die Liste der Ebenen, siehe [Ebenen](ebenen.md) |
   | `layers/<modname>/<ebene>.json` | die Datei einer Ebene |
   | `layers/<modname>/images/<bild>.png`, `.webp` | ein Bild einer Ebene |
@@ -79,7 +81,7 @@ Server:     http://127.0.0.1:8080 mit ./tiles unter /tiles/ und ./web/dist unter
   Ein Baum heisst nur `a–z 0–9 -`, die Zahlen stehen, wie der Renderer sie
   schreibt, ohne `+` und führende Nullen. Alles andere gibt `404`, auch
   `stand.bin` und die Regionen in `stand/` und `stand-neu/`, die Hashes
-  unter `pixel/`, die Marken des Manifests, der
+  unter `pixel/`, auch die der Schicht, die Marken der Manifeste, der
   Stempel `.stempel` eines Satzes und halb geschriebene Dateien
   `<name>.<pid>.tmp`.
 - **Die Ebenen** liefert er mit ETag, `304` und `no-cache`, auch ihre
@@ -321,6 +323,8 @@ heroic-map-renderer --serve ./tiles --listen 0.0.0.0:8080 --secret-file geheimni
   | `/download/<baum>/manifest` | das Manifest, siehe [Plugin](../plugin.md), „Manifest“ |
   | `/download/<baum>/<z>/<x>/<y>.webp` | eine Kachel bis zur Stufe des Tokens |
   | `/download/<baum>.zip` | alles davon in einer Antwort, siehe „Download als Strom“ |
+  | `/download/<baum>/relief/…`, `/download/<baum>/relief/rest/…` | Manifest und Kacheln von Schicht und Rest, siehe „Die Schicht des Reliefs“ |
+  | `/download/<baum>/relief.zip`, `/download/<baum>/relief/rest.zip` | jedes davon als Strom |
 
   Baum und Kachel heissen wie unter `/tiles/`, nur muss `trees.json` den
   Baum nicht nennen. Die Wurzel muss Bäume tragen; ein einzelner Baum als
@@ -406,6 +410,50 @@ einer Anfrage statt einer je Kachel (#289). Code: `download_strom` in
 - **Log:** je Strom eine Zeile, wenn er endet, etwa
   `Download:   <baum> als ZIP bis Stufe <s> für <uuid>: <n> Dateien, <mb> MB in <sek> s`,
   mit `nach` und dem Grund eines Abbruchs.
+
+## Die Schicht des Reliefs
+
+Mit `--relief` liegen im Baum die Schicht des Reliefs und ihr Rest, siehe
+[Relief von oben](../renderer/relief.md), „Die Schicht“. Der Server liefert
+beide wie je einen Baum darin aus, für den Mod. Code: `kachelpfad`,
+`download` und `download_strom` in
+[`server.rs`](../../renderer/src/cli/server.rs), `ordner_der_schicht` in
+[`cli.rs`](../../renderer/src/cli.rs). Warum so:
+[0132](../entscheidungen/0132-relief-als-schicht.md), „Ausliefern“.
+
+- **Ordner:** `<baum>/relief/` für die Schicht, `<baum>/relief/rest/` für
+  den Rest, je mit `manifest` und `<z>/<x>/<y>.webp`. Die Stufen sind die
+  des Baums. Die Schicht hat zu jeder Kachel eine, der Rest nur zu Kacheln
+  mit abgeschnittenen Pixeln.
+- **Manifeste:** je eines in beiden Ordnern, im Format des Baums, siehe
+  [Plugin](../plugin.md), „Manifest“.
+  - Sie entstehen mit `--manifest` in jedem Lauf mit `--relief`, am Ende
+    direkt vor dem des Baums, und ziehen dieselben Kacheln nach wie er.
+  - Je Lauf liegt in beiden Ordnern eine eigene Marke
+    `manifest-offen-<pid>-<ns>`. Im Lauf mit Kacheln liegt die des Baums
+    die ganze Zeit dabei. Ein Update ohne Änderung, das ein fehlendes
+    Manifest der Schicht schreibt, legt nur die im Ordner der Schicht.
+  - Ein Update ohne Änderung schreibt ein fehlendes; ohne `--manifest`
+    verschwinden sie wie das des Baums. Der Rest hat immer eines, notfalls
+    leer.
+- **Manifest und Strom des Baums** bleiben, wie sie ohne Schicht wären.
+  Ältere Mods brechen bei fremden Zeilen ab.
+- **Einzeln** unter `/tiles/` und `/download/` mit den Pfaden aus den
+  Tabellen oben. Unter `/download/` prüft der Server Baum und Stufe des
+  Tokens wie bei den Kacheln des Baums.
+- **Als Strom:** `GET /download/<baum>/relief.zip` und
+  `/download/<baum>/relief/rest.zip`, wie `/download/<baum>.zip` in
+  „Download als Strom“, nur ohne `map.json`: `manifest`, die Kacheln bis
+  zur Stufe des Tokens, zuletzt `ende`.
+  - `?nach=`, `X-Heroic-Bytes`, Deckel und Grenzen gelten genauso. Je
+    Zufall läuft ein Strom zur Zeit; der Mod lädt die drei nacheinander.
+  - Jeder andere Pfad unter `<baum>/` vor `.zip` gibt `404`.
+  - Die Zeile im Log nennt `<baum>/relief` oder `<baum>/relief/rest` statt
+    des Baums.
+- **Getestet** in `download_der_schicht` in
+  [`renderer/tests/server.rs`](../../renderer/tests/server.rs) und in
+  `manifeste_der_schicht` in
+  [`renderer/tests/cli.rs`](../../renderer/tests/cli.rs).
 
 ## Aktionsebenen
 

@@ -36,6 +36,12 @@ export default [
   { name: 'vergroessert-geglaettet', datei: 'src/ebenen.ts', alt: '      img.classList.add(\'ganz\');\n', neu: '', spec: 'tests/ebenen.spec.ts', titel: 'breiter als 320' },
   { name: 'schrift-nicht-geladen', datei: 'src/ebenen.ts', alt: '      void ladeSchrift();\n', neu: '      if (b < 0) void ladeSchrift();\n', spec: 'tests/ebenen.spec.ts', titel: 'eine Nadel mit Namen lädt die Kartenschrift' },
   { name: 'spacing-ungekappt', datei: 'src/schrift.ts', alt: 'Math.min(SPERRUNG, Math.max(0, wert.spacing))', neu: 'Math.min(SPERRUNG * 100, Math.max(-100, wert.spacing))', spec: 'tests/formen.spec.ts', titel: 'Grenzfälle der Kartenschrift' },
+  // Das Rad über der Tafel.
+  { name: 'tafel-faengt-rad', datei: 'src/ebenen.ts', alt: "L.DomEvent.off(inhalt, 'wheel', L.DomEvent.stopPropagation);", neu: '', spec: 'tests/ebenen.spec.ts', titel: 'die Tafel fängt das Rad nicht' },
+  { name: 'tafel-scrollt-und-zoomt', datei: 'src/ebenen.ts', alt: 'if (platz > 1) e.stopPropagation();', neu: 'if (platz < 0) e.stopPropagation();', spec: 'tests/ebenen.spec.ts', titel: 'in der Tafel scrollt das Rad' },
+  { name: 'tafel-haelt-rad-am-ende', datei: 'src/ebenen.ts', alt: 'if (platz > 1) e.stopPropagation();', neu: 'if (platz >= 0) e.stopPropagation();', spec: 'tests/ebenen.spec.ts', titel: 'in der Tafel scrollt das Rad' },
+  { name: 'tafel-platz-falsche-richtung', datei: 'src/ebenen.ts', alt: 'const platz = e.deltaY < 0 ?', neu: 'const platz = e.deltaY > 0 ?', spec: 'tests/ebenen.spec.ts', titel: 'in der Tafel scrollt das Rad' },
+  { name: 'tafel-ohne-zeiger', datei: 'src/style.css', alt: '.tafel .leaflet-popup-content {\n  max-height: 70vh;', neu: '.tafel .leaflet-popup-content {\n  pointer-events: none;\n  max-height: 70vh;', spec: 'tests/aktionsebenen.spec.ts', titel: 'über einem Knopf in der Tafel' },
   // Regionen auf dem Boden, Wand, #273.
   { name: 'deckkraft-0-5', datei: 'src/formen.ts', alt: 'const WAND = { hoehe: 6, unten: 0.6, baender: 12 };', neu: 'const WAND = { hoehe: 6, unten: 0.5, baender: 12 };', spec: 'tests/formen.spec.ts', titel: 'im iso steht am Rand' },
   { name: 'ringe-nicht-gleich-herum', datei: 'src/gelaende.ts', alt: 'aus[k]!.push(richtung < 0 ? ring.reverse() : ring);', neu: 'aus[k]!.push(ring);', spec: 'tests/gelaende.spec.ts', titel: 'wand:' },

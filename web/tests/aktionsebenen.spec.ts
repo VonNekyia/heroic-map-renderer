@@ -113,6 +113,19 @@ test('ein Knopf in der Tafel: aria-pressed nach dem Zustand, beim Klick gesperrt
   await expect(knopf).toBeFocused();
 });
 
+test('über einem Knopf in der Tafel zoomt das Rad die Karte, und der Knopf bleibt klickbar', async ({ page }) => {
+  await server(page, { angemeldet: true, umsetzen: 500 });
+  await welt(page, mitRouten);
+  await page.goto(`${DEMO}&at=35,0,-15&zoom=-2`);
+  const knopf = await schiffKnopf(page);
+  await knopf.hover();
+  // 60 gibt in Chrome auf Windows wie auf Linux genau eine Stufe; 120 sind unter Linux zwei.
+  await page.mouse.wheel(0, -60);
+  await expect.poll(() => Number(new URL(page.url()).searchParams.get('zoom'))).toBe(-1);
+  await knopf.click();
+  await expect(knopf).toHaveAttribute('aria-pressed', 'true');
+});
+
 test('kommt nach einem Klick 3 s kein neuer Zustand, wird der Knopf mit dem alten frei und sagt es', async ({ page }) => {
   const z = await server(page, { angemeldet: true });
   await welt(page, nurStaedte);

@@ -653,6 +653,11 @@ mehr, siehe
     käme sie nach 50 ms zurück, sobald sich die Maus rührt. Lag der Zeiger
     dabei in ihr, entscheidet das erste Element ausserhalb der Tafel, die
     noch 200 ms ausblendet.
+  - **Das Rad:** `radFuerKarte` in `ebenen.ts` nimmt den Halt von Leaflet
+    vom Inhalt der Tafel, nach [Ebenen](benutzung/ebenen.md), „Infotafel“.
+    Nadel und Banner behalten beim Zoomen ihre Grösse, und ihr Fuss rückt
+    vom Zeiger weg; so landet die Tafel über dem Icon unter einem ruhenden
+    Zeiger.
   - **Escape und ein Klick daneben** schliessen nur die Tafel: Je ein
     Listener im Capture auf `document` und dem Container hält den Druck vor
     Leaflet und der Leiste zurück. Ein Klick auf ein anderes Ziel mit

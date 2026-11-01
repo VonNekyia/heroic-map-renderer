@@ -166,6 +166,10 @@ Das Rad zoomt in ganzen Stufen um den Zeiger, über `radZoom` in
 - **Während einer Animation** warten die Stufen und folgen danach zusammen,
   höchstens vier auf einmal, weil Leaflet darüber nicht mehr animiert. Das gilt
   auch für eine fremde Animation, etwa von den Knöpfen.
+- **Bleibt `zoomend` aus,** weil ein Listener wirft oder ein `flyTo` abgebrochen
+  wird, gilt die Animation nach 1000 ms als beendet (`ANIMATION_HOECHSTENS`).
+  Stufen, die warten, folgen dann ohne neue Eingabe. Die Stufe, deren Animation
+  nie begann, ist verloren.
 - **Eine Geste** endet nach 150 ms ohne Ereignis. Blieb sie unter einer Stufe,
   zählt sie dann als eine, damit eine klein gemeldete Raste etwas tut.
 - **An der Grenze** des Zooms verfällt, was noch wartet.

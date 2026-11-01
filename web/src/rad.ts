@@ -6,6 +6,8 @@ const PIXEL_JE_STUFE = 50;
 const GESTE_ZU = 150;
 /** Mehr Stufen auf einmal animiert Leaflet nicht (`zoomAnimationThreshold`). */
 const STUFEN_JE_ANIMATION = 4;
+/** So viele ms gilt eine Animation höchstens als laufend, auch wenn ihr `zoomend` ausbleibt. */
+const ANIMATION_HOECHSTENS = 1000;
 
 /**
  * Zoomt mit dem Rad in ganzen Stufen um den Zeiger; die Karte schaltet dafür
@@ -21,6 +23,7 @@ export function radZoom(map: L.Map): void {
   let laeuft = false;
   let punkt = L.point(0, 0);
   let ende: ReturnType<typeof setTimeout> | undefined;
+  let frist: ReturnType<typeof setTimeout> | undefined;
 
   const weiter = () => {
     if (laeuft || offen === 0) return;
@@ -33,17 +36,22 @@ export function radZoom(map: L.Map): void {
       offen = 0;
       return;
     }
-    laeuft = true;
+    belegt();
     map.setZoomAround(punkt, ziel);
   };
-  // Auch fremdes Zoomen zählt, etwa Knöpfe oder Pinch: Während seiner Animation täte setZoomAround nichts.
-  map.on('zoomstart', () => {
+  const belegt = () => {
     laeuft = true;
-  });
-  map.on('zoomend', () => {
+    clearTimeout(frist);
+    frist = setTimeout(frei, ANIMATION_HOECHSTENS);
+  };
+  const frei = () => {
+    clearTimeout(frist);
     laeuft = false;
     weiter();
-  });
+  };
+  // Auch fremdes Zoomen zählt, etwa Knöpfe oder Pinch: Während seiner Animation täte setZoomAround nichts.
+  map.on('zoomstart', belegt);
+  map.on('zoomend', frei);
   L.DomEvent.on(map.getContainer(), 'wheel', (e) => {
     L.DomEvent.stop(e);
     punkt = map.mouseEventToContainerPoint(e as MouseEvent);

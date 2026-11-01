@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './test';
 import { DEMO, HAFEN, staedte, welt } from './ebenen-welt';
 
 /** Was Leaflet aus einem Pixel am Rad macht: Chrome unter Windows zählt doppelt. */
@@ -110,6 +110,36 @@ test('das Rad zoomt um den Zeiger: Die Nadel unter ihm bleibt stehen, auch über
   // Der Zeiger steht 1 px über dem Fuss; drei Stufen machen daraus 7 px.
   expect(Math.abs(nachher.x - vorher.x)).toBeLessThanOrEqual(8);
   expect(Math.abs(nachher.y - vorher.y)).toBeLessThanOrEqual(8);
+});
+
+test('bleibt zoomend aus, ist das Rad nach 1000 ms wieder frei, und was wartete, folgt', async ({ page }) => {
+  // Leaflet startet die Animation im nächsten Bild; verschluckt, kommen weder zoomstart noch zoomend.
+  await page.addInitScript(() => {
+    const w = window as unknown as { schlucke?: boolean };
+    const echt = window.requestAnimationFrame;
+    window.requestAnimationFrame = (f) => (w.schlucke ? 0 : echt.call(window, f));
+  });
+  await amUnterenEnde(page);
+  const ms = await page.evaluate(
+    (deltaY) =>
+      new Promise<number>((fertig) => {
+        const w = window as unknown as { schlucke?: boolean };
+        const raste = () => document.querySelector('#map')!.dispatchEvent(new WheelEvent('wheel', { deltaY, clientX: 640, clientY: 360, bubbles: true, cancelable: true }));
+        const start = performance.now();
+        new MutationObserver(() => {
+          if (document.querySelector('.leaflet-zoom-anim')) fertig(performance.now() - start);
+        }).observe(document.body, { attributes: true, subtree: true, attributeFilter: ['class'] });
+        setTimeout(() => fertig(-1), 3000);
+        w.schlucke = true;
+        raste();
+        w.schlucke = false;
+        raste();
+      }),
+    -RASTE,
+  );
+  expect(ms).toBeGreaterThanOrEqual(990);
+  // Die verschluckte Stufe ist weg, die wartende kommt an.
+  expect(await zuletzt(page)).toBe(-1);
 });
 
 test('während der Animation der Knöpfe geht eine Raste nicht verloren', async ({ page }) => {

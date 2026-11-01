@@ -47,7 +47,9 @@ export default [
   { name: 'rad-raste-wartet', datei: 'src/rad.ts', alt: 'hatStufe = true;\n      weiter();', neu: 'hatStufe = true;\n      setTimeout(weiter, GESTE_ZU);', spec: 'tests/rad.spec.ts', titel: 'eine Raste, die eine Stufe erreicht' },
   { name: 'rad-rest-an-der-grenze', datei: 'src/rad.ts', alt: '      offen = 0;\n      return;', neu: '      return;', spec: 'tests/rad.spec.ts', titel: 'an der Grenze verfällt der Rest' },
   { name: 'rad-um-die-mitte', datei: 'src/rad.ts', alt: 'map.setZoomAround(punkt, ziel);', neu: 'map.setZoomAround(L.point(punkt.x * 0 + map.getSize().x / 2, map.getSize().y / 2), ziel);', spec: 'tests/rad.spec.ts', titel: 'das Rad zoomt um den Zeiger' },
-  { name: 'rad-kennt-fremde-animation-nicht', datei: 'src/rad.ts', alt: "map.on('zoomstart', () => {\n    laeuft = true;\n  });\n", neu: '', spec: 'tests/rad.spec.ts', titel: 'während der Animation der Knöpfe' },
+  { name: 'rad-kennt-fremde-animation-nicht', datei: 'src/rad.ts', alt: "map.on('zoomstart', belegt);\n", neu: '', spec: 'tests/rad.spec.ts', titel: 'während der Animation der Knöpfe' },
+  { name: 'rad-haengt-ohne-zoomend', datei: 'src/rad.ts', alt: 'frist = setTimeout(frei, ANIMATION_HOECHSTENS);', neu: 'frist = setTimeout(frei, ANIMATION_HOECHSTENS * 1e6);', spec: 'tests/rad.spec.ts', titel: 'bleibt zoomend aus' },
+  { name: 'rad-frist-500', datei: 'src/rad.ts', alt: 'const ANIMATION_HOECHSTENS = 1000;', neu: 'const ANIMATION_HOECHSTENS = 500;', spec: 'tests/rad.spec.ts', titel: 'bleibt zoomend aus' },
   { name: 'rad-leaflet-handler-an', datei: 'src/main.ts', alt: '    scrollWheelZoom: false,\n', neu: '', spec: 'tests/rad.spec.ts', titel: 'eine Geste unter einer Stufe wirkt' },
   // Das Rad über der Tafel.
   { name: 'tafel-faengt-rad', datei: 'src/ebenen.ts', alt: "L.DomEvent.off(inhalt, 'wheel', L.DomEvent.stopPropagation);", neu: '', spec: 'tests/ebenen.spec.ts', titel: 'die Tafel fängt das Rad nicht' },

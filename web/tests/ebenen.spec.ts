@@ -917,6 +917,8 @@ test('eine gehaltene Tafel übersteht das Zeigen auf ein anderes Ziel, per Klick
 });
 
 const zoomDerAdresse = (page: Page) => Number(new URL(page.url()).searchParams.get('zoom'));
+/** So viel gibt in Chrome auf Windows wie auf Linux genau eine Stufe; 120 sind unter Linux zwei. */
+const EINE_STUFE = 60;
 
 test('die Tafel fängt das Rad nicht: Öffnet sie sich unter dem ruhenden Zeiger, zoomt die Karte weiter, und ihr Schliessknopf geht', async ({ page }) => {
   await welt(page, staedte([HAFEN]));
@@ -926,11 +928,11 @@ test('die Tafel fängt das Rad nicht: Öffnet sie sich unter dem ruhenden Zeiger
   const [x, y] = [nadel!.x + nadel!.width / 2, nadel!.y + 2];
   await page.mouse.move(x, y);
   await expect(page.locator('.tafel .tafel-titel')).toBeVisible();
-  await page.mouse.wheel(0, -120);
+  await page.mouse.wheel(0, -EINE_STUFE);
   await expect.poll(() => zoomDerAdresse(page)).toBe(-1);
   await page.waitForTimeout(300);
   await expect.poll(() => page.evaluate(([px, py]) => document.elementFromPoint(px!, py!)?.closest('.leaflet-popup-content') !== null, [x, y])).toBe(true);
-  await page.mouse.wheel(0, -120);
+  await page.mouse.wheel(0, -EINE_STUFE);
   await expect.poll(() => zoomDerAdresse(page)).toBe(0);
   await page.locator('.tafel a.leaflet-popup-close-button').click();
   await expect.poll(() => offeneTafeln(page)).toBe(0);
@@ -952,7 +954,7 @@ test('in der Tafel scrollt das Rad, solange sie in dieser Richtung Platz hat; da
   await expect.poll(oben).toBe(0);
   expect(zoomDerAdresse(page)).toBe(-2);
   // Oben angekommen, zoomt dieselbe Richtung die Karte.
-  await page.mouse.wheel(0, -120);
+  await page.mouse.wheel(0, -EINE_STUFE);
   await expect.poll(() => zoomDerAdresse(page)).toBe(-1);
   await page.waitForTimeout(300);
   await inhalt.hover();
@@ -960,7 +962,7 @@ test('in der Tafel scrollt das Rad, solange sie in dieser Richtung Platz hat; da
     e.scrollTop = e.scrollHeight;
   });
   const unten = await oben();
-  await page.mouse.wheel(0, 120);
+  await page.mouse.wheel(0, EINE_STUFE);
   await expect.poll(() => zoomDerAdresse(page)).toBe(-2);
   expect(await oben()).toBe(unten);
 });

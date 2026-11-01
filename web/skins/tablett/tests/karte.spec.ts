@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from '../../../tests/test';
 import type { Rechteck } from 'heroic-map-renderer/skin-api';
 import { readdirSync } from 'node:fs';
 import { deflateSync } from 'node:zlib';

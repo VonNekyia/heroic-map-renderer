@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './test';
 import { createHash } from 'node:crypto';
 import { deflateSync } from 'node:zlib';
 import { projiziere, zweiZuEins } from '../src/pick';

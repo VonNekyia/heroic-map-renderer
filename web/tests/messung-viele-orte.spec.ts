@@ -9,7 +9,7 @@
  * setzt die Läufe je Zelle, Vorgabe 3.
  * Siehe docs/messungen/2026-10-24-viele-nadeln-und-banner.md.
  */
-import { test, type Browser, type CDPSession, type Page } from '@playwright/test';
+import { test, type Browser, type CDPSession, type Page } from './test';
 import { appendFileSync } from 'node:fs';
 import { BILDER, DEMO, png, STAEDTE, welt } from './ebenen-welt';
 

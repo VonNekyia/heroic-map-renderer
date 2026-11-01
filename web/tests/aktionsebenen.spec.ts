@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './test';
 import { SCHIFF, server, TOKEN } from './api-server';
 import { DEMO, HAFEN, STAEDTE, welt } from './ebenen-welt';
 

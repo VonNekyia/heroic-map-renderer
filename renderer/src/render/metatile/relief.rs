@@ -88,17 +88,20 @@ fn im_schatten(h: i32, nach_nordwesten: impl Fn(i32) -> Option<i32>) -> bool {
 }
 
 impl ChunkCache<'_> {
-    /// Die Oberfläche des Chunks `cx`, `cz` aus dem Cache, geladen falls
+    /// Die Höhen des Reliefs im Chunk `cx`, `cz` aus dem Cache, geladen falls
     /// nötig; `None` ohne Chunk. In Richtung `s` ist der Blick die Welt.
-    fn oberflaeche(&mut self, cx: i32, cz: i32) -> Result<Option<[Option<i32>; 256]>> {
+    fn relief_hoehen(&mut self, cx: i32, cz: i32) -> Result<Option<[Option<i32>; 256]>> {
         let i = self.slot((cx, cz))?;
-        Ok(self.slots[i].loaded.as_ref().map(|l| l.chunk.surface()))
+        Ok(self.slots[i]
+            .loaded
+            .as_ref()
+            .map(|l| l.chunk.relief_hoehen()))
     }
 }
 
 /// Legt das Relief auf das Bild des Ausschnitts `rect`: je Block der
 /// Oberfläche ein Faktor auf Rot, Grün und Blau seiner Pixel, Alpha bleibt.
-/// Die Höhen kommen aus `WORLD_SURFACE` der Chunks, ein Pixel hängt so nur
+/// Die Höhen kommen aus `MOTION_BLOCKING` der Chunks, ein Pixel hängt so nur
 /// an der Welt, nicht am Ausschnitt. Liefert je Pixel des Bilds den Code
 /// der Schicht ([`code`]), mit Schatten, auch wenn `relief` keinen zeichnet,
 /// und den Rest: die Farbe vor dem Relief an jedem Pixel, den es bei 255
@@ -130,10 +133,10 @@ pub(super) fn zeichne(
     let mut hoehen = vec![None; breite * (gz1 - gz0 + 1) as usize];
     for cz in gz0.div_euclid(16)..=gz1.div_euclid(16) {
         for cx in gx0.div_euclid(16)..=gx1.div_euclid(16) {
-            let Some(oberflaeche) = chunks.oberflaeche(cx, cz)? else {
+            let Some(spalten) = chunks.relief_hoehen(cx, cz)? else {
                 continue;
             };
-            for (i, h) in oberflaeche.into_iter().enumerate() {
+            for (i, h) in spalten.into_iter().enumerate() {
                 let (x, z) = (cx * 16 + (i % 16) as i32, cz * 16 + (i / 16) as i32);
                 if (gx0..=gx1).contains(&x) && (gz0..=gz1).contains(&z) {
                     hoehen[(z - gz0) as usize * breite + (x - gx0) as usize] = h;

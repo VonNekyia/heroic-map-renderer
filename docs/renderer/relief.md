@@ -4,6 +4,7 @@ description: Wie --relief die Karte in top-north aus s plastisch macht - jede Sp
 code:
   - renderer/src/render/metatile/relief.rs
   - renderer/src/render/metatile.rs
+  - renderer/src/world/chunk.rs
   - renderer/src/cli.rs
 ---
 
@@ -22,8 +23,38 @@ er eine Schicht, aus der der Mod jede Art des Reliefs wählen kann, siehe
 ## Höhen
 
 - **Je Spalte** das y des obersten Blocks aus der Heightmap
-  `WORLD_SURFACE` des Chunks, `Chunk::surface`. Wasser zählt mit seiner
-  Oberfläche und ist darum eben, Laub und Dächer mit ihrer.
+  `MOTION_BLOCKING` des Chunks, `Chunk::relief_hoehen`. Warum nicht aus
+  `WORLD_SURFACE`: [0134](../entscheidungen/0134-relief-hoehen-ohne-pflanzen.md).
+  Sie gelten für Gefälle und Schatten, in Kacheln und Schicht.
+  - **Es zählen** Wasser mit seiner Oberfläche, darum ist es eben, dazu Laub,
+    Dächer, Zäune und Kakteen mit ihrer.
+  - **Es zählen nicht** Gras, Blumen, Gestrüpp, Feldfrüchte, Zuckerrohr,
+    Fackeln, Ranken, Teppiche, Seerosen und Schnee in jeder Lage. Solche
+    Blöcke bleiben auf der Karte, denn gezeichnet wird ab `WORLD_SURFACE`; sie
+    heben nur das Relief nicht.
+  - **Es zählen auch** kleine Blöcke wie Druckplatten, Hängeschilder,
+    Laternen, Ketten und `sculk_vein`, dazu Bambus. Um sie bleibt ein Kreuz.
+- **Die Regel des Spiels,** per javap belegt am Client:
+  - 26.2: `blocksMotion()` oder eine Flüssigkeit (`Heightmap$Types`).
+    `BlockStateBase.blocksMotion` ist `isSolid()`, ausser bei `COBWEB` und
+    `BAMBOO_SAPLING`. `calculateSolid`: `forceSolidOn` ja, `forceSolidOff`
+    nein, sonst nach der Kollisionsform, mittlere Kante ab 0,7291… oder Höhe
+    ab 1.
+  - 26.3: der Tag `minecraft:blocks_motion_in_heightmap`, der auf
+    `#minecraft:blocks_motion` verweist, 1000 Blöcke, oder eine Flüssigkeit.
+  - Stehende Schilder und Wandschilder zählen in 26.2 und nicht mehr in 26.3.
+    Auf der Platte steht, was die Version rechnete, die die Spalte zuletzt
+    nachführte. Eine eigene Liste braucht der Renderer dafür nicht.
+- **Auf der Platte:** Das Spiel führt das Feld in `LevelChunk.setBlockState`
+  nach und schreibt es ab dem Status `carvers`, ab 26.3 `terrain`
+  (`ChunkStatus.FINAL_HEIGHTMAPS`, `SerializableChunkData`). Gezählt am
+  01.11.: Alle fertigen Chunks in einer Stichprobe der Testwelt und der grossen
+  Welt tragen es, siehe
+  [2026-11-01, Relief ohne Pflanzen](../messungen/2026-11-01-relief-ohne-pflanzen.md).
+- **Fehlt das Feld** oder passt seine Länge nicht, gilt für den ganzen Chunk
+  `WORLD_SURFACE`, wie `Chunk::surface` sie liest. Das Spiel selbst rechnet
+  ein fehlendes beim Laden neu (`Heightmap.primeHeightmaps`) und schreibt es
+  beim nächsten Speichern.
 - **Aus dem Cache der Kachel,** `ChunkCache`, ohne zweites Dekodieren. Den
   Rand von einem Block liest die Kachel für das Licht ohnehin. Für die
   Schatten lädt sie Chunks bis 32 Blöcke nach Nordwesten dazu.
@@ -31,7 +62,8 @@ er eine Schicht, aus der der Mod jede Art des Reliefs wählen kann, siehe
   Ausschnitt. Kacheln, die Stücke von `--render` und native Stufen passen
   ohne Naht aneinander.
 - **Fehlt ein Nachbar,** gilt er als gleich hoch. Fehlt die Spalte selbst,
-  bleibt ihr Pixel, wie er ist.
+  bleibt ihr Pixel, wie er ist, mit Code 4. Das gilt auch für eine Spalte, in
+  der nichts zählt, etwa eine Pflanze über nichts.
 
 ## Gefälle
 
@@ -126,6 +158,9 @@ Auf einer Stadt der grossen Welt bei scale 4, gemessen in
 | Platz des Baums | 95,6 MB | +13 % | +15 % |
 
 - **Mit 16 Threads** lag der Unterschied in der Zeit im Rauschen.
+- **Seit den Höhen ohne Pflanzen** sind die Kacheln 3–4 % kleiner und die
+  Schicht 8 %, siehe
+  [2026-11-01, Relief ohne Pflanzen](../messungen/2026-11-01-relief-ohne-pflanzen.md).
 - **Seit der Schicht** rechnet auch `slope` den Schatten und zeichnet in
   einem Update wie `shadows`, 3,06 Kacheln je Chunk.
 - **Die Schicht** kostet auf der ganzen Testwelt bei scale 4 dazu 7,7 % des

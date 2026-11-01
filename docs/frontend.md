@@ -1022,9 +1022,8 @@ liegen als `tiles/` daneben, oder `?tiles=` nennt ihren Pfad.
   `Kacheln` in [`web/src/main.ts`](../web/src/main.ts): Sie entfernt `src`,
   das bricht die Anfrage genauso ab und lädt nichts. `L.Util.emptyImageUrl`
   umzusetzen reicht nicht, Leaflet liest die Adresse aus einer Variable
-  seines Moduls. Die drei Methoden folgen Leaflet 1.9.4, ebenso die der
-  Grundschicht, siehe „Grundschicht“; ein neues Leaflet braucht einen Blick
-  auf alle vier.
+  seines Moduls. Die drei Methoden folgen Leaflet 1.9.4; ein neues Leaflet
+  braucht einen Blick auf sie.
 - **Cache:** Ein neuer Lauf tauscht Kacheln unter derselben URL. Damit der
   Browser danach bald den neuen Stand zeigt, ohne je Besuch jede Kachel neu
   zu erfragen, nach [0125](entscheidungen/0125-kacheln-eine-minute-im-cache.md):

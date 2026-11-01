@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from './test';
 import { kreisSeiten } from '../src/gelaende';
 import { projiziere, zweiZuEins } from '../src/pick';
 import { aufDemSchirm, BILDER, DEMO, fuss, HAFEN, png, STAEDTE, staedte, welt } from './ebenen-welt';

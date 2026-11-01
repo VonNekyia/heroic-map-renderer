@@ -42,6 +42,13 @@ export default [
   { name: 'tafel-haelt-rad-am-ende', datei: 'src/ebenen.ts', alt: 'if (platz > 1) e.stopPropagation();', neu: 'if (platz >= 0) e.stopPropagation();', spec: 'tests/ebenen.spec.ts', titel: 'in der Tafel scrollt das Rad' },
   { name: 'tafel-platz-falsche-richtung', datei: 'src/ebenen.ts', alt: 'const platz = e.deltaY < 0 ?', neu: 'const platz = e.deltaY > 0 ?', spec: 'tests/ebenen.spec.ts', titel: 'in der Tafel scrollt das Rad' },
   { name: 'tafel-ohne-zeiger', datei: 'src/style.css', alt: '.tafel .leaflet-popup-content {\n  max-height: 70vh;', neu: '.tafel .leaflet-popup-content {\n  pointer-events: none;\n  max-height: 70vh;', spec: 'tests/aktionsebenen.spec.ts', titel: 'über einem Knopf in der Tafel' },
+  { name: 'seitenfehler-egal', datei: 'tests/test.ts', alt: '    expect(fehler).toEqual([]);\n', neu: '', spec: 'tests/smoke.spec.ts', titel: 'wirft die Seite, fällt der Test' },
+  // Die Grundschicht: Leaflets Versatz, und ein Sprung von zwei Stufen.
+  { name: 'grund-zieht-doppelt', datei: 'src/main.ts', alt: 'const Kacheln = L.TileLayer.extend({\n', neu: 'const Kacheln = L.TileLayer.extend({\n  _clampZoom(this: { options: L.TileLayerOptions }, zoom: number) {\n    return this.options.zoomOffset ? Math.round(zoom) - 3 : zoom;\n  },\n', spec: 'tests/smoke.spec.ts', titel: 'ein Sprung um zwei Stufen' },
+  { name: 'grund-ohne-versatz', datei: 'src/main.ts', alt: '    zoomOffset: -GRUND.stufen,\n', neu: '', spec: 'tests/smoke.spec.ts', titel: 'die Grundschicht liegt drei Stufen' },
+  { name: 'grund-kachel-zu-klein', datei: 'src/main.ts', alt: 'tileSize: info.tileSize * 2 ** GRUND.stufen,', neu: 'tileSize: info.tileSize,', spec: 'tests/smoke.spec.ts', titel: 'die Grundschicht liegt drei Stufen' },
+  { name: 'grund-native-oben', datei: 'src/main.ts', alt: 'maxNativeZoom: info.maxZoom + GRUND.stufen,', neu: 'maxNativeZoom: info.maxZoom,', spec: 'tests/smoke.spec.ts', titel: 'die Grundschicht nimmt je Zoom ihre Stufe' },
+  { name: 'grund-native-unten', datei: 'src/main.ts', alt: 'minNativeZoom: info.minZoom + GRUND.stufen,', neu: 'minNativeZoom: info.minZoom,', spec: 'tests/smoke.spec.ts', titel: 'die Grundschicht nimmt je Zoom ihre Stufe' },
   // Regionen auf dem Boden, Wand, #273.
   { name: 'deckkraft-0-5', datei: 'src/formen.ts', alt: 'const WAND = { hoehe: 6, unten: 0.6, baender: 12 };', neu: 'const WAND = { hoehe: 6, unten: 0.5, baender: 12 };', spec: 'tests/formen.spec.ts', titel: 'im iso steht am Rand' },
   { name: 'ringe-nicht-gleich-herum', datei: 'src/gelaende.ts', alt: 'aus[k]!.push(richtung < 0 ? ring.reverse() : ring);', neu: 'aus[k]!.push(ring);', spec: 'tests/gelaende.spec.ts', titel: 'wand:' },

@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from './test';
 import { createHash } from 'node:crypto';
 import { server, TAUSCH } from './api-server';
 import { DEMO, HAFEN, png, STAEDTE, welt } from './ebenen-welt';

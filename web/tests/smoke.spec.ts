@@ -1,7 +1,8 @@
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from './test';
 import { readFileSync } from 'node:fs';
 import { deflateSync } from 'node:zlib';
 import { projiziere, zweiZuEins } from '../src/pick';
+import { staedte, welt as ebenenWelt } from './ebenen-welt';
 
 /** Ein kleiner Kachelbaum, der mit im Repository liegt. */
 const DEMO = '/?tiles=/tiles-demo';
@@ -262,6 +263,34 @@ test('die Grundschicht liegt unter den Kacheln, gröber, und steht da, solange d
   // Die feinen liegen darüber.
   const lagen = await page.evaluate(() => ['.grund', '.kacheln'].map((k) => Number(getComputedStyle(document.querySelector(k)!).zIndex)));
   expect(lagen[0]).toBeLessThan(lagen[1]!);
+});
+
+test.fail('wirft die Seite, fällt der Test, auch ohne eigene Prüfung', async ({ page }) => {
+  await page.goto(DEMO);
+  await page.evaluate(() => void setTimeout(() => {
+    throw new Error('Probe');
+  }));
+  await page.waitForTimeout(100);
+});
+
+test('die Grundschicht nimmt je Zoom ihre Stufe, unten und oben begrenzt', async ({ page }) => {
+  for (const [zoom, stufe] of [[-2, 0], [1, 0], [2, 1]] as const) {
+    await page.goto(`${DEMO}&at=20,0,-20&zoom=${zoom}`);
+    await expect.poll(() => stufenIn(page, '.grund')).toEqual([stufe]);
+  }
+});
+
+test('ein Sprung um zwei Stufen läuft durch: Die Karte kommt an, und die feine Schicht lädt', async ({ page }) => {
+  // Erst mit vielen Stufen darunter trennt die Grundschicht die beiden Stufen; sonst macht minNativeZoom sie gleich.
+  await ebenenWelt(page, staedte([], { mehr: { minZoom: -10 } }));
+  await page.goto(`${DEMO}&at=0,0,0&zoom=-2`);
+  await page.waitForSelector('.kacheln img.leaflet-tile-loaded');
+  await page.mouse.move(640, 360);
+  // Chrome unter Windows zählt doppelt; so sind es überall 120 Pixel, zwei Stufen auf einmal.
+  await page.mouse.wheel(0, process.platform === 'win32' ? -240 : -120);
+  await expect.poll(() => Number(new URL(page.url()).searchParams.get('zoom'))).toBe(0);
+  // Zoom 0 nimmt die feine Stufe 2.
+  await expect.poll(() => stufenIn(page, '.kacheln')).toEqual([2]);
 });
 
 test('die Grundschicht liegt drei Stufen gröber und lädt nur das Fenster', async ({ page }) => {

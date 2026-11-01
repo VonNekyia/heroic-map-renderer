@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from '../../../tests/test';
 import { readdirSync, readFileSync } from 'node:fs';
 import { ECKSTUECKE, GEGENSTAENDE, LILIEN, MARMOR, MARMOR_PIXEL, MASS, PFEILER, RAND, SEITEN, TISCH_RAND, VORLAGE } from '../bilder';
 

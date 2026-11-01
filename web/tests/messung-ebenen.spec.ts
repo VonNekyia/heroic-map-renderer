@@ -6,7 +6,7 @@
  * `layers.json`, den Dateien der Ebenen, `map-4x3.json` und `nah.txt`.
  * Siehe docs/messungen/2026-10-19-ebenen-im-weiten-blick.md.
  */
-import { expect, test, type CDPSession, type Page } from '@playwright/test';
+import { expect, test, type CDPSession, type Page } from './test';
 import { readFileSync } from 'node:fs';
 import { deflateSync } from 'node:zlib';
 

@@ -158,9 +158,12 @@ gröber (`GRUND` in [`main.ts`](../web/src/main.ts)), nur für das Fenster.
 Sie steht da, solange die feinen Kacheln nach dem Ziehen oder Zoomen noch
 laden; statt des Grunds der Karte sieht man dort die Gegend unscharf.
 
-- **Wie:** dieselbe Unterklasse `Kacheln` mit `grob`: `_clampZoom` nimmt
-  die Stufe `round(zoom) − 3` statt `round(zoom)`, sonst wie Leaflet, auch
-  `minNativeZoom` und `maxNativeZoom`.
+- **Wie:** dieselbe Unterklasse `Kacheln` mit Leaflets eigenen Optionen:
+  `tileSize` mal 8, `zoomOffset` −3 und beide Native-Stufen um 3 höher.
+- **`_clampZoom` bleibt, wie es ist:** Leaflets `_update` ruft es für eine
+  schon begrenzte Stufe noch einmal auf. Eine Überschreibung, die dabei
+  wieder abzieht, läuft bei jedem Sprung ab zwei Stufen ohne Ende, und danach
+  lädt die Karte nichts mehr.
 - **Übereinander:** die Grundschicht mit `zIndex` 0 und der Klasse
   `grund`, die feinen Kacheln mit `zIndex` 1 und `kacheln`, beide im
   `tilePane`. Tests greifen die feinen über `.kacheln`.

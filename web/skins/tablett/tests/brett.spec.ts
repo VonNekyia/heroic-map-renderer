@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from '../../../tests/test';
 import type { Rechteck } from 'heroic-map-renderer/skin-api';
 import { readFileSync } from 'node:fs';
 import { kamera, projiziere, RICHTUNGEN } from '../../../tests/kamera';

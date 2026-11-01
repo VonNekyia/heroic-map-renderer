@@ -73,7 +73,7 @@ export default tseslint.config(
   },
   {
     // Die Tests eines Skins dazu Playwright, Node und die Kameras der
-    // Grundkarte aus web/tests/kamera.ts.
+    // Grundkarte aus web/tests/kamera.ts und ihr `test` aus web/tests/test.ts.
     files: ['skins/*/tests/**'],
     rules: {
       'no-restricted-imports': [
@@ -82,7 +82,7 @@ export default tseslint.config(
           patterns: [
             {
               regex:
-                '^(?!leaflet$|heroic-map-renderer/skin-api$|\\./|\\.\\./[^.]|@playwright/test$|node:|\\.\\./\\.\\./\\.\\./tests/kamera$)',
+                '^(?!leaflet$|heroic-map-renderer/skin-api$|\\./|\\.\\./[^.]|@playwright/test$|node:|\\.\\./\\.\\./\\.\\./tests/(kamera|test)$)',
               message: GRENZE,
             },
           ],

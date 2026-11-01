@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from '../../../tests/test';
 import type { Grenzen, Projektion, Rechteck } from 'heroic-map-renderer/skin-api';
 import { readdirSync } from 'node:fs';
 import { eintraege, kamera, projiziere, RICHTUNGEN } from '../../../tests/kamera';

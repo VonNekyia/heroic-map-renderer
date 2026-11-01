@@ -5,7 +5,7 @@
  * Spitze beim Laden, Punkte. Läuft nur mit MESSUNG=1, siehe
  * docs/messungen/2026-10-09-flaechen-im-browser.md.
  */
-import { expect, test } from '@playwright/test';
+import { expect, test } from './test';
 import { execSync } from 'node:child_process';
 import { DEMO, STAEDTE, welt } from './ebenen-welt';
 

@@ -55,6 +55,17 @@ pub struct ChunkNbt {
     pub block_entities: Vec<fastnbt::Value>,
     #[serde(rename = "ChunkBukkitValues", skip_serializing_if = "Option::is_none")]
     pub bukkit: Option<fastnbt::Value>,
+    #[serde(rename = "yPos", skip_serializing_if = "Option::is_none")]
+    pub y_pos: Option<i32>,
+    #[serde(rename = "Heightmaps", skip_serializing_if = "Option::is_none")]
+    pub heightmaps: Option<HeightmapsNbt>,
+}
+
+/// Die Heightmaps eines Chunks, die ein Test braucht.
+#[derive(Serialize)]
+pub struct HeightmapsNbt {
+    #[serde(rename = "MOTION_BLOCKING")]
+    pub motion_blocking: fastnbt::LongArray,
 }
 
 #[derive(Serialize)]
@@ -152,6 +163,8 @@ pub fn chunk_nbt_ganz(
         sections,
         block_entities,
         bukkit,
+        y_pos: None,
+        heightmaps: None,
     })
     .expect("NBT serialisieren")
 }
@@ -498,6 +511,42 @@ pub fn write_world_status_biome(
     )
 }
 
+/// Wie `write_world`, dazu die Heightmap `MOTION_BLOCKING`, wie das Spiel sie
+/// speichert: `hoehe(x, z)` ist das y des obersten Blocks, der zählt. Das Format
+/// wie `Heightmap` in 26.2: Bits für die Höhe der Welt plus eins, je Long so
+/// viele Werte, wie ganz hineinpassen, y + 1 − minY.
+pub fn write_world_motion_blocking(
+    dir: &Path,
+    chunks: &[(i32, i32)],
+    block: impl Fn(i32, i32, i32) -> &'static str,
+    hoehe: impl Fn(i32, i32) -> i32,
+) -> PathBuf {
+    const BITS: u32 = 5;
+    const JE_LONG: usize = (u64::BITS / BITS) as usize;
+    write_region_mit(dir, chunks, |cx, cz| {
+        let mut longs = vec![0i64; 256usize.div_ceil(JE_LONG)];
+        for i in 0..256 {
+            let (x, z) = (cx * SECTION + i as i32 % 16, cz * SECTION + i as i32 / 16);
+            let wert = i64::from(hoehe(x, z) + 1);
+            longs[i / JE_LONG] |= wert << ((i % JE_LONG) as u32 * BITS);
+        }
+        fastnbt::to_bytes(&ChunkNbt {
+            data_version: 4903,
+            x_pos: cx,
+            z_pos: cz,
+            status: FULL.to_string(),
+            sections: vec![section(cx, cz, 0, &block, None)],
+            block_entities: Vec::new(),
+            bukkit: None,
+            y_pos: Some(0),
+            heightmaps: Some(HeightmapsNbt {
+                motion_blocking: fastnbt::LongArray::new(longs),
+            }),
+        })
+        .expect("NBT serialisieren")
+    })
+}
+
 #[allow(clippy::too_many_arguments)]
 fn write_region(
     dir: &Path,
@@ -508,6 +557,28 @@ fn write_region(
     status: impl Fn(i32, i32) -> &'static str,
     entities: impl Fn(i32, i32) -> Vec<fastnbt::Value>,
     bukkit: impl Fn(i32, i32) -> Option<fastnbt::Value>,
+) -> PathBuf {
+    write_region_mit(dir, chunks, |cx, cz| {
+        chunk_nbt_ganz(
+            cx,
+            cz,
+            status(cx, cz),
+            sections
+                .clone()
+                .into_iter()
+                .map(|sy| section(cx, cz, sy, &block, biome(cx, sy, cz)))
+                .collect(),
+            entities(cx, cz),
+            bukkit(cx, cz),
+        )
+    })
+}
+
+/// Schreibt die Regionsdatei dieser Chunks, mit `payload(cx, cz)` als NBT.
+fn write_region_mit(
+    dir: &Path,
+    chunks: &[(i32, i32)],
+    payload: impl Fn(i32, i32) -> Vec<u8>,
 ) -> PathBuf {
     let region_dir = dir.join("region");
     std::fs::create_dir_all(&region_dir).expect("region-Verzeichnis");
@@ -523,18 +594,7 @@ fn write_region(
             "Chunk ({cx}, {cz}) liegt nicht in Region ({rx}, {rz})"
         );
 
-        let payload = chunk_nbt_ganz(
-            cx,
-            cz,
-            status(cx, cz),
-            sections
-                .clone()
-                .into_iter()
-                .map(|sy| section(cx, cz, sy, &block, biome(cx, sy, cz)))
-                .collect(),
-            entities(cx, cz),
-            bukkit(cx, cz),
-        );
+        let payload = payload(cx, cz);
         let mut record = Vec::new();
         record.extend_from_slice(&(payload.len() as u32 + 1).to_be_bytes());
         record.push(3); // unkomprimiert

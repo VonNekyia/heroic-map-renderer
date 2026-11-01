@@ -680,9 +680,10 @@ pub const ZEICHENSTAND_FLAT: u32 = 6;
 /// Wie der Renderer das Relief von oben zeichnet, `--relief`, samt seiner
 /// Schicht: Er geht nur in den Abdruck von Bäumen mit Relief ein, und eine
 /// Änderung am Relief hebt nur ihn. 2 seit der Schicht, die Bäume mit 1
-/// nicht haben.
+/// nicht haben; 3 seit den Höhen aus `MOTION_BLOCKING`.
 /// Siehe docs/entscheidungen/0122-relief-von-oben.md.
-pub const ZEICHENSTAND_RELIEF: u32 = 2;
+/// Siehe docs/entscheidungen/0134-relief-hoehen-ohne-pflanzen.md.
+pub const ZEICHENSTAND_RELIEF: u32 = 3;
 
 /// Die Looks, wie `look` in `map.json` sie nennt, mit ihrem Zeichenstand.
 pub const LOOKS: [(&str, u32); 3] = [

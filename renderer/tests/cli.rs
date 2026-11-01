@@ -6798,6 +6798,109 @@ fn relief_wechselt_nur_mit_vollem_lauf() {
     assert!(log.contains("nichts zu zeichnen"), "{log}");
 }
 
+/// Ebener Boden mit einem Kreuz, einer Pflanze aus dem Paket der Tests und
+/// einer hohen Pflanze aus zwei Blöcken, wie Gras und Gestrüpp, und einer
+/// Stufe aus Laub drei Blöcke hoch, je wenn `laub`. Die Pflanzen stehen weit
+/// genug von Rand und Stufe.
+fn boden_mit_pflanzen(laub: bool) -> impl Fn(i32, i32, i32) -> &'static str {
+    move |x, y, z| match (y, x, z) {
+        (0, _, _) => "minecraft:einfarbig",
+        (1, 3, 3) => "minecraft:kreuz",
+        (1, 3, 8) => "minecraft:pflanze",
+        (1, 8, 3) => "minecraft:tall_grass[half=lower]",
+        (2, 8, 3) => "minecraft:tall_grass[half=upper]",
+        (1..=3, 12, 12) if laub => "minecraft:oak_leaves",
+        _ => "minecraft:air",
+    }
+}
+
+/// Das Relief liest die Heightmap `MOTION_BLOCKING`: Pflanzen auf ebenem Boden
+/// ändern keinen Pixel der Kachel und keinen Code der Schicht, mit `slope` und
+/// `shadows`. Eine Stufe aus Laub, die die Heightmap zählt, ändert sie
+/// weiterhin. Fehlt die Heightmap, gilt die Oberfläche, und die Pflanzen zählen
+/// mit. Gezeichnet werden sie in jedem Fall.
+/// Siehe docs/renderer/relief.md, „Höhen“.
+#[test]
+fn relief_hoehen_ohne_pflanzen() {
+    let baum = |welt: &Path, relief: Option<&str>| {
+        let baum = neuer_baum("top-north-s");
+        let mut extra = vec!["--camera", "top-north", "--scale", "8"];
+        extra.extend(
+            relief
+                .map(|relief| ["--relief", relief])
+                .into_iter()
+                .flatten(),
+        );
+        gelungen(&export(welt, baum.path(), &extra));
+        baum
+    };
+    let welt_mit = |laub: bool, mit_heightmap: bool| {
+        let welt = tempdir();
+        if mit_heightmap {
+            common::write_world_motion_blocking(
+                welt.path(),
+                &[(0, 0)],
+                boden_mit_pflanzen(laub),
+                move |x, z| if laub && (x, z) == (12, 12) { 3 } else { 0 },
+            );
+        } else {
+            common::write_world(welt.path(), &[(0, 0)], boden_mit_pflanzen(laub));
+        }
+        welt
+    };
+    // Die Pixel der Basis, ohne Stand und Hashes.
+    let basis = |baum: &Path, unter: &str| -> BTreeMap<String, Vec<u8>> {
+        let z = max_zoom(baum);
+        let vorn = if unter.is_empty() {
+            format!("{z}/")
+        } else {
+            format!("{unter}/{z}/")
+        };
+        schnappschuss(baum)
+            .into_iter()
+            .filter(|(rel, _)| rel.starts_with(&vorn))
+            .collect()
+    };
+    let nicht_vier = |baum: &Path| -> usize {
+        let z = max_zoom(baum);
+        kacheln(&baum.join("relief"), z)
+            .values()
+            .map(|pfad| bild(pfad).pixels().filter(|c| c[0] != 4).count())
+            .sum()
+    };
+
+    let welt = welt_mit(false, true);
+    let ohne = baum(welt.path(), None);
+    let nackt = tempdir();
+    common::write_world(nackt.path(), &[(0, 0)], |_, y, _| match y {
+        0 => "minecraft:einfarbig",
+        _ => "minecraft:air",
+    });
+    assert_ne!(
+        basis(baum(nackt.path(), None).path(), ""),
+        basis(ohne.path(), ""),
+        "die Pflanzen sind gezeichnet"
+    );
+    for relief in ["slope", "shadows"] {
+        let mit = baum(welt.path(), Some(relief));
+        assert_eq!(
+            basis(mit.path(), ""),
+            basis(ohne.path(), ""),
+            "{relief}: Pflanzen ändern keinen Pixel"
+        );
+        assert_eq!(nicht_vier(mit.path()), 0, "{relief}: und keinen Code");
+    }
+
+    let stufe = baum(welt_mit(true, true).path(), Some("shadows"));
+    assert!(nicht_vier(stufe.path()) > 0, "die Stufe aus Laub zählt");
+
+    let ohne_heightmap = baum(welt_mit(false, false).path(), Some("slope"));
+    assert!(
+        nicht_vier(ohne_heightmap.path()) > 0,
+        "ohne die Heightmap die Oberfläche"
+    );
+}
+
 /// Schneidet das Relief nach einer Änderung nirgends mehr ab, verschwindet
 /// der Rest: Ein Update gleicht danach Byte für Byte einem vollen Lauf.
 /// Siehe docs/renderer/relief.md, „Die Schicht“.

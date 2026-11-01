@@ -420,6 +420,8 @@ struct HeightmapsNbt {
     world_surface: Option<fastnbt::LongArray>,
     #[serde(rename = "MOTION_BLOCKING_NO_LEAVES")]
     ohne_laub: Option<fastnbt::LongArray>,
+    #[serde(rename = "MOTION_BLOCKING")]
+    bewegung: Option<fastnbt::LongArray>,
 }
 
 #[derive(Deserialize)]
@@ -550,6 +552,9 @@ pub struct Chunk {
     /// `MOTION_BLOCKING_NO_LEAVES`, wie sie im Chunk steht, siehe
     /// [`Chunk::ground`].
     ohne_laub: Option<Vec<i64>>,
+    /// `MOTION_BLOCKING`, wie sie im Chunk steht, siehe
+    /// [`Chunk::relief_hoehen`].
+    bewegung: Option<Vec<i64>>,
     /// Je Blockentity mit [`Blockdaten`] seine Lage im Chunk, siehe
     /// [`Chunk::blockentities`].
     blockentities: Vec<([i32; 3], Blockdaten)>,
@@ -617,6 +622,7 @@ impl Chunk {
                 .world_surface
                 .map(fastnbt::LongArray::into_inner),
             ohne_laub: raw.heightmaps.ohne_laub.map(fastnbt::LongArray::into_inner),
+            bewegung: raw.heightmaps.bewegung.map(fastnbt::LongArray::into_inner),
             blockentities,
             laubfarben,
             laubfarben_fehler,
@@ -695,6 +701,16 @@ impl Chunk {
     /// Siehe docs/benutzung/map-json.md, „Höhen“.
     pub fn ground(&self) -> [Option<i32>; 256] {
         self.gespeichert(self.ohne_laub.as_deref())
+            .unwrap_or_else(|| self.surface())
+    }
+
+    /// Die Höhen des Reliefs: je Spalte, zeilenweise nach z, das y des
+    /// obersten Blocks, der nach der Regel des Spiels Bewegung aufhält oder
+    /// Flüssigkeit hält, oder `None` ohne. Aus der Heightmap `MOTION_BLOCKING`;
+    /// fehlt sie oder passt sie nicht, gilt für den Chunk [`Chunk::surface`].
+    /// Siehe docs/renderer/relief.md, „Höhen“.
+    pub fn relief_hoehen(&self) -> [Option<i32>; 256] {
+        self.gespeichert(self.bewegung.as_deref())
             .unwrap_or_else(|| self.surface())
     }
 
@@ -1182,6 +1198,7 @@ mod tests {
             y_pos: Some(-4),
             world_surface: Some(longs),
             ohne_laub: None,
+            bewegung: None,
             blockentities: Vec::new(),
             laubfarben: Vec::new(),
             laubfarben_fehler: None,
@@ -1197,11 +1214,11 @@ mod tests {
         );
     }
 
-    /// Der Boden ohne Laub kommt aus `MOTION_BLOCKING_NO_LEAVES`, im selben
-    /// Format wie `WORLD_SURFACE`; fehlt sie oder passt ihre Länge nicht,
-    /// gilt die Oberfläche.
+    /// Der Boden ohne Laub kommt aus `MOTION_BLOCKING_NO_LEAVES` und die Höhen
+    /// des Reliefs aus `MOTION_BLOCKING`, im selben Format wie `WORLD_SURFACE`;
+    /// fehlt die Heightmap oder passt ihre Länge nicht, gilt die Oberfläche.
     #[test]
-    fn boden_aus_der_heightmap_ohne_laub() {
+    fn boden_und_relief_aus_ihrer_heightmap() {
         let luft = || Section {
             y: 19,
             blocks: Paletted::new(vec![BlockState::new("minecraft:air", Vec::new())], None),
@@ -1211,7 +1228,9 @@ mod tests {
         oben[0] = 30 + 1 + 64;
         let mut boden = vec![0i64; 37];
         boden[0] = 12 + 1 + 64;
-        let chunk = |ohne_laub: Option<Vec<i64>>| Chunk {
+        let mut relief = vec![0i64; 37];
+        relief[0] = 20 + 1 + 64;
+        let chunk = |ohne_laub: Option<Vec<i64>>, bewegung: Option<Vec<i64>>| Chunk {
             x: 0,
             z: 0,
             data_version: 4903,
@@ -1220,33 +1239,65 @@ mod tests {
             y_pos: Some(-4),
             world_surface: Some(oben.clone()),
             ohne_laub,
+            bewegung,
             blockentities: Vec::new(),
             laubfarben: Vec::new(),
             laubfarben_fehler: None,
         };
         assert_eq!(
-            chunk(Some(boden.clone())).ground()[0],
+            chunk(Some(boden.clone()), None).ground()[0],
             Some(12),
             "unter der Krone"
         );
-        assert_eq!(chunk(None).ground()[0], Some(30), "ohne sie die Oberfläche");
+        assert_eq!(
+            chunk(None, None).ground()[0],
+            Some(30),
+            "ohne sie die Oberfläche"
+        );
         boden.pop();
-        assert_eq!(chunk(Some(boden)).ground()[0], Some(30), "falsche Länge");
+        assert_eq!(
+            chunk(Some(boden), None).ground()[0],
+            Some(30),
+            "falsche Länge"
+        );
+        assert_eq!(
+            chunk(None, Some(relief.clone())).relief_hoehen()[0],
+            Some(20),
+            "unter der Pflanze"
+        );
+        assert_eq!(
+            chunk(None, None).relief_hoehen()[0],
+            Some(30),
+            "ohne sie die Oberfläche"
+        );
+        relief.pop();
+        assert_eq!(
+            chunk(None, Some(relief)).relief_hoehen()[0],
+            Some(30),
+            "falsche Länge"
+        );
     }
 
-    /// In den echten Chunks aus 26.2 steht `MOTION_BLOCKING_NO_LEAVES`, und
-    /// der Boden liegt nie über der Oberfläche; unter Laub tiefer.
+    /// In den echten Chunks aus 26.2 stehen `MOTION_BLOCKING_NO_LEAVES` und
+    /// `MOTION_BLOCKING`. Der Boden liegt nie über der Oberfläche, unter Laub
+    /// tiefer; die Höhen des Reliefs liegen zwischen beiden und sind weder das
+    /// eine noch das andere.
     #[test]
-    fn boden_in_der_echten_region() {
+    fn boden_und_relief_in_der_echten_region() {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/world");
         let world = World::open(&dir).unwrap();
-        let mut tiefer = 0;
+        let (mut tiefer, mut unter_pflanzen, mut ueber_boden) = (0, 0, 0);
         for (cx, cz) in [(577, 416), (578, 416), (577, 417), (578, 417)] {
             let chunk = world.chunk(cx, cz).unwrap().expect("Chunk");
             assert!(chunk.ohne_laub.is_some(), "({cx}, {cz}) ohne Heightmap");
-            let (oben, boden) = (chunk.surface(), chunk.ground());
+            assert!(chunk.bewegung.is_some(), "({cx}, {cz}) ohne Heightmap");
+            let (oben, boden, relief) = (chunk.surface(), chunk.ground(), chunk.relief_hoehen());
             for i in 0..256 {
                 assert!(boden[i] <= oben[i], "({cx}, {cz}) Spalte {i}");
+                assert!(relief[i] <= oben[i], "({cx}, {cz}) Spalte {i}");
+                assert!(boden[i] <= relief[i], "({cx}, {cz}) Spalte {i}");
+                unter_pflanzen += usize::from(relief[i] < oben[i]);
+                ueber_boden += usize::from(boden[i] < relief[i]);
                 if let (Some(b), Some(o)) = (boden[i], oben[i])
                     && b < o
                 {
@@ -1262,6 +1313,8 @@ mod tests {
         }
         // Ohne solche Spalten prüfte die Schleife kein Wasser.
         assert!(tiefer > 0, "keine Spalte mit Boden unter der Oberfläche");
+        assert!(unter_pflanzen > 0, "das Relief wie die Oberfläche");
+        assert!(ueber_boden > 0, "das Relief wie der Boden ohne Laub");
     }
 
     /// `block_entities` wie im Spiel gelesen: Muster als ID oder mit

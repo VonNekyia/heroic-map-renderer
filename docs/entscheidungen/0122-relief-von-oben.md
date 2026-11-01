@@ -16,7 +16,8 @@ code:
 
 Ergänzt [0101](0101-zeichenstand-je-look.md) um einen eigenen Zeichenstand
 für das Relief. Ergänzt durch [0132](0132-relief-als-schicht.md): die
-Schicht für den Mod.
+Schicht für den Mod. [0134](0134-relief-hoehen-ohne-pflanzen.md) löst ab, woher
+die Höhen kommen: aus `MOTION_BLOCKING` statt aus `WORLD_SURFACE`.
 
 ## Anlass
 

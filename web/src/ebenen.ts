@@ -218,6 +218,16 @@ const TAFEL: L.PopupOptions = { className: 'tafel', maxWidth: TAFEL_BREITE, minW
 const TAFEL_AUF = 50;
 const TAFEL_ZU = 300;
 
+/** Das Rad gehört der Karte, ausser der Inhalt der Tafel kann in dieser Richtung noch scrollen. Siehe docs/benutzung/ebenen.md, „Infotafel“. */
+const radFuerKarte = (inhalt: HTMLElement) => {
+  // Leaflet hielte es sonst über jeder Tafel an, und die Karte stünde, bis sich der Zeiger bewegt.
+  L.DomEvent.off(inhalt, 'wheel', L.DomEvent.stopPropagation);
+  inhalt.addEventListener('wheel', (e) => {
+    const platz = e.deltaY < 0 ? inhalt.scrollTop : inhalt.scrollHeight - inhalt.clientHeight - inhalt.scrollTop;
+    if (platz > 1) e.stopPropagation();
+  });
+};
+
 /**
  * Ein Teil der Kennung oder der Name eines Bilds ohne Endung, nach
  * docs/benutzung/ebenen.md, „Kennung“: 1 bis 64 Zeichen, kein `.` vorn oder
@@ -1000,6 +1010,8 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
       const kasten = popup.getElement();
       if (kasten && !angemeldet) {
         angemeldet = true;
+        const inhaltKasten = kasten.querySelector<HTMLElement>('.leaflet-popup-content');
+        if (inhaltKasten) radFuerKarte(inhaltKasten);
         kasten.addEventListener('mouseenter', () => {
           imKasten = true;
           clearTimeout(zu);

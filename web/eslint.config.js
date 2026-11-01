@@ -50,6 +50,19 @@ export default tseslint.config(
     languageOptions: { globals: globals.node },
   },
   {
+    // Sonst umginge eine Spec die Prüfung auf Seitenfehler in tests/test.ts.
+    files: ['tests/*.spec.ts', 'skins/*/tests/*.spec.ts'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: "ImportDeclaration[source.value='@playwright/test'] ImportSpecifier[imported.name='test']",
+          message: '`test` kommt aus web/tests/test.ts.',
+        },
+      ],
+    },
+  },
+  {
     // Die Grundkarte lädt einen Skin nur in main.ts, per import().
     files: ['src/**', 'tests/**'],
     rules: {

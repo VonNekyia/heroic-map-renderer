@@ -12,6 +12,7 @@ code:
   - web/src/schrift.ts
   - web/src/hoehen.ts
   - web/src/pick.ts
+  - web/src/rad.ts
   - web/src/skin-api.ts
   - web/src/skin-modul.d.ts
   - web/eslint.config.js
@@ -150,6 +151,24 @@ folgt wie nach jeder Bewegung, siehe „Ansichten und Kompass“.
 Kacheln anzufragen, die es nicht gibt. Innerhalb der Grenzen sind einzelne
 404 möglich: der Vorlauf kennt nur die Hüllkästen der Blockspalten. Leaflet
 lässt solche Kacheln leer.
+
+## Zoom mit dem Rad
+
+Das Rad zoomt in ganzen Stufen um den Zeiger, über `radZoom` in
+[`rad.ts`](../web/src/rad.ts) statt Leaflets `scrollWheelZoom`, siehe
+[0135](entscheidungen/0135-eigener-handler-fuer-das-rad.md).
+
+- **Eine Stufe** sind 50 Pixel nach `L.DomEvent.getWheelDelta`. Erreicht ein
+  Ereignis sie, zoomt die Karte sofort, ohne zu warten. Was von einem Ereignis
+  über die Stufe hinausgeht, verfällt, damit grössere Rasten nicht nach einigen
+  Rasten eine Stufe zu viel ergeben. Was ein echtes Rad oder Touchpad je Raste
+  meldet, ist nicht gemessen; die Tests erzeugen ihre Ereignisse selbst.
+- **Während einer Animation** warten die Stufen und folgen danach zusammen,
+  höchstens vier auf einmal, weil Leaflet darüber nicht mehr animiert. Das gilt
+  auch für eine fremde Animation, etwa von den Knöpfen.
+- **Eine Geste** endet nach 150 ms ohne Ereignis. Blieb sie unter einer Stufe,
+  zählt sie dann als eine, damit eine klein gemeldete Raste etwas tut.
+- **An der Grenze** des Zooms verfällt, was noch wartet.
 
 ## Grundschicht
 

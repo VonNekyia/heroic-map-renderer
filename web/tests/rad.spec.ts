@@ -116,8 +116,8 @@ test('bleibt zoomend aus, ist das Rad nach 1000 ms wieder frei, und was wartete,
   // Leaflet startet die Animation im nächsten Bild; verschluckt, kommen weder zoomstart noch zoomend.
   await page.addInitScript(() => {
     const w = window as unknown as { schlucke?: boolean };
-    const echt = window.requestAnimationFrame;
-    window.requestAnimationFrame = (f) => (w.schlucke ? 0 : echt.call(window, f));
+    const echt = window.requestAnimationFrame.bind(window);
+    window.requestAnimationFrame = (f) => (w.schlucke ? 0 : echt(f));
   });
   await amUnterenEnde(page);
   const ms = await page.evaluate(

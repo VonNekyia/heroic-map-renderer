@@ -574,6 +574,8 @@ Webkarte wäre eine Lücke für Skripte.
   wandern, etwa zum Scrollen. Bilder in der Tafel halten das Öffnen nicht
   auf: Die Tafel kommt mit dem Text, ihre Bilder laden nach, in der Grösse
   aus `width` und `height`.
+- **Das Rad** zoomt auf der Webkarte auch über der Tafel. Nur wenn ihr
+  Inhalt in dieser Richtung noch scrollen kann, scrollt er statt der Karte.
 - **Ein Klick** hält sie offen, bis zum Schliessknopf, zu Escape oder zu
   einem Klick daneben. Solange eine gehaltene Tafel offen ist, öffnet
   Zeigen auf ein anderes Ziel keine Tafel; ein Klick darauf wechselt.

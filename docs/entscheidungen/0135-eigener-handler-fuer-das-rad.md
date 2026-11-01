@@ -30,7 +30,9 @@ bleiben ganzzahlig; ein gebrochener Zoom ist eine eigene Entscheidung.
 
 ## Verworfene Alternativen
 
-Gemessen auf dem Spiegel, 3D, 6 Rasten zu 120 Pixeln, 1600 × 900.
+Gemessen an der grossen Welt, 3D, 6 Rasten zu 120 Pixeln, 1600 × 900, Chromium
+unter Windows, einzelne Läufe, Stand 01.11.2026. Die Rasten und Pixel sind
+erzeugt, nicht von einem echten Rad.
 
 | Variante | Stufen bei 50 / 100 / 150 / 250 ms Takt | Reaktion | 8 Pixel | 240 Pixel in 3 s |
 |---|---|---|---|---|
@@ -38,6 +40,7 @@ Gemessen auf dem Spiegel, 3D, 6 Rasten zu 120 Pixeln, 1600 × 900.
 | `wheelDebounceTime: 150` | 4 / 4 / 3 / 6 | 170 ms | 1 Stufe | 8 Stufen |
 | `wheelDebounceTime: 300` | 3 / 4 / 4 / 4 | 320 ms | 1 Stufe | 9 Stufen |
 | `wheelPxPerZoomLevel: 240` | 2 / 3 / 3 / 6 | 52 ms | 1 Stufe | 10 Stufen |
+| dieser Handler | 6 / 6 / 6 / 6 | 4 ms | 1 Stufe nach 150 ms Ruhe | 2 Stufen |
 
 - **Längeres `wheelDebounceTime`:** Es verliert weiter Stufen und reagiert drei-
   bis sechsmal so spät.

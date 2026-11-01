@@ -512,7 +512,8 @@ nicht passt (`update_braucht_den_stand_und_dieselben_assets`):
   [0098](../entscheidungen/0098-der-zeichenstand-statt-des-builds.md) und
   [0101](../entscheidungen/0101-zeichenstand-je-look.md).
   - **Mit Relief** gehen dazu sein Name und `ZEICHENSTAND_RELIEF` ein, ab
-    0122 1, seit der Schicht 2 ([0132](../entscheidungen/0132-relief-als-schicht.md)).
+    0122 1, seit der Schicht 2 ([0132](../entscheidungen/0132-relief-als-schicht.md)),
+    seit den Höhen ohne Pflanzen 3 ([0134](../entscheidungen/0134-relief-hoehen-ohne-pflanzen.md)).
     Ohne Relief bleibt der Abdruck, wie er war. Steigt er, rendern nur Bäume
     mit Relief neu, siehe [0122](../entscheidungen/0122-relief-von-oben.md).
   - **Ein Stand von v0.4.0 oder v0.5.0** trägt noch den Fingerabdruck der

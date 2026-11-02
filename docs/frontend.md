@@ -159,9 +159,10 @@ Das Rad zoomt in ganzen Stufen um den Zeiger, über `radZoom` in
 [0135](entscheidungen/0135-eigener-handler-fuer-das-rad.md).
 
 - **Eine Stufe** sind 50 Pixel nach `L.DomEvent.getWheelDelta`. Erreicht ein
-  Ereignis sie, zoomt die Karte sofort, ohne zu warten. Was von einem Ereignis
-  über die Stufe hinausgeht, verfällt, damit grössere Rasten nicht nach einigen
-  Rasten eine Stufe zu viel ergeben. Was ein echtes Rad oder Touchpad je Raste
+  Ereignis sie, zoomt die Karte sofort, ohne zu warten. 100 Pixel in einem
+  Ereignis sind 2 Stufen. Nur der Rest über ganze Stufen verfällt, damit
+  grössere Rasten nicht nach einigen Rasten eine Stufe zu viel ergeben. Was ein
+  echtes Rad oder Touchpad je Raste
   meldet, ist nicht gemessen; die Tests erzeugen ihre Ereignisse selbst.
 - **Während einer Animation** warten die Stufen und folgen danach zusammen,
   höchstens vier auf einmal, weil Leaflet darüber nicht mehr animiert. Das gilt
@@ -173,6 +174,9 @@ Das Rad zoomt in ganzen Stufen um den Zeiger, über `radZoom` in
 - **Eine Geste** endet nach 150 ms ohne Ereignis. Blieb sie unter einer Stufe,
   zählt sie dann als eine, damit eine klein gemeldete Raste etwas tut.
 - **An der Grenze** des Zooms verfällt, was noch wartet.
+- **Das Ziel ist immer eine ganze Stufe,** auch aus der gebrochenen
+  Gesamtansicht eines Skins. Das Rad geht hinaus nur bis zur letzten ganzen
+  Stufe; in die Gesamtansicht führt dort der Knopf.
 
 ## Grundschicht
 

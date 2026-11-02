@@ -30,9 +30,10 @@ export function radZoom(map: L.Map): void {
     const schritt = Math.max(-STUFEN_JE_ANIMATION, Math.min(STUFEN_JE_ANIMATION, offen));
     offen -= schritt;
     const zoom = map.getZoom();
-    const ziel = Math.max(map.getMinZoom(), Math.min(map.getMaxZoom(), zoom + schritt));
+    // Ganze Stufen, auch aus der gebrochenen Gesamtansicht eines Skins: `setView` rundete sonst, und die Mitte stimmte nicht.
+    const ziel = Math.max(Math.ceil(map.getMinZoom()), Math.min(map.getMaxZoom(), Math.round(zoom + schritt)));
     // An der Grenze verfällt der Rest, sonst schluckte er die Gegenrichtung.
-    if (ziel === zoom) {
+    if ((ziel - zoom) * schritt <= 0) {
       offen = 0;
       return;
     }

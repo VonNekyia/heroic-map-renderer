@@ -3,7 +3,7 @@ import { DEMO, HAFEN, staedte, welt } from './ebenen-welt';
 
 /** Was Leaflet aus einem Pixel am Rad macht: Chrome unter Windows zählt doppelt. */
 const FAKTOR = process.platform === 'win32' ? 2 : 1;
-/** Eine Raste wie am echten Rad, 60 Pixel nach `getWheelDelta`, genau eine Stufe. */
+/** Eine Raste, wie die Tests sie erzeugen: 60 Pixel nach `getWheelDelta`, genau eine Stufe. */
 const RASTE = 60 * FAKTOR;
 
 const zoomDerAdresse = (page: Page) => Number(new URL(page.url()).searchParams.get('zoom'));

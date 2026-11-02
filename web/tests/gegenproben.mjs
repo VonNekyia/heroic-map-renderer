@@ -51,6 +51,10 @@ export default [
   { name: 'rad-haengt-ohne-zoomend', datei: 'src/rad.ts', alt: 'frist = setTimeout(frei, ANIMATION_HOECHSTENS);', neu: 'frist = setTimeout(frei, ANIMATION_HOECHSTENS * 1e6);', spec: 'tests/rad.spec.ts', titel: 'bleibt zoomend aus' },
   { name: 'rad-frist-500', datei: 'src/rad.ts', alt: 'const ANIMATION_HOECHSTENS = 1000;', neu: 'const ANIMATION_HOECHSTENS = 500;', spec: 'tests/rad.spec.ts', titel: 'bleibt zoomend aus' },
   { name: 'rad-leaflet-handler-an', datei: 'src/main.ts', alt: '    scrollWheelZoom: false,\n', neu: '', spec: 'tests/rad.spec.ts', titel: 'eine Geste unter einer Stufe wirkt' },
+  // Das Rad aus der gebrochenen Gesamtansicht; die Tests laufen im Tablett.
+  { name: 'rad-ziel-gebrochen', datei: 'src/rad.ts', alt: 'Math.round(zoom + schritt)', neu: 'zoom + schritt', spec: 'skins/tablett/tests/karte.spec.ts', titel: 'das Rad bleibt aus der gebrochenen Gesamtansicht auf ganzen Stufen', projekt: 'tablett' },
+  { name: 'rad-grenze-gleich', datei: 'src/rad.ts', alt: '(ziel - zoom) * schritt <= 0', neu: 'ziel === zoom', spec: 'skins/tablett/tests/karte.spec.ts', titel: 'das Rad bleibt aus der gebrochenen Gesamtansicht auf ganzen Stufen', projekt: 'tablett' },
+  { name: 'rad-grenze-gebrochen', datei: 'src/rad.ts', alt: 'Math.ceil(map.getMinZoom())', neu: 'map.getMinZoom()', spec: 'skins/tablett/tests/karte.spec.ts', titel: 'das Rad bleibt aus der gebrochenen Gesamtansicht auf ganzen Stufen', projekt: 'tablett' },
   // Das Rad über der Tafel.
   { name: 'tafel-faengt-rad', datei: 'src/ebenen.ts', alt: "L.DomEvent.off(inhalt, 'wheel', L.DomEvent.stopPropagation);", neu: '', spec: 'tests/ebenen.spec.ts', titel: 'die Tafel fängt das Rad nicht' },
   { name: 'tafel-scrollt-und-zoomt', datei: 'src/ebenen.ts', alt: 'if (platz > 1) e.stopPropagation();', neu: 'if (platz < 0) e.stopPropagation();', spec: 'tests/ebenen.spec.ts', titel: 'in der Tafel scrollt das Rad' },

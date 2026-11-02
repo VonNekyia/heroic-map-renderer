@@ -174,9 +174,11 @@ Das Rad zoomt in ganzen Stufen um den Zeiger, über `radZoom` in
 - **Eine Geste** endet nach 150 ms ohne Ereignis. Blieb sie unter einer Stufe,
   zählt sie dann als eine, damit eine klein gemeldete Raste etwas tut.
 - **An der Grenze** des Zooms verfällt, was noch wartet.
-- **Das Ziel ist immer eine ganze Stufe,** auch aus der gebrochenen
-  Gesamtansicht eines Skins. Das Rad geht hinaus nur bis zur letzten ganzen
-  Stufe; in die Gesamtansicht führt dort der Knopf.
+- **Das Ziel ist eine ganze Stufe,** auch aus der gebrochenen Gesamtansicht
+  eines Skins. Nur die Gesamtansicht selbst bleibt gebrochen: Liegt sie mehr als
+  0,5 unter der ganzen Stufe, erreicht das Rad sie. Liegt sie höchstens 0,5
+  darunter, rundet `setView` sie weg; dann hält das Rad auf der ganzen Stufe,
+  ohne zu schieben oder zu sperren, und in die Gesamtansicht führt der Knopf.
 
 ## Grundschicht
 

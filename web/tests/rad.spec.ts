@@ -24,9 +24,9 @@ const strom = (page: Page, zahl: number, pixel: number) =>
     [zahl, -pixel * FAKTOR],
   );
 /** Wie viele ms nach einem Ereignis die Animation beginnt, gemessen in der Seite; −1, wenn in 1 s keine beginnt. */
-const reaktion = (page: Page, pixel: number) =>
+const reaktionRoh = (page: Page, delta: number, deltaMode = 0) =>
   page.evaluate(
-    (deltaY) =>
+    ([deltaY, modus]) =>
       new Promise<number>((fertig) => {
         const start = performance.now();
         const beobachter = new MutationObserver(() => {
@@ -34,10 +34,13 @@ const reaktion = (page: Page, pixel: number) =>
         });
         beobachter.observe(document.body, { attributes: true, subtree: true, attributeFilter: ['class'] });
         setTimeout(() => fertig(-1), 1000);
-        document.querySelector('#map')!.dispatchEvent(new WheelEvent('wheel', { deltaY, clientX: 640, clientY: 360, bubbles: true, cancelable: true }));
+        document.querySelector('#map')!.dispatchEvent(new WheelEvent('wheel', { deltaY: deltaY!, deltaMode: modus!, clientX: 640, clientY: 360, bubbles: true, cancelable: true }));
       }),
-    -pixel * FAKTOR,
+    [delta, deltaMode],
   );
+const reaktion = (page: Page, pixel: number) => reaktionRoh(page, -pixel * FAKTOR);
+/** Leaflet liest die Plattform beim Laden; so laufen beide Zweige auf jedem Rechner der Tests. */
+const plattform = (page: Page, name: string) => page.addInitScript((n) => Object.defineProperty(navigator, 'platform', { get: () => n }), name);
 /** Wartet, bis Animationen und Rest der Geste durch sind, und nennt die Stufe. */
 const zuletzt = async (page: Page) => {
   await page.waitForTimeout(1000);
@@ -94,6 +97,41 @@ test('an der Grenze verfällt der Rest: Die nächste Raste in die Gegenrichtung 
   expect(await zuletzt(page)).toBe(2);
   await page.mouse.wheel(0, RASTE);
   expect(await zuletzt(page)).toBe(1);
+});
+
+// Nach dem Quelltext von Chromium meldet eine Raste mit 3 Zeilen unter Windows 100, bei jeder Skalierung; siehe 0135.
+for (const dpr of [1, 1.25, 1.5, 2]) {
+  test.describe(`unter Windows bei DPR ${dpr}`, () => {
+    test.use({ deviceScaleFactor: dpr });
+    test(`DPR ${dpr}: deltaY 100 ist sofort genau eine Stufe, unter 100 ms`, async ({ page }) => {
+      await plattform(page, 'Win32');
+      await amUnterenEnde(page);
+      const ms = await reaktionRoh(page, -100);
+      expect(ms).toBeGreaterThanOrEqual(0);
+      expect(ms).toBeLessThan(100);
+      expect(await zuletzt(page)).toBe(-1);
+    });
+    test(`DPR ${dpr}: deltaY 99 bleibt unter der Stufe und wirkt erst nach 150 ms Ruhe`, async ({ page }) => {
+      await plattform(page, 'Win32');
+      await amUnterenEnde(page);
+      expect(await reaktionRoh(page, -99)).toBeGreaterThanOrEqual(149);
+      expect(await zuletzt(page)).toBe(-1);
+    });
+  });
+}
+
+test('unter Windows gilt im Zeilenmodus weiter getWheelDelta: 3 Zeilen sind sofort eine Stufe', async ({ page }) => {
+  await plattform(page, 'Win32');
+  await amUnterenEnde(page);
+  const ms = await reaktionRoh(page, -3, 1);
+  expect(ms).toBeGreaterThanOrEqual(0);
+  expect(ms).toBeLessThan(100);
+});
+
+test('ausserhalb von Windows gilt weiter getWheelDelta: Am Mac sind deltaY 149 keine sofortige Stufe', async ({ page }) => {
+  await plattform(page, 'MacIntel');
+  await amUnterenEnde(page);
+  expect(await reaktionRoh(page, -149)).toBeGreaterThanOrEqual(149);
 });
 
 test('das Rad zoomt um den Zeiger: Die Nadel unter ihm bleibt stehen, auch über mehrere Stufen', async ({ page }) => {

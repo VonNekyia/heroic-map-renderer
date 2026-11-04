@@ -51,6 +51,13 @@ export default [
   { name: 'rad-haengt-ohne-zoomend', datei: 'src/rad.ts', alt: 'frist = setTimeout(frei, ANIMATION_HOECHSTENS);', neu: 'frist = setTimeout(frei, ANIMATION_HOECHSTENS * 1e6);', spec: 'tests/rad.spec.ts', titel: 'bleibt zoomend aus' },
   { name: 'rad-frist-500', datei: 'src/rad.ts', alt: 'const ANIMATION_HOECHSTENS = 1000;', neu: 'const ANIMATION_HOECHSTENS = 500;', spec: 'tests/rad.spec.ts', titel: 'bleibt zoomend aus' },
   { name: 'rad-leaflet-handler-an', datei: 'src/main.ts', alt: '    scrollWheelZoom: false,\n', neu: '', spec: 'tests/rad.spec.ts', titel: 'eine Geste unter einer Stufe wirkt' },
+  // Das Rad in Chromium unter Windows.
+  { name: 'rad-win-ohne-zweig', datei: 'src/rad.ts', alt: 'L.Browser.win && L.Browser.chrome && e.deltaMode === 0', neu: 'false', spec: 'tests/rad.spec.ts', titel: 'DPR 2: deltaY 100 ist sofort' },
+  { name: 'rad-win-faktor-3', datei: 'src/rad.ts', alt: '-e.deltaY / 2', neu: '-e.deltaY / 3', spec: 'tests/rad.spec.ts', titel: 'DPR 1: deltaY 100 ist sofort' },
+  { name: 'rad-win-faktor-1', datei: 'src/rad.ts', alt: '-e.deltaY / 2', neu: '-e.deltaY', spec: 'tests/rad.spec.ts', titel: 'DPR 1: deltaY 100 ist sofort' },
+  { name: 'rad-win-99-reicht', datei: 'src/rad.ts', alt: '-e.deltaY / 2', neu: 'Math.ceil(-e.deltaY / 100) * 50', spec: 'tests/rad.spec.ts', titel: 'DPR 2: deltaY 99' },
+  { name: 'rad-win-zeilenmodus', datei: 'src/rad.ts', alt: ' && e.deltaMode === 0', neu: '', spec: 'tests/rad.spec.ts', titel: 'unter Windows gilt im Zeilenmodus' },
+  { name: 'rad-win-auf-allen', datei: 'src/rad.ts', alt: 'L.Browser.win && L.Browser.chrome', neu: 'L.Browser.chrome', spec: 'tests/rad.spec.ts', titel: 'ausserhalb von Windows' },
   // Das Rad aus der gebrochenen Gesamtansicht; die Tests laufen im Tablett.
   { name: 'rad-ziel-einmal', datei: 'src/rad.ts', alt: 'grenze(grenze(zoom + schritt))', neu: 'grenze(zoom + schritt)', spec: 'skins/tablett/tests/karte.spec.ts', titel: 'das Rad aus einer Gesamtansicht 0,4 unter der ganzen Stufe', projekt: 'tablett' },
   { name: 'rad-ziel-gebrochen', datei: 'src/rad.ts', alt: 'Math.round(z)', neu: 'z', spec: 'skins/tablett/tests/karte.spec.ts', titel: 'das Rad aus einer Gesamtansicht 0,4 unter der ganzen Stufe', projekt: 'tablett' },

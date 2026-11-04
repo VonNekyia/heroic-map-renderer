@@ -10,6 +10,12 @@ const STUFEN_JE_ANIMATION = 4;
 const ANIMATION_HOECHSTENS = 1000;
 
 /**
+ * Pixel eines Ereignisses, hinein positiv. Chromium unter Windows meldet eine Raste ohne die
+ * Skalierung, `getWheelDelta` teilt dort trotzdem durch sie. Siehe docs/frontend.md, „Zoom mit dem Rad“.
+ */
+const pixel = (e: WheelEvent) => (L.Browser.win && L.Browser.chrome && e.deltaMode === 0 ? -e.deltaY / 2 : L.DomEvent.getWheelDelta(e));
+
+/**
  * Zoomt mit dem Rad in ganzen Stufen um den Zeiger; die Karte schaltet dafür
  * `scrollWheelZoom` aus. Stufen während einer Animation warten auf deren Ende.
  * Siehe docs/frontend.md, „Zoom mit dem Rad“.
@@ -58,7 +64,7 @@ export function radZoom(map: L.Map): void {
   L.DomEvent.on(map.getContainer(), 'wheel', (e) => {
     L.DomEvent.stop(e);
     punkt = map.mouseEventToContainerPoint(e as MouseEvent);
-    gesammelt += L.DomEvent.getWheelDelta(e);
+    gesammelt += pixel(e as WheelEvent);
     const stufen = Math.trunc(gesammelt / PIXEL_JE_STUFE);
     if (stufen !== 0) {
       offen += stufen;

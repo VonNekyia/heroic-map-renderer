@@ -158,7 +158,10 @@ Das Rad zoomt in ganzen Stufen um den Zeiger, über `radZoom` in
 [`rad.ts`](../web/src/rad.ts) statt Leaflets `scrollWheelZoom`, siehe
 [0135](entscheidungen/0135-eigener-handler-fuer-das-rad.md).
 
-- **Eine Stufe** sind 50 Pixel nach `L.DomEvent.getWheelDelta`. Erreicht ein
+- **Eine Stufe** sind 50 Pixel, in Chromium unter Windows im Pixelmodus
+  `-deltaY / 2`, sonst nach `L.DomEvent.getWheelDelta`. Dessen Teilen durch die
+  Skalierung passt in Chromium unter Windows nicht, siehe
+  [0135](entscheidungen/0135-eigener-handler-fuer-das-rad.md). Erreicht ein
   Ereignis sie, zoomt die Karte sofort, ohne zu warten. 100 Pixel in einem
   Ereignis sind 2 Stufen. Nur der Rest über ganze Stufen verfällt, damit
   grössere Rasten nicht nach einigen Rasten eine Stufe zu viel ergeben. Was ein

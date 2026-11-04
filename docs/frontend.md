@@ -12,6 +12,7 @@ code:
   - web/src/schrift.ts
   - web/src/hoehen.ts
   - web/src/pick.ts
+  - web/src/rad.ts
   - web/src/skin-api.ts
   - web/src/skin-modul.d.ts
   - web/eslint.config.js
@@ -150,6 +151,39 @@ folgt wie nach jeder Bewegung, siehe „Ansichten und Kompass“.
 Kacheln anzufragen, die es nicht gibt. Innerhalb der Grenzen sind einzelne
 404 möglich: der Vorlauf kennt nur die Hüllkästen der Blockspalten. Leaflet
 lässt solche Kacheln leer.
+
+## Zoom mit dem Rad
+
+Das Rad zoomt in ganzen Stufen um den Zeiger, über `radZoom` in
+[`rad.ts`](../web/src/rad.ts) statt Leaflets `scrollWheelZoom`, siehe
+[0135](entscheidungen/0135-eigener-handler-fuer-das-rad.md).
+
+- **Eine Stufe** sind 50 Pixel, in Chromium unter Windows im Pixelmodus
+  `-deltaY / 2`, sonst nach `L.DomEvent.getWheelDelta`. Dessen Teilen durch die
+  Skalierung passt in Chromium unter Windows nicht, siehe
+  [0135](entscheidungen/0135-eigener-handler-fuer-das-rad.md). Erreicht ein
+  Ereignis sie, zoomt die Karte sofort, ohne zu warten. 100 Pixel in einem
+  Ereignis sind 2 Stufen. Nur der Rest über ganze Stufen verfällt, damit
+  grössere Rasten nicht nach einigen Rasten eine Stufe zu viel ergeben. Was ein
+  echtes Rad oder Touchpad je Raste
+  meldet, ist nicht gemessen; die Tests erzeugen ihre Ereignisse selbst.
+- **Während einer Animation** warten die Stufen und folgen danach zusammen,
+  höchstens vier auf einmal, weil Leaflet darüber nicht mehr animiert. Das gilt
+  auch für eine fremde Animation, etwa von den Knöpfen.
+- **Bleibt `zoomend` aus,** weil ein Listener wirft oder ein `flyTo` abgebrochen
+  wird, gilt die Animation nach 1000 ms als beendet (`ANIMATION_HOECHSTENS`).
+  Stufen, die warten, folgen dann ohne neue Eingabe. Die Stufe, deren Animation
+  nie begann, ist verloren.
+- **Eine Geste** endet nach 150 ms ohne Ereignis. Blieb sie unter einer Stufe,
+  zählt sie dann als eine, damit eine klein gemeldete Raste etwas tut.
+- **An der Grenze** des Zooms verfällt, was noch wartet.
+- **Das Ziel ist eine ganze Stufe,** auch aus der gebrochenen Gesamtansicht
+  eines Skins. Nur eine gebrochene Grenze selbst bleibt gebrochen: Liegt sie mehr
+  als 0,5 unter der ganzen Stufe, erreicht das Rad sie. Liegt sie höchstens 0,5
+  darunter, rundet `setView` sie weg; dann hält das Rad auf der ganzen Stufe,
+  ohne zu schieben oder zu sperren. So liegt die Gesamtansicht des Tabletts
+  immer, siehe [0067](entscheidungen/0067-gesamtansicht-zwischen-zwei-stufen.md);
+  dorthin führt der Knopf.
 
 ## Grundschicht
 

@@ -917,8 +917,8 @@ test('eine gehaltene Tafel übersteht das Zeigen auf ein anderes Ziel, per Klick
 });
 
 const zoomDerAdresse = (page: Page) => Number(new URL(page.url()).searchParams.get('zoom'));
-/** So viel gibt in Chrome auf Windows wie auf Linux genau eine Stufe; 120 sind unter Linux zwei. */
-const EINE_STUFE = 60;
+/** Genau eine Stufe, sofort: Chrome unter Windows meldet Leaflet die Hälfte der Pixel. */
+const EINE_STUFE = process.platform === 'win32' ? 120 : 60;
 
 test('die Tafel fängt das Rad nicht: Öffnet sie sich unter dem ruhenden Zeiger, zoomt die Karte weiter, und ihr Schliessknopf geht', async ({ page }) => {
   await welt(page, staedte([HAFEN]));

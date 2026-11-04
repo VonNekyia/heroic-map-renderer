@@ -45,10 +45,10 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
  * etwa weil die Mutation eine Funktion ungenutzt lässt; dann hat kein Test
  * etwas gefunden. Ohne Shell, damit Strg+C ihn trifft.
  */
-const lauf = (spec, titel) =>
+const lauf = (spec, titel, projekt = 'grund') =>
   new Promise((fertig) => {
     const muster = titel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const kind = spawn(process.execPath, ['node_modules/@playwright/test/cli.js', 'test', '--project=grund', spec, '--grep', muster, '--retries=0', '--reporter=line'], { stdio: ['ignore', 'pipe', 'pipe'] });
+    const kind = spawn(process.execPath, ['node_modules/@playwright/test/cli.js', 'test', `--project=${projekt}`, spec, '--grep', muster, '--retries=0', '--reporter=line'], { stdio: ['ignore', 'pipe', 'pipe'] });
     let text = '';
     for (const strom of [kind.stdout, kind.stderr]) strom.on('data', (d) => (text += d));
     kind.on('exit', (code) => fertig(code === 0 ? 'gruen' : text.includes('config.webServer') ? 'bau' : 'rot'));
@@ -58,7 +58,7 @@ const nur = process.argv.slice(2);
 const fremd = nur.filter((n) => !liste.some((e) => e.name === n));
 if (fremd.length) throw new Error(`keine Gegenprobe heisst ${fremd.join(', ')}`);
 let schlecht = 0;
-for (const { name, datei, alt, neu, spec, titel } of liste) {
+for (const { name, datei, alt, neu, spec, titel, projekt } of liste) {
   if (nur.length && !nur.includes(name)) continue;
   const original = readFileSync(datei);
   const text = original.toString('utf8');
@@ -74,7 +74,7 @@ for (const { name, datei, alt, neu, spec, titel } of liste) {
   writeFileSync(SICHERUNG, JSON.stringify({ pfad: datei, bytes: original.toString('base64') }));
   try {
     writeFileSync(datei, text.replace(a, () => n));
-    const ausgang = await lauf(spec, titel);
+    const ausgang = await lauf(spec, titel, projekt);
     console.log(`${{ gruen: 'GRÜN', rot: 'ROT ', bau: 'BAUFEHLER' }[ausgang]} ${name}`);
     if (ausgang !== 'rot') schlecht++;
   } finally {

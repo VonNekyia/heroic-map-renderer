@@ -119,8 +119,8 @@ test('über einem Knopf in der Tafel zoomt das Rad die Karte, und der Knopf blei
   await page.goto(`${DEMO}&at=35,0,-15&zoom=-2`);
   const knopf = await schiffKnopf(page);
   await knopf.hover();
-  // 60 gibt in Chrome auf Windows wie auf Linux genau eine Stufe; 120 sind unter Linux zwei.
-  await page.mouse.wheel(0, -60);
+  // Genau eine Stufe, sofort: Chrome unter Windows meldet Leaflet die Hälfte der Pixel.
+  await page.mouse.wheel(0, process.platform === 'win32' ? -120 : -60);
   await expect.poll(() => Number(new URL(page.url()).searchParams.get('zoom'))).toBe(-1);
   await knopf.click();
   await expect(knopf).toHaveAttribute('aria-pressed', 'true');

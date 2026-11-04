@@ -414,6 +414,73 @@ test('in der Gesamtansicht füllt das Tablett 92,5 % des Fensters wie in der Vor
   await expect.poll(() => stand(page)).toEqual({ fern: { ueber: false, ...da, gemalt: true }, nah: { ueber: true, ...da, gemalt: true } });
 });
 
+test('das Rad aus einer Gesamtansicht 0,4 unter der ganzen Stufe: ganze Stufen um den Zeiger, kein Weg zurück und keine Sperre', async ({ page }) => {
+  await page.setViewportSize({ width: 1790, height: 1000 });
+  await welt(page, QUADRAT);
+  await page.goto(DEMO);
+  await expect.poll(() => gezeichnet(page)).toBe(true);
+  const p = kamera('2:1', 16);
+  const rahmen = grenzen(QUADRAT.area, QUADRAT.seaLevel, { projektion: p, k: 0, projiziere: (x, y, z) => projiziere(x, y, z, p) });
+  const groesse = (await page.locator('#map').boundingBox())!;
+  const fit = gesamtstufe(rahmen, 2, groesse.width, groesse.height);
+  expect(Math.ceil(fit) - fit).toBeCloseTo(0.4, 1);
+
+  // Weit von der Mitte, damit ein Sprung nicht in der Rundung der Adresse untergeht.
+  const [x, y] = [groesse.width - 100, groesse.height - 100];
+  const deltaY = (richtung: number) => richtung * 60 * (process.platform === 'win32' ? 2 : 1);
+  /** Eine Raste, die genau eine Stufe ergibt; hinein ist −1. */
+  const raste = (richtung: number) =>
+    page.evaluate(
+      ([d, clientX, clientY]) => {
+        document.querySelector('#map')!.dispatchEvent(new WheelEvent('wheel', { deltaY: d!, clientX: clientX!, clientY: clientY!, bubbles: true, cancelable: true }));
+      },
+      [deltaY(richtung), x, y],
+    );
+  /** Eine Raste und wie viele ms bis zur Animation; −1, wenn in 1,5 s keine beginnt. */
+  const reaktion = (richtung: number) =>
+    page.evaluate(
+      ([d, clientX, clientY]) =>
+        new Promise<number>((fertig) => {
+          const start = performance.now();
+          const beobachter = new MutationObserver(() => {
+            if (document.querySelector('.leaflet-zoom-anim')) fertig(performance.now() - start);
+          });
+          beobachter.observe(document.body, { attributes: true, subtree: true, attributeFilter: ['class'] });
+          setTimeout(() => fertig(-1), 1500);
+          document.querySelector('#map')!.dispatchEvent(new WheelEvent('wheel', { deltaY: d!, clientX: clientX!, clientY: clientY!, bubbles: true, cancelable: true }));
+        }),
+      [deltaY(richtung), x, y],
+    );
+  const stufe = () => Number(new URL(page.url()).searchParams.get('zoom')) + 2;
+  /** Der Punkt unter dem Zeiger in Pixeln der feinsten Stufe. */
+  const unterDemZeiger = () => {
+    const [ax, ay, az] = new URL(page.url()).searchParams.get('at')!.split(',').map(Number);
+    const [px, py] = projiziere(ax!, ay!, az!, p);
+    const f = 2 ** (2 - stufe());
+    return [px + (x - groesse.width / 2) * f, py + (y - groesse.height / 2) * f];
+  };
+
+  // Hinaus tut nichts, auch nicht zur ganzen Stufe darüber: Es beginnt keine Animation.
+  expect(await reaktion(1)).toBe(-1);
+  expect(stufe()).toBeCloseTo(fit, 9);
+
+  // Hinein landet ganz, und der Punkt bleibt, bis auf die Rundung der Adresse auf Blöcke.
+  const vorher = unterDemZeiger();
+  await raste(-1);
+  await expect.poll(stufe).toBe(Math.ceil(fit) + 1);
+  const nachher = unterDemZeiger();
+  expect(Math.abs(nachher[0]! - vorher[0]!)).toBeLessThanOrEqual(45);
+  expect(Math.abs(nachher[1]! - vorher[1]!)).toBeLessThanOrEqual(45);
+
+  await raste(1);
+  await expect.poll(stufe).toBe(Math.ceil(fit));
+  // Die Gesamtansicht rundete `setView` weg: Hinaus tut nichts und sperrt nicht, hinein beginnt gleich, nicht erst nach 1000 ms.
+  await raste(1);
+  const ms = await reaktion(-1);
+  expect(ms).toBeGreaterThanOrEqual(0);
+  expect(ms).toBeLessThan(500);
+});
+
 // Bei 300 × 200 liegt die Gesamtansicht unter Zoom 0, der kleinsten Stufe aus map.json.
 for (const [breite, hoehe] of [[800, 600], [300, 200]] as const) {
   test(`in einem Fenster der Grösse 0 lädt die Karte, und mit der ersten Grösse, ${breite} × ${hoehe}, kommt die Gesamtansicht mit Kacheln`, async ({ page }) => {

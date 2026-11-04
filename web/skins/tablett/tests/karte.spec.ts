@@ -429,6 +429,21 @@ test('das Rad aus einer Gesamtansicht 0,4 unter der ganzen Stufe: ganze Stufen u
       },
       [deltaY(richtung), x, y],
     );
+  /** Eine Raste und wie viele ms bis zur Animation; −1, wenn in 1,5 s keine beginnt. */
+  const reaktion = (richtung: number) =>
+    page.evaluate(
+      ([d, clientX, clientY]) =>
+        new Promise<number>((fertig) => {
+          const start = performance.now();
+          const beobachter = new MutationObserver(() => {
+            if (document.querySelector('.leaflet-zoom-anim')) fertig(performance.now() - start);
+          });
+          beobachter.observe(document.body, { attributes: true, subtree: true, attributeFilter: ['class'] });
+          setTimeout(() => fertig(-1), 1500);
+          document.querySelector('#map')!.dispatchEvent(new WheelEvent('wheel', { deltaY: d!, clientX: clientX!, clientY: clientY!, bubbles: true, cancelable: true }));
+        }),
+      [deltaY(richtung), x, y],
+    );
   const stufe = () => Number(new URL(page.url()).searchParams.get('zoom')) + 2;
   /** Der Punkt unter dem Zeiger in Pixeln der feinsten Stufe. */
   const unterDemZeiger = () => {
@@ -438,9 +453,8 @@ test('das Rad aus einer Gesamtansicht 0,4 unter der ganzen Stufe: ganze Stufen u
     return [px + (x - groesse.width / 2) * f, py + (y - groesse.height / 2) * f];
   };
 
-  // Hinaus tut nichts, auch nicht zur ganzen Stufe darüber.
-  await raste(1);
-  await page.waitForTimeout(400);
+  // Hinaus tut nichts, auch nicht zur ganzen Stufe darüber: Es beginnt keine Animation.
+  expect(await reaktion(1)).toBe(-1);
   expect(stufe()).toBeCloseTo(fit, 9);
 
   // Hinein landet ganz, und der Punkt bleibt, bis auf die Rundung der Adresse auf Blöcke.
@@ -455,19 +469,7 @@ test('das Rad aus einer Gesamtansicht 0,4 unter der ganzen Stufe: ganze Stufen u
   await expect.poll(stufe).toBe(Math.ceil(fit));
   // Die Gesamtansicht rundete `setView` weg: Hinaus tut nichts und sperrt nicht, hinein beginnt gleich, nicht erst nach 1000 ms.
   await raste(1);
-  const ms = await page.evaluate(
-    ([d, clientX, clientY]) =>
-      new Promise<number>((fertig) => {
-        const start = performance.now();
-        const beobachter = new MutationObserver(() => {
-          if (document.querySelector('.leaflet-zoom-anim')) fertig(performance.now() - start);
-        });
-        beobachter.observe(document.body, { attributes: true, subtree: true, attributeFilter: ['class'] });
-        setTimeout(() => fertig(-1), 1500);
-        document.querySelector('#map')!.dispatchEvent(new WheelEvent('wheel', { deltaY: d!, clientX: clientX!, clientY: clientY!, bubbles: true, cancelable: true }));
-      }),
-    [deltaY(-1), x, y],
-  );
+  const ms = await reaktion(-1);
   expect(ms).toBeGreaterThanOrEqual(0);
   expect(ms).toBeLessThan(500);
 });

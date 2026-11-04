@@ -31,7 +31,7 @@ bleiben ganzzahlig; ein gebrochener Zoom ist eine eigene Entscheidung.
 
 ## Eine Raste in Chromium unter Windows
 
-Aus dem Quelltext von Chromium, Stand `3be30cc8a45e`, gelesen, nicht gemessen:
+Aus dem Quelltext von Chromium, Stand `3be30cc8a45e`:
 
 1. `WebMouseWheelEventBuilder::Build` in
    `ui/events/blink/web_input_event_builders_win.cc`: Ticks sind `wParam / 120`,
@@ -45,8 +45,22 @@ Aus dem Quelltext von Chromium, Stand `3be30cc8a45e`, gelesen, nicht gemessen:
 Die Skalierung hebt sich also auf: Bei 3 Zeilen je Raste ist `deltaY` 100 und
 `wheelDeltaY` 120, geteilt durch einen Browser-Zoom über die Skalierung hinaus.
 Leaflets `getWheelDelta` teilt unter Windows trotzdem durch 2 × `devicePixelRatio`.
-Eine Raste ergäbe bei 125, 150 und 200 % 40, 33 und 25 Pixel statt 50, und
-schnelle Rasten gingen wieder verloren.
+Eine Raste ergibt damit weniger als 50 Pixel, und schnelle Rasten gingen wieder
+verloren.
+
+Gemessen auf einem Windows-Runner der CI, Stand 2026-11-04: Chromium aus
+Playwright, sichtbar, eigenes Profil, `--force-device-scale-factor`, 3 Zeilen je
+Raste ausgelesen, echte `WM_MOUSEWHEEL` mit ±120 per `PostMessage`, zwei Läufe:
+
+| Skalierung | `devicePixelRatio` | `deltaY` | `deltaMode` | `wheelDeltaY` | `getWheelDelta` |
+|---|---|---|---|---|---|
+| 100 % | 1 | ±100 | 0 | ∓120 | ∓50 |
+| 125 % | 1,25 | ±100 | 0 | ∓120 | ∓40 |
+| 150 % | 1,5 | ±100 | 0 | ∓120 | ∓33,3 |
+
+An das Kindfenster ergaben 3 Nachrichten 6 Ereignisse, an das Hauptfenster 3.
+Die Werte je Ereignis sind gleich. 200 % und der Browser-Zoom von 125 % liefen
+nicht durch und sind nur gerechnet: 25 Pixel und 32 Pixel.
 
 ## Nicht belegt
 

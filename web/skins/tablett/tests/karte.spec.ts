@@ -414,13 +414,14 @@ test('in der Gesamtansicht füllt das Tablett 92,5 % des Fensters wie in der Vor
 async function gebrocheneGesamtansicht(page: Page, ueber: number) {
   const p = kamera('2:1', 16);
   const rahmen = grenzen(QUADRAT.area, QUADRAT.seaLevel, { projektion: p, k: 0, projiziere: (x, y, z) => projiziere(x, y, z, p) });
-  const hoehe = 1000;
-  let breite = 900;
-  const liegt = (b: number) => {
-    const z = gesamtstufe(rahmen, 2, b, hoehe);
+  // In diesem breiten Fenster begrenzt die Höhe die Gesamtansicht.
+  const breite = 2000;
+  let hoehe = 600;
+  const liegt = (h: number) => {
+    const z = gesamtstufe(rahmen, 2, breite, h);
     return Math.ceil(z) - z;
   };
-  while (breite < 2600 && Math.abs(liegt(breite) - ueber) >= 0.01) breite++;
+  while (hoehe < 1400 && Math.abs(liegt(hoehe) - ueber) >= 0.01) hoehe++;
   await page.setViewportSize({ width: breite, height: hoehe });
   await welt(page, QUADRAT);
   await page.goto(DEMO);

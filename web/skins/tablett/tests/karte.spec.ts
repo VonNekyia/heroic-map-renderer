@@ -25,12 +25,19 @@ async function welt(page: Page, mehr: object): Promise<void> {
   );
 }
 
-/** Zoomt per Knopf und wartet, bis Leaflet fertig ist. */
+/** Zoomt per Knopf und wartet auf die neue Stufe in der Adresse; die Adresse folgt erst nach dem Ende der Animation. */
 async function zoome(page: Page, knopf: 'in' | 'out'): Promise<void> {
-  const pane = page.locator('.leaflet-map-pane');
+  const stufe = () => new URL(page.url()).searchParams.get('zoom');
+  await expect.poll(stufe).not.toBeNull();
+  const vorher = Number(stufe());
   await page.locator(`.leaflet-control-zoom-${knopf}`).click();
-  await expect(pane).toHaveClass(/leaflet-zoom-anim/);
-  await expect(pane).not.toHaveClass(/leaflet-zoom-anim/);
+  if (knopf === 'in') {
+    await expect.poll(() => Number(stufe())).toBe(Math.round(vorher + 1));
+  } else {
+    // Hinaus endet auf der ganzen Stufe darunter oder davor auf der gebrochenen Gesamtansicht.
+    await expect.poll(() => Number(stufe())).toBeLessThan(vorher);
+    expect(Number(stufe())).toBeGreaterThanOrEqual(Math.round(vorher - 1));
+  }
 }
 
 /**

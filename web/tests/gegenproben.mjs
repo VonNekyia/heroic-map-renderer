@@ -61,9 +61,8 @@ export default [
   // Das Rad aus der gebrochenen Gesamtansicht; die Tests laufen im Tablett.
   { name: 'rad-ziel-einmal', datei: 'src/rad.ts', alt: 'grenze(grenze(zoom + schritt))', neu: 'grenze(zoom + schritt)', spec: 'skins/tablett/tests/karte.spec.ts', titel: 'das Rad aus einer Gesamtansicht 0,4 unter der ganzen Stufe', projekt: 'tablett' },
   { name: 'rad-ziel-gebrochen', datei: 'src/rad.ts', alt: 'Math.round(z)', neu: 'z', spec: 'skins/tablett/tests/karte.spec.ts', titel: 'das Rad aus einer Gesamtansicht 0,4 unter der ganzen Stufe', projekt: 'tablett' },
-  { name: 'rad-ziel-gebrochen-06', datei: 'src/rad.ts', alt: 'Math.round(z)', neu: 'z', spec: 'skins/tablett/tests/karte.spec.ts', titel: 'das Rad aus einer Gesamtansicht 0,6 unter der ganzen Stufe', projekt: 'tablett' },
   { name: 'rad-grenze-gleich', datei: 'src/rad.ts', alt: '(ziel - zoom) * schritt <= 0', neu: 'ziel === zoom', spec: 'skins/tablett/tests/karte.spec.ts', titel: 'das Rad aus einer Gesamtansicht 0,4 unter der ganzen Stufe', projekt: 'tablett' },
-  { name: 'rad-gesamtansicht-verloren', datei: 'src/rad.ts', alt: 'Math.max(map.getMinZoom(),', neu: 'Math.max(Math.ceil(map.getMinZoom()),', spec: 'skins/tablett/tests/karte.spec.ts', titel: 'das Rad aus einer Gesamtansicht 0,6 unter der ganzen Stufe', projekt: 'tablett' },
+  { name: 'rad-gesamtansicht-verloren', datei: 'src/rad.ts', alt: 'Math.max(map.getMinZoom(),', neu: 'Math.max(Math.ceil(map.getMinZoom()),', spec: 'tests/rad.spec.ts', titel: 'bei einer gebrochenen Grenze 0,6' },
   // Das Rad über der Tafel.
   { name: 'tafel-faengt-rad', datei: 'src/ebenen.ts', alt: "L.DomEvent.off(inhalt, 'wheel', L.DomEvent.stopPropagation);", neu: '', spec: 'tests/ebenen.spec.ts', titel: 'die Tafel fängt das Rad nicht' },
   { name: 'tafel-scrollt-und-zoomt', datei: 'src/ebenen.ts', alt: 'if (platz > 1) e.stopPropagation();', neu: 'if (platz < 0) e.stopPropagation();', spec: 'tests/ebenen.spec.ts', titel: 'in der Tafel scrollt das Rad' },

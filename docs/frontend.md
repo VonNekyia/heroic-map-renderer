@@ -178,10 +178,12 @@ Das Rad zoomt in ganzen Stufen um den Zeiger, über `radZoom` in
   zählt sie dann als eine, damit eine klein gemeldete Raste etwas tut.
 - **An der Grenze** des Zooms verfällt, was noch wartet.
 - **Das Ziel ist eine ganze Stufe,** auch aus der gebrochenen Gesamtansicht
-  eines Skins. Nur die Gesamtansicht selbst bleibt gebrochen: Liegt sie mehr als
-  0,5 unter der ganzen Stufe, erreicht das Rad sie. Liegt sie höchstens 0,5
+  eines Skins. Nur eine gebrochene Grenze selbst bleibt gebrochen: Liegt sie mehr
+  als 0,5 unter der ganzen Stufe, erreicht das Rad sie. Liegt sie höchstens 0,5
   darunter, rundet `setView` sie weg; dann hält das Rad auf der ganzen Stufe,
-  ohne zu schieben oder zu sperren, und in die Gesamtansicht führt der Knopf.
+  ohne zu schieben oder zu sperren. So liegt die Gesamtansicht des Tabletts
+  immer, siehe [0067](entscheidungen/0067-gesamtansicht-zwischen-zwei-stufen.md);
+  dorthin führt der Knopf.
 
 ## Grundschicht
 

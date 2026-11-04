@@ -134,6 +134,18 @@ test('ausserhalb von Windows gilt weiter getWheelDelta: Am Mac sind deltaY 149 k
   expect(await reaktionRoh(page, -149)).toBeGreaterThanOrEqual(149);
 });
 
+test('bei einer gebrochenen Grenze 0,6 unter der ganzen Stufe erreicht das Rad sie und kommt ganz zurück', async ({ page }) => {
+  // Das Tablett kommt nach 0067 nie so tief; darum eine eigene Grenze in map.json.
+  await welt(page, staedte([], { mehr: { minZoom: 0.4 } }));
+  await page.goto(`${DEMO}&at=35,0,-15&zoom=-1`);
+  await page.waitForSelector('.kacheln img.leaflet-tile-loaded', { state: 'attached' });
+  await page.mouse.move(640, 360);
+  await reaktion(page, -60);
+  await expect.poll(() => zoomDerAdresse(page)).toBeCloseTo(-1.6, 9);
+  await reaktion(page, 60);
+  await expect.poll(() => zoomDerAdresse(page)).toBe(-1);
+});
+
 test('das Rad zoomt um den Zeiger: Die Nadel unter ihm bleibt stehen, auch über mehrere Stufen', async ({ page }) => {
   await welt(page, staedte([{ ...HAFEN, at: [200.5, 100.5] }]));
   await page.goto(`${DEMO}&at=0,0,0&zoom=-2`);

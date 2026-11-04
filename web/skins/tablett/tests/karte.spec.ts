@@ -407,32 +407,21 @@ test('in der Gesamtansicht füllt das Tablett 92,5 % des Fensters wie in der Vor
   await expect.poll(() => stand(page)).toEqual({ fern: { ueber: false, ...da, gemalt: true }, nah: { ueber: true, ...da, gemalt: true } });
 });
 
-/**
- * Öffnet die Gesamtansicht so, dass sie `ueber` Stufen unter der nächsten ganzen liegt,
- * und gibt das Rad dazu; hinein ist −1.
- */
-async function gebrocheneGesamtansicht(page: Page, ueber: number) {
-  const p = kamera('2:1', 16);
-  const rahmen = grenzen(QUADRAT.area, QUADRAT.seaLevel, { projektion: p, k: 0, projiziere: (x, y, z) => projiziere(x, y, z, p) });
-  // In diesem breiten Fenster begrenzt die Höhe die Gesamtansicht.
-  const breite = 2000;
-  let hoehe = 600;
-  const liegt = (h: number) => {
-    const z = gesamtstufe(rahmen, 2, breite, h);
-    return Math.ceil(z) - z;
-  };
-  while (hoehe < 1400 && Math.abs(liegt(hoehe) - ueber) >= 0.01) hoehe++;
-  await page.setViewportSize({ width: breite, height: hoehe });
+test('das Rad aus einer Gesamtansicht 0,4 unter der ganzen Stufe: ganze Stufen um den Zeiger, kein Weg zurück und keine Sperre', async ({ page }) => {
+  await page.setViewportSize({ width: 1790, height: 1000 });
   await welt(page, QUADRAT);
   await page.goto(DEMO);
   await expect.poll(() => gezeichnet(page)).toBe(true);
+  const p = kamera('2:1', 16);
+  const rahmen = grenzen(QUADRAT.area, QUADRAT.seaLevel, { projektion: p, k: 0, projiziere: (x, y, z) => projiziere(x, y, z, p) });
   const groesse = (await page.locator('#map').boundingBox())!;
   const fit = gesamtstufe(rahmen, 2, groesse.width, groesse.height);
-  expect(Math.ceil(fit) - fit).toBeCloseTo(ueber, 1);
+  expect(Math.ceil(fit) - fit).toBeCloseTo(0.4, 1);
 
   // Weit von der Mitte, damit ein Sprung nicht in der Rundung der Adresse untergeht.
   const [x, y] = [groesse.width - 100, groesse.height - 100];
   const deltaY = (richtung: number) => richtung * 60 * (process.platform === 'win32' ? 2 : 1);
+  /** Eine Raste, die genau eine Stufe ergibt; hinein ist −1. */
   const raste = (richtung: number) =>
     page.evaluate(
       ([d, clientX, clientY]) => {
@@ -448,53 +437,39 @@ async function gebrocheneGesamtansicht(page: Page, ueber: number) {
     const f = 2 ** (2 - stufe());
     return [px + (x - groesse.width / 2) * f, py + (y - groesse.height / 2) * f];
   };
-  /** Eine Raste hinein und wie viele ms bis zur Animation; −1, wenn in 1,5 s keine beginnt. */
-  const reaktionHinein = () =>
-    page.evaluate(
-      ([d, clientX, clientY]) =>
-        new Promise<number>((fertig) => {
-          const start = performance.now();
-          const beobachter = new MutationObserver(() => {
-            if (document.querySelector('.leaflet-zoom-anim')) fertig(performance.now() - start);
-          });
-          beobachter.observe(document.body, { attributes: true, subtree: true, attributeFilter: ['class'] });
-          setTimeout(() => fertig(-1), 1500);
-          document.querySelector('#map')!.dispatchEvent(new WheelEvent('wheel', { deltaY: d!, clientX: clientX!, clientY: clientY!, bubbles: true, cancelable: true }));
-        }),
-      [deltaY(-1), x, y],
-    );
-  /** Hinaus tut nichts, auch nicht zur ganzen Stufe darüber; hinein landet ganz, und der Punkt bleibt, bis auf die Rundung der Adresse auf Blöcke. */
-  const hinausNichtsDannHinein = async (ziel: number) => {
-    await raste(1);
-    await page.waitForTimeout(400);
-    expect(stufe()).toBeCloseTo(fit, 9);
-    const vorher = unterDemZeiger();
-    await raste(-1);
-    await expect.poll(stufe).toBe(ziel);
-    const nachher = unterDemZeiger();
-    expect(Math.abs(nachher[0]! - vorher[0]!)).toBeLessThanOrEqual(45);
-    expect(Math.abs(nachher[1]! - vorher[1]!)).toBeLessThanOrEqual(45);
-  };
-  return { fit, raste, stufe, reaktionHinein, hinausNichtsDannHinein };
-}
 
-test('das Rad aus einer Gesamtansicht 0,4 unter der ganzen Stufe: ganze Stufen um den Zeiger, kein Weg zurück und keine Sperre', async ({ page }) => {
-  const { fit, raste, stufe, reaktionHinein, hinausNichtsDannHinein } = await gebrocheneGesamtansicht(page, 0.4);
-  await hinausNichtsDannHinein(Math.ceil(fit) + 1);
+  // Hinaus tut nichts, auch nicht zur ganzen Stufe darüber.
+  await raste(1);
+  await page.waitForTimeout(400);
+  expect(stufe()).toBeCloseTo(fit, 9);
+
+  // Hinein landet ganz, und der Punkt bleibt, bis auf die Rundung der Adresse auf Blöcke.
+  const vorher = unterDemZeiger();
+  await raste(-1);
+  await expect.poll(stufe).toBe(Math.ceil(fit) + 1);
+  const nachher = unterDemZeiger();
+  expect(Math.abs(nachher[0]! - vorher[0]!)).toBeLessThanOrEqual(45);
+  expect(Math.abs(nachher[1]! - vorher[1]!)).toBeLessThanOrEqual(45);
+
   await raste(1);
   await expect.poll(stufe).toBe(Math.ceil(fit));
   // Die Gesamtansicht rundete `setView` weg: Hinaus tut nichts und sperrt nicht, hinein beginnt gleich, nicht erst nach 1000 ms.
   await raste(1);
-  const ms = await reaktionHinein();
+  const ms = await page.evaluate(
+    ([d, clientX, clientY]) =>
+      new Promise<number>((fertig) => {
+        const start = performance.now();
+        const beobachter = new MutationObserver(() => {
+          if (document.querySelector('.leaflet-zoom-anim')) fertig(performance.now() - start);
+        });
+        beobachter.observe(document.body, { attributes: true, subtree: true, attributeFilter: ['class'] });
+        setTimeout(() => fertig(-1), 1500);
+        document.querySelector('#map')!.dispatchEvent(new WheelEvent('wheel', { deltaY: d!, clientX: clientX!, clientY: clientY!, bubbles: true, cancelable: true }));
+      }),
+    [deltaY(-1), x, y],
+  );
   expect(ms).toBeGreaterThanOrEqual(0);
   expect(ms).toBeLessThan(500);
-});
-
-test('das Rad aus einer Gesamtansicht 0,6 unter der ganzen Stufe: ganze Stufen um den Zeiger, und hinaus erreicht sie wieder', async ({ page }) => {
-  const { fit, raste, stufe, hinausNichtsDannHinein } = await gebrocheneGesamtansicht(page, 0.6);
-  await hinausNichtsDannHinein(Math.ceil(fit));
-  await raste(1);
-  await expect.poll(stufe).toBeCloseTo(fit, 9);
 });
 
 // Bei 300 × 200 liegt die Gesamtansicht unter Zoom 0, der kleinsten Stufe aus map.json.

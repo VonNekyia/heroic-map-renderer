@@ -173,7 +173,10 @@ laden; statt des Grunds der Karte sieht man dort die Gegend unscharf.
   Hineinzoomen weg, beim Ziehen sinkt es von 8–9 % auf 2–5 % des Fensters,
   und das volle Bild nach dem Laden kommt 37–45 % früher. Ein Ring von
   einer Kachel nähme den Rest, kostete aber +26–53 %. Wo die Pyramide
-  endet, laden beide dieselbe Stufe, und der Browser holt sie einmal.
+  endet, laden beide dieselbe Stufe, und der Browser holt sie einmal. Beim
+  Zeichnen zeigen Kacheln von 2048 px gegenüber `scale(8)` unter
+  Software-Raster keinen Unterschied über die Streuung, siehe
+  [Grundschicht beim Zeichnen](messungen/2026-11-04-grundschicht-zeichnen.md).
 - **Kein Rand:** Weder die Grundschicht noch die feinen Kacheln laden über
   das Fenster hinaus. Ein Rand der feinen Kacheln ist gemessen und
   verworfen: Bei 10 Mbit/s nimmt er den sichtbaren die Bandbreite, und er

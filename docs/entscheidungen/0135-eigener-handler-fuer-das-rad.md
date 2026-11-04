@@ -64,6 +64,7 @@ nicht durch und sind nur gerechnet: 25 Pixel und 32 Pixel.
 
 ## Nicht belegt
 
+- 200 % Skalierung und ein Browser-Zoom von 125 % sind nur gerechnet, nicht gemessen.
 - Mit 6 Zeilen und mehr je Raste ist `deltaY / 2` mindestens 100, also 2 Stufen
   je Raste.
 - Bei Browser-Zoom über 100 % liegt eine Raste unter 50 und läuft über die Regel

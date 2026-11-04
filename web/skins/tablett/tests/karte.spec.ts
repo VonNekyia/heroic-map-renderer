@@ -32,7 +32,8 @@ async function zoome(page: Page, knopf: 'in' | 'out'): Promise<void> {
   const vorher = Number(stufe());
   await page.locator(`.leaflet-control-zoom-${knopf}`).click();
   if (knopf === 'in') {
-    await expect.poll(() => Number(stufe())).toBe(Math.round(vorher + 1));
+    // `+ 0` macht aus −0 eine 0; `toBe` unterscheidet sie.
+    await expect.poll(() => Number(stufe())).toBe(Math.round(vorher + 1) + 0);
   } else {
     // Hinaus endet auf der ganzen Stufe darunter oder davor auf der gebrochenen Gesamtansicht.
     await expect.poll(() => Number(stufe())).toBeLessThan(vorher);

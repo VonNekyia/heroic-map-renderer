@@ -37,8 +37,8 @@ export default [
   { name: 'schrift-nicht-geladen', datei: 'src/ebenen.ts', alt: '      void ladeSchrift();\n', neu: '      if (b < 0) void ladeSchrift();\n', spec: 'tests/ebenen.spec.ts', titel: 'eine Nadel mit Namen lädt die Kartenschrift' },
   { name: 'spacing-ungekappt', datei: 'src/schrift.ts', alt: 'Math.min(SPERRUNG, Math.max(0, wert.spacing))', neu: 'Math.min(SPERRUNG * 100, Math.max(-100, wert.spacing))', spec: 'tests/formen.spec.ts', titel: 'Grenzfälle der Kartenschrift' },
   // Das Rad, 0135.
-  { name: 'rad-spielt-nach', datei: 'src/rad.ts', alt: 'performance.now() - zuletzt <= GESTE_ZU', neu: 'true', spec: 'tests/rad.spec.ts', titel: 'sechs Rasten in einem Zug' },
-  { name: 'rad-folgt-nie', datei: 'src/rad.ts', alt: 'performance.now() - zuletzt <= GESTE_ZU', neu: 'false', spec: 'tests/rad.spec.ts', titel: 'das letzte Ereignis 150 ms her' },
+  { name: 'rad-spielt-nach', datei: 'src/rad.ts', alt: 'performance.now() - zuletzt <= GESTE_ZU', neu: 'performance.now() - zuletzt <= 1e9', spec: 'tests/rad.spec.ts', titel: 'sechs Rasten in einem Zug' },
+  { name: 'rad-folgt-nie', datei: 'src/rad.ts', alt: 'performance.now() - zuletzt <= GESTE_ZU', neu: 'performance.now() - zuletzt < 0', spec: 'tests/rad.spec.ts', titel: 'das letzte Ereignis 150 ms her' },
   { name: 'rad-folgt-unter-150', datei: 'src/rad.ts', alt: 'performance.now() - zuletzt <= GESTE_ZU', neu: 'performance.now() - zuletzt < GESTE_ZU', spec: 'tests/rad.spec.ts', titel: 'das letzte Ereignis 150 ms her' },
   { name: 'rad-folgt-bis-151', datei: 'src/rad.ts', alt: 'performance.now() - zuletzt <= GESTE_ZU', neu: 'performance.now() - zuletzt <= GESTE_ZU + 1', spec: 'tests/rad.spec.ts', titel: 'das letzte Ereignis 151 ms her' },
   { name: 'rad-richtung-summe', datei: 'src/rad.ts', alt: 'if (laeuft) wartet = richtung;', neu: 'if (laeuft) wartet += richtung;', spec: 'tests/rad.spec.ts', titel: 'zählt die letzte Richtung' },

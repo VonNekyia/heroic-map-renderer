@@ -286,8 +286,13 @@ test('ein Sprung um zwei Stufen läuft durch: Die Karte kommt an, und die feine 
   await page.goto(`${DEMO}&at=0,0,0&zoom=-2`);
   await page.waitForSelector('.kacheln img.leaflet-tile-loaded');
   await page.mouse.move(640, 360);
-  // Chrome unter Windows zählt doppelt; so sind es überall 120 Pixel, zwei Stufen auf einmal.
-  await page.mouse.wheel(0, process.platform === 'win32' ? -240 : -120);
+  // Das Rad springt nicht; das Zoomrechteck schon. 280 × 160 von 1280 × 720 sind zwei Stufen auf einmal.
+  await page.keyboard.down('Shift');
+  await page.mouse.move(500, 280);
+  await page.mouse.down();
+  await page.mouse.move(780, 440, { steps: 4 });
+  await page.mouse.up();
+  await page.keyboard.up('Shift');
   await expect.poll(() => Number(new URL(page.url()).searchParams.get('zoom'))).toBe(0);
   // Zoom 0 nimmt die feine Stufe 2.
   await expect.poll(() => stufenIn(page, '.kacheln')).toEqual([2]);

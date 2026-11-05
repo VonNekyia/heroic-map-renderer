@@ -11,6 +11,9 @@ code:
 
 # 0135: Ein eigener Handler für das Rad
 
+Abgelöst ist, dass jede Raste zählt und wartende Stufen nach der Animation folgen:
+siehe [0136](0136-rad-spielt-nichts-nach.md).
+
 ## Anlass
 
 Der User am 01.11.: Zoomen auf der Webkarte fühlt sich schlecht an, in 2D und

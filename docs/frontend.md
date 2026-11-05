@@ -156,27 +156,30 @@ lässt solche Kacheln leer.
 
 Das Rad zoomt in ganzen Stufen um den Zeiger, über `radZoom` in
 [`rad.ts`](../web/src/rad.ts) statt Leaflets `scrollWheelZoom`, siehe
-[0135](entscheidungen/0135-eigener-handler-fuer-das-rad.md).
+[0135](entscheidungen/0135-eigener-handler-fuer-das-rad.md). Steht das Rad
+still, beginnt nichts mehr, siehe
+[0136](entscheidungen/0136-rad-spielt-nichts-nach.md).
 
 - **Eine Stufe** sind 50 Pixel, in Chromium unter Windows im Pixelmodus
   `-deltaY / 2`, sonst nach `L.DomEvent.getWheelDelta`. Dessen Teilen durch die
   Skalierung passt in Chromium unter Windows nicht, siehe
   [0135](entscheidungen/0135-eigener-handler-fuer-das-rad.md). Erreicht ein
-  Ereignis sie, zoomt die Karte sofort, ohne zu warten. 100 Pixel in einem
-  Ereignis sind 2 Stufen. Nur der Rest über ganze Stufen verfällt, damit
+  Ereignis sie, zoomt die Karte sofort, ohne zu warten. Ein Ereignis ergibt
+  höchstens eine Stufe, wie viele Pixel es auch meldet. Der Rest verfällt, damit
   grössere Rasten nicht nach einigen Rasten eine Stufe zu viel ergeben. Was ein
   echtes Rad oder Touchpad je Raste
   meldet, ist nicht gemessen; die Tests erzeugen ihre Ereignisse selbst.
-- **Während einer Animation** warten die Stufen und folgen danach zusammen,
-  höchstens vier auf einmal, weil Leaflet darüber nicht mehr animiert. Das gilt
-  auch für eine fremde Animation, etwa von den Knöpfen.
+- **Während einer Animation** merkt sich der Handler nur die letzte Richtung.
+  Beim Ende folgt eine Stufe, wenn das letzte Ereignis höchstens 150 ms her ist.
+  Sonst verfällt sie. Das gilt auch für eine fremde Animation, etwa von den
+  Knöpfen.
 - **Bleibt `zoomend` aus,** weil ein Listener wirft oder ein `flyTo` abgebrochen
   wird, gilt die Animation nach 1000 ms als beendet (`ANIMATION_HOECHSTENS`).
-  Stufen, die warten, folgen dann ohne neue Eingabe. Die Stufe, deren Animation
-  nie begann, ist verloren.
+  Die Stufe, deren Animation nie begann, ist verloren, und was wartete, ist dann
+  zu alt und verfällt.
 - **Eine Geste** endet nach 150 ms ohne Ereignis. Blieb sie unter einer Stufe,
   zählt sie dann als eine, damit eine klein gemeldete Raste etwas tut.
-- **An der Grenze** des Zooms verfällt, was noch wartet.
+- **An der Grenze** des Zooms tut eine Raste nichts und sperrt nichts.
 - **Das Ziel ist eine ganze Stufe,** auch aus der gebrochenen Gesamtansicht
   eines Skins. Nur eine gebrochene Grenze selbst bleibt gebrochen: Liegt sie mehr
   als 0,5 unter der ganzen Stufe, erreicht das Rad sie. Liegt sie höchstens 0,5

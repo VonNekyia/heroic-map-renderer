@@ -1,0 +1,56 @@
+phase,datei,symbol,eigene_prozent,gesamt_prozent,eigene_s,gesamt_s
+"Vorlauf, Assets und Sprites",,"übrige unter 0,5 %",0.07,,16.93,
+Lesen und Dekodieren,renderer/src/render/metatile.rs,Masks::of,0.59,0.72,135.38,163.00
+Lesen und Dekodieren,,"übrige unter 0,5 %",1.78,,405.55,
+Licht,renderer/src/render/licht.rs,Ausbreitung::breite_aus,1.39,1.39,316.47,316.76
+Licht,renderer/src/render/licht.rs,Ausbreitung::chunk,0.52,2.05,118.20,466.81
+Licht,,"übrige unter 0,5 %",0.20,,45.57,
+Sammeln und Deckung,renderer/src/render/metatile.rs,ChunkCache::slot,2.17,5.84,494.49,1332.45
+Sammeln und Deckung,renderer/src/world/chunk.rs,Chunk::slot,2.04,2.04,464.79,465.25
+Sammeln und Deckung,renderer/src/render/metatile.rs,von_vorn,1.50,9.35,340.87,2130.61
+Sammeln und Deckung,renderer/src/render/metatile.rs,ChunkCache::block_at,0.94,3.22,214.37,733.13
+Sammeln und Deckung,renderer/src/render/metatile.rs,ChunkCache::zelle,0.74,3.15,168.93,718.77
+Sammeln und Deckung,renderer/src/render/metatile.rs,ChunkCache::biome_of,0.51,1.10,115.45,251.59
+Sammeln und Deckung,,"übrige unter 0,5 %",2.52,,573.66,
+Strahl zur Sonne,renderer/src/render/metatile.rs,ChunkCache::sonne_im_gang,8.77,27.49,1998.26,6266.87
+Strahl zur Sonne,renderer/src/render/sonne.rs,Sonnenform::trifft,5.75,5.78,1309.97,1318.48
+Strahl zur Sonne,renderer/src/render/metatile.rs,ChunkCache::frei_in,5.41,8.03,1233.87,1830.92
+Strahl zur Sonne,renderer/src/render/metatile.rs,ChunkCache::saeule,1.93,5.58,438.88,1272.91
+Strahl zur Sonne,renderer/src/render/metatile.rs,ChunkCache::sonnen_bits,1.83,1.86,416.52,423.26
+Strahl zur Sonne,renderer/src/render/metatile.rs,ChunkCache::frei_zur_sonne,1.37,6.42,311.33,1462.93
+Strahl zur Sonne,renderer/src/render/metatile.rs,ChunkCache::wirkung,0.88,6.69,201.12,1524.16
+Strahl zur Sonne,renderer/src/render/metatile/strahl.rs,Gang::springe,0.88,0.88,200.68,200.90
+Strahl zur Sonne,,"übrige unter 0,5 %",0.19,,43.17,
+Zeichnen,renderer/src/render/metatile.rs,render_hdr,11.19,55.70,2549.85,12697.84
+Zeichnen,renderer/src/render/pyramid.rs,to_srgb,1.71,1.71,389.43,389.52
+Zeichnen,renderer/src/render/metatile.rs,Hdr::bild,1.08,4.64,246.72,1057.58
+Zeichnen,renderer/src/render/kino.rs,Kino::ton,0.90,2.61,206.10,595.93
+Zeichnen,renderer/src/render/kino.rs,Kino::bloom,0.76,0.78,172.66,178.51
+Zeichnen,,"übrige unter 0,5 %",0.16,,37.38,
+Kodieren,libwebp (C),CalculateBestCacheSize,8.85,9.10,2017.22,2074.79
+Kodieren,libwebp (C),GetCombinedEntropyUnrefined_C,3.98,4.01,906.82,914.29
+Kodieren,libwebp (C),VP8LHashChainFill,3.63,5.08,827.81,1159.10
+Kodieren,libwebp (C),BackwardReferencesHashChainDistanceOnly,2.65,3.45,603.25,787.34
+Kodieren,libwebp (C),VP8LHistogramStoreRefs,1.55,1.58,353.55,359.93
+Kodieren,libwebp (C),GetBackwardReferences,1.21,18.20,275.33,4148.58
+Kodieren,libwebp (C),BackwardReferencesRle,1.11,1.44,253.55,327.73
+Kodieren,libwebp (C),AnalyzeEntropy,0.96,0.98,219.11,224.44
+Kodieren,libwebp (C),BackwardReferencesLz77,0.69,0.80,158.10,183.21
+Kodieren,libwebp (C),StoreImageToBitMask,0.69,0.77,156.39,176.00
+Kodieren,libwebp (C),GenerateOptimalTree,0.66,2.20,150.42,501.59
+Kodieren,libwebp (C),VectorMismatch_AVX2,0.65,0.65,148.97,149.21
+Kodieren,libwebp (C),BackwardReferencesHashChainFollowChosenPath,0.59,0.63,134.46,144.43
+Kodieren,,"übrige unter 0,5 %",2.46,,559.92,
+Pyramide,renderer/src/render/pyramid.rs,halbiere,0.87,0.87,197.86,197.95
+Pyramide,,"übrige unter 0,5 %",0.17,,39.33,
+Fingerabdruck und Pixel-Hash,,"übrige unter 0,5 %",0.80,,182.91,
+Höhen und Boden,,"übrige unter 0,5 %",0.04,,8.17,
+Ablegen,,"übrige unter 0,5 %",0.01,,2.21,
+Allokator,,"übrige unter 0,5 %",0.66,,150.20,
+"C-Laufzeit: Kopieren, Füllen, Rechnen",C-Laufzeit,Mov0XmmBlocks,0.72,0.72,163.35,163.72
+"C-Laufzeit: Kopieren, Füllen, Rechnen",C-Laufzeit,expf,0.59,0.59,133.39,133.53
+"C-Laufzeit: Kopieren, Füllen, Rechnen",,"übrige unter 0,5 %",2.47,,563.09,
+Kern und Dateisystem,Kern von Windows,–,4.82,,1099.63,
+Kern und Dateisystem,Dateisystem und Platte,–,0.73,,165.40,
+Kern und Dateisystem,,"übrige unter 0,5 %",0.68,,154.06,
+Rest,,"übrige unter 0,5 %",0.02,,5.50,

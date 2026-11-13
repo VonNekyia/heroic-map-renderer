@@ -76,6 +76,12 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 - [Erzeugte Tabellen](entwicklung/tabellen.md): die Tabellen aus dem Spiel unter `renderer/src/assets/`, was darin steht und wie man sie neu erzeugt.
 - [Kartenschrift als WOFF2](entwicklung/kartenschrift.md): Herkunft der TTF aus Google Fonts, Befehl und Versionen für die WOFF2, die Prüfung, dass nur komprimiert ist, und wie man die TTF wieder bekommt.
 
+## Humankeys
+
+Seiten, die ein Mensch angefordert hat; was für sie gilt, steht in [`AGENTS.md`](../AGENTS.md), Regel 28.
+
+- [Optimierungen](humankeys/optimierungen.md): bekannte Techniken für Tempo und Speicher, ob der Renderer und sein Build sie nutzen, mit Stelle im Code und Beleg.
+
 ## Entscheidungen
 
 - [0001](entscheidungen/0001-zeichenreihenfolge-statt-tiefenpuffer.md): Zeichenreihenfolge statt Tiefenpuffer.

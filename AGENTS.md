@@ -195,6 +195,15 @@ Vor dem Arbeitsschritt die `SKILL.md` ganz lesen und ihr folgen.
     [0098](docs/entscheidungen/0098-der-zeichenstand-statt-des-builds.md)
     und [0101](docs/entscheidungen/0101-zeichenstand-je-look.md).
 
+### Humankeys
+
+28. Eine Seite in `docs/humankeys/` hat ein Mensch angefordert. Agenten
+    halten sie aktuell. Ihre Kriterien ändern Agenten nicht selbst: was sie
+    zeigt, wie fein und in welcher Gliederung. Agenten legen dort von selbst
+    keine Seite an und fügen keiner etwas hinzu, das nicht angefordert ist.
+    Jede Seite nennt oben ihren Auftrag: das Datum und die Worte des
+    Menschen.
+
 ## Gliederung von `docs/`
 
 | Pfad | Inhalt |
@@ -205,6 +214,7 @@ Vor dem Arbeitsschritt die `SKILL.md` ganz lesen und ihr folgen.
 | `docs/frontend.md` | das Frontend |
 | `docs/plugin.md` | was das Plugin vom Renderer nutzt; das Plugin selbst lebt im eigenen Repo |
 | `docs/entwicklung/` | Aufbau des Codes, Tests, CI, Eingabedaten, erzeugte Tabellen |
+| `docs/humankeys/` | Seiten, die ein Mensch angefordert hat und selbst liest; Agenten halten sie aktuell, siehe Regel 28 |
 | `docs/entscheidungen/` | `NNNN-titel.md`, eine Datei je Entscheidung |
 | `docs/messungen/` | `JJJJ-MM-TT-titel.md`, eine Datei je Messreihe |
 | `docs/versuche/` | eine Seite je Versuch: gemessen, tragfähig, nicht übernommen; der Code im Tag `versuch/…` |

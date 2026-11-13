@@ -1,0 +1,29 @@
+# Probe, nicht mergen: Zeit und Bytes von libwebp unter Linux mit allen
+# SIMD-Stufen, nur SSE2 und ohne SIMD. Läuft nur auf Zweigen probe/**.
+name: Probe
+
+on:
+  push:
+    branches: ["probe/**"]
+
+jobs:
+  simd:
+    name: libwebp SIMD unter Linux
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: renderer
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: renderer
+      - name: Bauen
+        run: cargo test --release --test probe_simd --no-run
+      - name: Messen
+        run: |
+          for m in alle sse2 ohne alle sse2 ohne alle sse2 ohne; do
+            PROBE_SIMD=$m cargo test --release --test probe_simd -- --ignored --nocapture 2>&1 | grep '^PROBE'
+          done

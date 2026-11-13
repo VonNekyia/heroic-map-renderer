@@ -78,11 +78,36 @@ fn do_build() {
     let mut cc = cc::Build::new();
     setup_build(&mut cc, &vendor);
 
+    // Probe: unter gcc und clang die Dateien für SSE4.1 und AVX2 je mit
+    // ihrem Schalter bauen; libwebp wählt dann zur Laufzeit wie unter MSVC.
+    let x86 = env::var("CARGO_CFG_TARGET_ARCH").as_deref() == Ok("x86_64");
+    let je_datei = x86 && !cc.get_compiler().is_like_msvc();
+    if je_datei {
+        cc.define("WEBP_HAVE_SSE41", Some("1"));
+        cc.define("WEBP_HAVE_AVX2", Some("1"));
+    }
+    let mut sse41 = cc.clone();
+    sse41.flag("-msse4.1");
+    let mut avx2 = cc.clone();
+    avx2.flag("-mavx2");
+
     for f in glob::glob("vendor/src/**/*.c")
         .expect("glob vender/src failed")
         .flatten()
     {
-        cc.file(manifest_dir.join(f));
+        let name = f
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or_default()
+            .to_owned();
+        let ziel = if je_datei && name.ends_with("_sse41.c") {
+            &mut sse41
+        } else if je_datei && name.ends_with("_avx2.c") {
+            &mut avx2
+        } else {
+            &mut cc
+        };
+        ziel.file(manifest_dir.join(f));
     }
 
     for f in glob::glob("vendor/sharpyuv/**/*.c").expect("glob vendor/src failed") {
@@ -90,6 +115,10 @@ fn do_build() {
         cc.file(manifest_dir.join(f));
     }
     cc.compile("webpsys");
+    if je_datei {
+        sse41.compile("webpsys_sse41");
+        avx2.compile("webpsys_avx2");
+    }
 }
 
 #[cfg(not(feature = "system-dylib"))]

@@ -53,8 +53,13 @@ auf 3–4 px und zurück, im iso der Lauf über die schräge Kante von 3 px auf
 
 ## Folgen
 
-- Im Test bleibt die Breite auf dem Schirm in jedem Bild einer Kette von zwei
-  Schritten auf 2 ± 0,1 px, das Muster auf 8 ± 0,4 px, in 2D und iso.
+- Im Test bleiben Breite, Muster und Versatz jedes Strichs auf dem Schirm in
+  jedem Bild einer Kette von zwei Schritten auf 5 % am Wert des Attributs. Im
+  iso läuft eine gestrichelte Route über einen Wall, also mit einem verdeckten
+  Lauf (1,5 px, `3 4`) und einem sichtbaren mit Versatz; in 2D eine
+  gestrichelte Region.
+- Der User am 13.11.: Es flackert die Randlinie, während des Zoomens, im 3D.
+  Band, Fläche und Verschwinden hat er nicht angekreuzt.
 - In der Bildfolge bleibt der Rand in 2D in der Animation bei 1–2 px und im
   iso bei 2–4 px, statt mitzuwachsen.
 - Je SVG einer Ebene eine Web-Animation je Zoom-Animation.

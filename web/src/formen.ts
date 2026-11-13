@@ -204,7 +204,7 @@ function laeufe(z: Zug, r: Rand, renderer: L.Renderer): Strich[] {
 /**
  * Die Eigenschaft, mit der Breite und Muster eines Strichs in einer
  * Zoom-Animation malgenommen werden, damit sie auf dem Schirm gleich bleiben.
- * Siehe docs/entscheidungen/0138-striche-halten-ihre-breite.md.
+ * Siehe docs/entscheidungen/0139-striche-halten-ihre-breite.md.
  */
 export const STRICH_FAKTOR = '--strich';
 

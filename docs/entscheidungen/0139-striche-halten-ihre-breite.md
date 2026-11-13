@@ -1,5 +1,5 @@
 ---
-title: "0138: Striche halten ihre Breite im Zoom"
+title: "0139: Striche halten ihre Breite im Zoom"
 description: Warum Ränder und Linien der Ebenen in einer Zoom-Animation über einen Faktor am SVG gegengerechnet werden, statt mit dem SVG zu wachsen und am Ende zurückzuspringen; was verworfen ist und was es kostet.
 status: gilt
 date: 2026-11-13
@@ -9,7 +9,7 @@ code:
   - web/src/formen.ts
 ---
 
-# 0138: Striche halten ihre Breite im Zoom
+# 0139: Striche halten ihre Breite im Zoom
 
 ## Anlass
 
@@ -34,8 +34,11 @@ auf 3–4 px und zurück, im iso der Lauf über die schräge Kante von 3 px auf
   nicht je Animation.
 - **In der Animation läuft der Faktor** am SVG von 1 auf 1 / Massstab. Dauer
   und Kurve kommen aus dem berechneten Übergang des SVG selbst. Die
-  Stützstellen liegen bei je 10 % Fortschritt auf dem Kehrwert des Massstabs.
-  So ist die Breite auf dem Schirm genau, nicht nur ungefähr.
+  Stützstellen liegen dort, wo der Massstab von Stütze zu Stütze um denselben
+  Faktor wächst, zehn je Stufe, mindestens zehn. Ihr Wert ist der Kehrwert des
+  Massstabs. So ist die Breite auf dem Schirm genau, auch bei einem Sprung über
+  mehrere Stufen. Gleich weit im Fortschritt, bei je 10 %, läge der Strich bei
+  vier Stufen am Anfang gut 20 % daneben.
 - **Bei `zoomend` endet die Animation des Faktors,** im selben Task wie das
   Zurücksetzen des Renderers bei `moveend`.
 - **Ohne `CSS.registerProperty`** bleibt der Faktor 1, und alles ist wie
@@ -57,7 +60,11 @@ auf 3–4 px und zurück, im iso der Lauf über die schräge Kante von 3 px auf
   jedem Bild einer Kette von zwei Schritten auf 5 % am Wert des Attributs. Im
   iso läuft eine gestrichelte Route über einen Wall, also mit einem verdeckten
   Lauf (1,5 px, `3 4`) und einem sichtbaren mit Versatz; in 2D eine
-  gestrichelte Region.
+  gestrichelte Region. Bei einem Sprung über vier Stufen mit dem
+  Zoomrechteck gilt dasselbe, und die Stützstellen treffen den Kehrwert des
+  Massstabs über den ganzen Fortschritt auf 2 %.
+- Bleibt `zoomend` aus, steht der Faktor bis zum nächsten Zoom auf seinem
+  Endwert; so lange sind die Striche zu dünn oder zu dick.
 - Der User am 13.11.: Es flackert die Randlinie, während des Zoomens, im 3D.
   Band, Fläche und Verschwinden hat er nicht angekreuzt.
 - In der Bildfolge bleibt der Rand in 2D in der Animation bei 1–2 px und im

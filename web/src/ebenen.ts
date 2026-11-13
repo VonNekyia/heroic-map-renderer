@@ -1475,7 +1475,7 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
    * auf 1 / Massstab, mit Dauer und Kurve seines eigenen Übergangs: So
    * bleiben Striche auf dem Schirm gleich breit, statt mitzuwachsen und am
    * Ende zurückzuspringen. Ohne `CSS.registerProperty` bleibt der Faktor 1.
-   * Siehe docs/entscheidungen/0138-striche-halten-ihre-breite.md.
+   * Siehe docs/entscheidungen/0139-striche-halten-ihre-breite.md.
    */
   const strichFaktor = (() => {
     try {
@@ -1497,8 +1497,10 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
       const [dauer] = stil.transitionDuration.split(',');
       const ms = parseFloat(dauer!) * (dauer!.trim().endsWith('ms') ? 1 : 1000);
       if (!(ms > 0)) continue;
-      // Stützstellen über den Fortschritt p des Übergangs: Der Massstab ist dort 1 + (s − 1) p, der Faktor sein Kehrwert.
-      const schritte = Array.from({ length: 11 }, (_, k) => ({ offset: k / 10, [STRICH_FAKTOR]: String(1 / (1 + ((s - 1) * k) / 10)) }));
+      // Stützstellen über den Fortschritt p des Übergangs, wo der Massstab 1 + (s − 1) p je Stütze um denselben Faktor wächst, zehn je Stufe;
+      // der Faktor ist sein Kehrwert. Gleich weit in p wären sie bei Sprüngen über mehrere Stufen am Anfang zu grob.
+      const n = Math.max(10, Math.ceil(10 * Math.abs(Math.log2(s))));
+      const schritte = Array.from({ length: n + 1 }, (_, k) => ({ offset: s === 1 ? k / n : (s ** (k / n) - 1) / (s - 1), [STRICH_FAKTOR]: String(s ** (-k / n)) }));
       // Leaflet setzt genau einen Übergang; seine Kurve gilt hier für den Fortschritt.
       strichAnimationen.push(svg.animate(schritte, { duration: ms, easing: stil.transitionTimingFunction, fill: 'forwards' }));
     }

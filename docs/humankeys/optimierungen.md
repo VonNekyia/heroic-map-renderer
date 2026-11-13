@@ -19,6 +19,7 @@ code:
   - renderer/src/world/chunk.rs
   - renderer/src/world/palette.rs
   - renderer/vendor/libwebp-sys/build.rs
+  - renderer/vendor/libwebp-sys/vendor/src/enc/backward_references_enc.c
 ---
 
 # Optimierungen
@@ -160,5 +161,6 @@ braucht, steht in [Wohin die Zeit beim Rendern geht](renderzeit.md).
 | Die C-Bibliothek des Formats statt eines Encoders in Rust | da | [`tiles.rs`](../../renderer/src/render/tiles.rs), `encode_webp` | [0028](../entscheidungen/0028-libwebp-statt-image.md), [libwebp](../messungen/2026-09-27-libwebp.md) |
 | Schnell packen, aber Wiederholungen in der ganzen Kachel finden | da | [`tiles.rs`](../../renderer/src/render/tiles.rs), `encode_webp` | [0090](../entscheidungen/0090-webp-mit-quality-75.md), [WebP mit quality 75](../messungen/2026-10-08-webp-quality-75.md) |
 | Kompakt packen auf Wunsch: kleinere Dateien für mehr Zeit | da | [`tiles.rs`](../../renderer/src/render/tiles.rs), `Packen` | [0092](../entscheidungen/0092-kompakt-ohne-vorhersage.md), [Kompakt packen](../messungen/2026-10-08-kompakt.md) |
+| Beim kompakten Packen die Grösse des Farb-Caches festlegen, statt sie je Kachel zu suchen | offen | [`backward_references_enc.c`](../../renderer/vendor/libwebp-sys/vendor/src/enc/backward_references_enc.c), `CalculateBestCacheSize` | [Farb-Cache fest statt gesucht](../messungen/2026-11-13-farbcache-fest-statt-suchen.md) |
 | Einen fertigen Baum nachträglich kompakt packen | da | [`verdichten.rs`](../../renderer/src/cli/verdichten.rs), `verdichte` | [0093](../entscheidungen/0093-nachverdichten.md), [Nachverdichten](../messungen/2026-10-08-nachverdichten.md) |
 | Den Kachelordner vom Echtzeitschutz ausnehmen, nur mit Zustimmung | da | [`cli.rs`](../../renderer/src/cli.rs), `defender_exclusion` | [0022](../entscheidungen/0022-defender-ausnahme-nur-mit-zustimmung.md), [Echtzeitschutz](../messungen/2026-09-26-echtzeitschutz.md) |

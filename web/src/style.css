@@ -71,6 +71,18 @@ body {
   image-rendering: pixelated;
 }
 
+/* Die Grundschicht zeigt nur Pixel, die voll decken: Ein halb gedecktes
+   ragte am Rand der Welt als Saum unter den feinen Kacheln heraus. Der
+   Filter steht in index.html. Siehe docs/frontend.md, „Grundschicht“. */
+.grund .leaflet-tile {
+  filter: url(#nur-deckend);
+}
+
+/* Nur die Definition des Filters, nichts zu sehen. */
+.filter {
+  position: absolute;
+}
+
 /* Unten links: die Koordinaten des Blocks unter Maus oder Finger, der
    Knopf, der /tp kopiert, und die Rückmeldung. */
 .leiste {

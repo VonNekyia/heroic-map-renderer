@@ -104,10 +104,11 @@ Pflege und ohne Rückfrage erlaubt ist, was dem Code folgt:
 
 ## Was die Messung nicht kann
 
-- **Nur Windows:** Unter Linux, wo ein Server meist läuft, packt die
-  Bibliothek die Kacheln nur mit der ersten Stufe von SIMD; der Anteil des
-  Kodierens ist dort höher. Ein Profil unter Linux bräuchte ein anderes
-  Werkzeug.
+- **Nur Windows:** Ein Profil unter Linux, wo ein Server meist läuft,
+  bräuchte ein anderes Werkzeug. Dass die Bibliothek die Kacheln dort nur
+  mit der ersten Stufe von SIMD packt, ändert am Packen nichts Messbares,
+  siehe
+  [libwebp mit SIMD unter Linux](../../docs/messungen/2026-11-13-libwebp-simd-unter-linux.md).
 - **Der Anfang fehlt:** Der Profiler hängt sich ein bis drei Sekunden nach
   dem Start an den Prozess.
 - **Feine Phasen nur als CPU-Zeit:** Der Renderer misst selbst nur Vorlauf,

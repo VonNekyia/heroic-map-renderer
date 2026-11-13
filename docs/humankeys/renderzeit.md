@@ -67,8 +67,10 @@ diese Seite gilt, steht in [`AGENTS.md`](../../AGENTS.md), Regel 28.
 
 - **Gemessen ist unter Windows.** Unter Linux packt die Bibliothek die
   Kacheln nur mit der ersten Stufe von SIMD, siehe
-  [Optimierungen](optimierungen.md), „6. SIMD“. Der Anteil des Kodierens
-  ist dort höher; wie viel, ist nicht gemessen.
+  [Optimierungen](optimierungen.md), „6. SIMD“. Am Packen ändert das
+  nichts Messbares, siehe
+  [libwebp mit SIMD unter Linux](../messungen/2026-11-13-libwebp-simd-unter-linux.md).
+  Ein Profil des ganzen Renders unter Linux gibt es nicht.
 - **Der gemessene Build weicht vom Release ab:** Damit das Profil
   Funktionen trennt, verbietet der Skill dem Compiler, eine feste Liste von
   Funktionen einzubetten. Wie viel das an der Dauer ändert, ist nicht

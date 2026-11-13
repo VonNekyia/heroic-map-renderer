@@ -159,8 +159,11 @@ scale 16. Wie die Kameras rechnen: [Die Kamera](docs/renderer/kamera.md).
 | grosse Welt | Cinematic, 4:3, scale 24 | 160,2 GB | 2 h 43 min | [04.10.](docs/messungen/2026-10-04-vollrender-4x3.md) |
 | grosse Welt | Cinematic, 8:5, scale 32, eine native Stufe | 222,8 GB | 5 h 26 min | [04.10.](docs/messungen/2026-10-04-vollrender-cinematic.md) |
 
-- **Die grosse Welt** hat rund 2,5 Millionen Basiskacheln bei 2:1 und
-  scale 32, die Testwelt rund 280 000.
+- **Die grosse Welt** hatte rund 2,5 Millionen Basiskacheln bei 2:1 und
+  scale 32, die Testwelt hat rund 280 000. Die Zahlen der grossen Welt
+  stammen bis Oktober 2026 von einer älteren Kopie; neue laufen an einer
+  frischen, siehe
+  [0138](docs/entscheidungen/0138-grosse-welt-als-frische-kopie.md).
 - **Der Platz** hängt fast nur an der Zahl der Kacheln, also an scale und
   Kamera: Ein halber scale braucht ein Viertel. Seit den Messungen oben
   packt libwebp dichter, an einem Ausschnitt der Testwelt ×0,81 über alle

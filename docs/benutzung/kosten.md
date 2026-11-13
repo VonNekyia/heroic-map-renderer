@@ -281,8 +281,11 @@ Drei Dinge schirmt die Priorität nicht ab:
 
 ## Die grosse Welt
 
-Die grosse Welt hat 2,5 Millionen Chunks und bei scale 32 rund 2,5
-Millionen Basiskacheln. Ganz gemessen sind die Vollrender mit #11, mit #21,
+Die Zahlen hier stammen von alten Kopien der grossen Welt in 26.2, gemessen
+bis Oktober 2026. Neue Reihen laufen an einer frischen Kopie, siehe
+[0138](../entscheidungen/0138-grosse-welt-als-frische-kopie.md). Die alte
+Kopie hatte 2,5 Millionen Chunks und bei scale 32 rund 2,5 Millionen
+Basiskacheln. Ganz gemessen sind die Vollrender mit #11, mit #21,
 mit #49 und zweimal mit Cinematic, alle mit Live-Ansicht nebenher; die
 übrigen Zahlen sind aus Ausschnitten hochgerechnet:
 

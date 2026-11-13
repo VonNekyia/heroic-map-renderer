@@ -11,7 +11,7 @@ import feldKlein from './ebenen/schild_klein.png?url&no-inline';
 import rahmenKlein from './ebenen/schild_klein_rahmen.png?url&no-inline';
 import feldMittel from './ebenen/schild_mittel.png?url&no-inline';
 import rahmenMittel from './ebenen/schild_mittel_rahmen.png?url&no-inline';
-import { bereich, flaechenZiele, form, hatFlaeche, STUECK_MS, versetze, zeichneAnsicht, zuege, type Form, type Strich } from './formen';
+import { bereich, flaechenZiele, form, halteStrich, hatFlaeche, STRICH_FAKTOR, STUECK_MS, versetze, zeichneAnsicht, zuege, type Form, type Strich } from './formen';
 import { BLOCK, bildpunkt, blockBreite, blockHoch, oberflaeche as hoeheAuf, rechteck, schriftPfad, weltRechteck, zurKamera, type Blick, type Gelaende, type Rechteck, type Schirm } from './gelaende';
 import { FRISCH, HOEHEN_BYTES, LEER, regionBytes, type Hoehenkarten } from './hoehen';
 import { REGION } from './pick';
@@ -1469,6 +1469,40 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
    * docs/entscheidungen/0137-pfade-erst-nach-dem-zoom.md.
    */
   let zoomt = false;
+
+  /**
+   * In einer Zoom-Animation läuft am SVG jeder Ebene `STRICH_FAKTOR` von 1
+   * auf 1 / Massstab, mit Dauer und Kurve seines eigenen Übergangs: So
+   * bleiben Striche auf dem Schirm gleich breit, statt mitzuwachsen und am
+   * Ende zurückzuspringen. Ohne `CSS.registerProperty` bleibt der Faktor 1.
+   * Siehe docs/entscheidungen/0138-striche-halten-ihre-breite.md.
+   */
+  const strichFaktor = (() => {
+    try {
+      CSS.registerProperty({ name: STRICH_FAKTOR, syntax: '<number>', inherits: true, initialValue: '1' });
+      return true;
+    } catch (fehler) {
+      // Schon registriert, etwa nach dem Neuladen des Moduls: gilt weiter.
+      return fehler instanceof DOMException && fehler.name === 'InvalidModificationError';
+    }
+  })();
+  const strichAnimationen: Animation[] = [];
+  map.on('zoomanim', (ereignis) => {
+    if (!strichFaktor) return;
+    const s = map.getZoomScale(ereignis.zoom, map.getZoom());
+    for (const { formen } of panes.values()) {
+      const svg = map.getPane(formen)?.querySelector('svg');
+      if (!svg) continue;
+      const stil = getComputedStyle(svg);
+      const [dauer] = stil.transitionDuration.split(',');
+      const ms = parseFloat(dauer!) * (dauer!.trim().endsWith('ms') ? 1 : 1000);
+      if (!(ms > 0)) continue;
+      // Stützstellen über den Fortschritt p des Übergangs: Der Massstab ist dort 1 + (s − 1) p, der Faktor sein Kehrwert.
+      const schritte = Array.from({ length: 11 }, (_, k) => ({ offset: k / 10, [STRICH_FAKTOR]: String(1 / (1 + ((s - 1) * k) / 10)) }));
+      // Leaflet setzt genau einen Übergang; seine Kurve gilt hier für den Fortschritt.
+      strichAnimationen.push(svg.animate(schritte, { duration: ms, easing: stil.transitionTimingFunction, fill: 'forwards' }));
+    }
+  });
   const nachZoom: (() => void)[] = [];
   /** Löst sofort auf, im Zoom erst mit `zoomend`. */
   const ruhig = (): Promise<void> => (zoomt ? new Promise((weiter) => nachZoom.push(weiter)) : Promise.resolve());
@@ -1476,6 +1510,8 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     zoomt = true;
   });
   map.on('zoomend', () => {
+    // Vor dem Zurücksetzen des Renderers bei `moveend`, im selben Task: kein Bild dazwischen.
+    for (const a of strichAnimationen.splice(0)) a.cancel();
     zoomt = false;
     // Wer wartet, läuft als Microtask nach dem `moveend` desselben Tasks weiter, wenn der Renderer die neue `viewBox` hat, und vor dem nächsten Bild.
     for (const weiter of nachZoom.splice(0)) weiter();
@@ -1512,6 +1548,7 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     versetze(g.striche, faktor());
     zaehle(id, neu.punkte);
     zaehleMit(id, 'gesetzt');
+    if (strichFaktor) for (const p of map.getPane(pane(id).formen)!.querySelectorAll<SVGPathElement>('path[stroke-width]')) halteStrich(p);
   };
 
   /**

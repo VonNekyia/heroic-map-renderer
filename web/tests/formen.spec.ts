@@ -1153,6 +1153,44 @@ test('nach 0137 beginnt eine Folgestufe des Rads ein Bild nach dem Ende der Anim
   for (const s of starts) expect(s).toBeCloseTo(1, 2);
 });
 
+for (const [art, mehr, y] of [
+  ['im iso', { hoehe: () => 10 }, 10],
+  ['von oben', { mehr: VON_OBEN }, 0],
+] as const) {
+  test(`nach 0138 halten Rand und Strichmuster ${art} in jedem Bild einer Kette von zwei Schritten ihre Breite auf dem Schirm`, async ({ page }) => {
+    await welt(page, staedte([{ ...GEBIET, stroke: { color: '#40E53FCC', width: 2, style: 'dashed', dash: [8, 6] } }], mehr));
+    await page.goto(`${DEMO}&at=32,${y},-16&zoom=-2`);
+    await expect(page.locator('path[stroke-dasharray]').first()).toBeAttached();
+    await page.mouse.move(640, 360);
+    const bilder = await page.evaluate(async (d) => {
+      const aus: { breite: number; strich: number; anim: boolean }[] = [];
+      for (let i = 0; i < 2; i++)
+        setTimeout(() => document.querySelector('#map')!.dispatchEvent(new WheelEvent('wheel', { deltaY: -d, clientX: 640, clientY: 360, bubbles: true, cancelable: true })), i * 200);
+      const start = performance.now();
+      await new Promise<void>((fertig) => {
+        const bild = () => {
+          const rand = document.querySelector<SVGPathElement>('path[stroke-dasharray]')!;
+          const svg = rand.ownerSVGElement!;
+          const massstab = new DOMMatrix(getComputedStyle(svg).transform).a;
+          const stil = getComputedStyle(rand);
+          aus.push({ breite: parseFloat(stil.strokeWidth) * massstab, strich: parseFloat(stil.strokeDasharray) * massstab, anim: document.querySelector('.leaflet-zoom-anim') !== null });
+          if (performance.now() - start > 900) fertig();
+          else requestAnimationFrame(bild);
+        };
+        bild();
+      });
+      return aus;
+    }, RASTE);
+    expect(zoomDerAdresse(page)).toBe(0);
+    // Sonst prüfte der Test nichts: Es lief eine Animation.
+    expect(bilder.filter((b) => b.anim).length).toBeGreaterThan(5);
+    for (const [i, b] of bilder.entries()) {
+      expect(Math.abs(b.breite - 2), `Bild ${i}: Breite ${b.breite}`).toBeLessThanOrEqual(0.1);
+      expect(Math.abs(b.strich - 8), `Bild ${i}: Strich ${b.strich}`).toBeLessThanOrEqual(0.4);
+    }
+  });
+}
+
 test('nach 0137 steht die Rechnung für die neue Stufe höchstens 100 ms nach dem Ende der Animation, nicht erst 150 ms danach', async ({ page }) => {
   await welt(page, staedte([{ ...GEBIET, stroke: { color: '#40E53FCC' } }], { hoehe: () => 10 }));
   await page.goto(`${DEMO}&punkte&at=32,10,-16&zoom=-1`);

@@ -202,12 +202,36 @@ function laeufe(z: Zug, r: Rand, renderer: L.Renderer): Strich[] {
 }
 
 /**
+ * Die Eigenschaft, mit der Breite und Muster eines Strichs in einer
+ * Zoom-Animation malgenommen werden, damit sie auf dem Schirm gleich bleiben.
+ * Siehe docs/entscheidungen/0138-striche-halten-ihre-breite.md.
+ */
+export const STRICH_FAKTOR = '--strich';
+
+/** Breite, Muster und Versatz eines Pfads mal `STRICH_FAKTOR`, aus seinen Attributen. */
+export function halteStrich(el: SVGElement): void {
+  const mal = (w: string) => `calc(${w}px * var(${STRICH_FAKTOR}))`;
+  const breite = el.getAttribute('stroke-width');
+  const muster = el.getAttribute('stroke-dasharray');
+  const versatz = el.getAttribute('stroke-dashoffset');
+  if (breite) el.style.strokeWidth = mal(breite);
+  if (muster) el.style.strokeDasharray = muster.split(/[ ,]+/).map(mal).join(' ');
+  if (versatz) el.style.strokeDashoffset = mal(versatz);
+}
+
+/**
  * Setzt die Striche jedes Laufs fort, wo der vorige aufhört: `dashOffset`
  * in Pixeln des Schirms, `faktor` Pixel des Schirms je Pixel der feinsten
  * Stufe.
  */
 export function versetze(striche: readonly Strich[], faktor: number): void {
-  for (const { linie, versatz } of striche) if (versatz && linie.options.dashArray) linie.setStyle({ dashOffset: String(versatz * faktor) });
+  for (const { linie, versatz } of striche) {
+    if (!versatz || !linie.options.dashArray) continue;
+    linie.setStyle({ dashOffset: String(versatz * faktor) });
+    // Ein Stil von `halteStrich` stünde sonst über dem neuen Attribut.
+    const el = linie.getElement() as SVGElement | undefined;
+    if (el?.style.strokeDashoffset) halteStrich(el);
+  }
 }
 
 /** Ob eine Form eine Fläche zeichnet: mit Füllung, oder als Ziel für Namen und Tafel. */

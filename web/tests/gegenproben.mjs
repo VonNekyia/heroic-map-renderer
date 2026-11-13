@@ -242,4 +242,7 @@ export default [
   { name: 'rad-folge-im-selben-bild', datei: 'src/rad.ts', alt: '    requestAnimationFrame(() => {\n      laeuft = false;', neu: '    queueMicrotask(() => {\n      laeuft = false;', spec: 'tests/formen.spec.ts', titel: 'beginnt eine Folgestufe des Rads ein Bild nach' },
   { name: 'rad-luecke-frei', datei: 'src/rad.ts', alt: '    laeuft = true;\n    requestAnimationFrame(', neu: '    requestAnimationFrame(', spec: 'tests/rad.spec.ts', titel: 'zwischen dem Ende einer Animation und ihrer Folgestufe' },
   { name: 'rad-luecke-bleibt-belegt', datei: 'src/rad.ts', alt: '    requestAnimationFrame(() => {\n      laeuft = false;\n', neu: '    requestAnimationFrame(() => {\n', spec: 'tests/rad.spec.ts', titel: 'zwischen dem Ende einer Animation und ihrer Folgestufe' },
+  { name: 'strich-waechst-mit', datei: 'src/ebenen.ts', alt: '      if (!(ms > 0)) continue;', neu: '      if (ms > 0) continue;', spec: 'tests/formen.spec.ts', titel: 'nach 0138 halten Rand und Strichmuster' },
+  { name: 'strich-ohne-faktor', datei: 'src/formen.ts', alt: '  if (breite) el.style.strokeWidth = mal(breite);', neu: '  if (breite) el.style.strokeWidth = `${breite}px`;', spec: 'tests/formen.spec.ts', titel: 'nach 0138 halten Rand und Strichmuster' },
+  { name: 'muster-ohne-faktor', datei: 'src/formen.ts', alt: "  if (muster) el.style.strokeDasharray = muster.split(/[ ,]+/).map(mal).join(' ');", neu: '  if (muster) el.style.strokeDasharray = muster;', spec: 'tests/formen.spec.ts', titel: 'nach 0138 halten Rand und Strichmuster' },
 ];

@@ -1,14 +1,16 @@
 ---
 title: "0136: Das Rad spielt nichts nach"
 description: Warum die Webkarte Rasten während einer Animation verfallen lässt und ein Ereignis höchstens eine Stufe zoomt, statt jede Raste abzuspielen.
-status: gilt
+status: abgelöst durch 0140
 date: 2026-11-05
 issues: []
 code:
-  - web/src/rad.ts
+  - web/src/main.ts
 ---
 
 # 0136: Das Rad spielt nichts nach
+
+Abgelöst durch [0140](0140-rad-von-leaflet.md): Das Rad zoomt wieder mit Leaflet.
 
 ## Anlass
 

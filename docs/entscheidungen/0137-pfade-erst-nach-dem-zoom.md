@@ -6,14 +6,14 @@ date: 2026-11-13
 issues: []
 code:
   - web/src/ebenen.ts
-  - web/src/rad.ts
 ---
 
 # 0137: Pfade erst nach dem Zoom
 
 Ergänzt [0111](0111-geometrie-nach-bildschirmfehler.md) darum, wann die Karte
 beim Zoomen rechnet und setzt. Die Regeln im Einzelnen stehen in
-[Frontend](../frontend.md), „Ebenen“.
+[Frontend](../frontend.md), „Ebenen“. Die Folgestufe des Rads ein Bild nach
+`zoomend` löst [0140](0140-rad-von-leaflet.md) ab, der Rest gilt.
 
 ## Anlass
 

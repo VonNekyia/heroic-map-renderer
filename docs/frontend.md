@@ -12,7 +12,6 @@ code:
   - web/src/schrift.ts
   - web/src/hoehen.ts
   - web/src/pick.ts
-  - web/src/rad.ts
   - web/src/skin-api.ts
   - web/src/skin-modul.d.ts
   - web/eslint.config.js
@@ -154,41 +153,22 @@ lässt solche Kacheln leer.
 
 ## Zoom mit dem Rad
 
-Das Rad zoomt in ganzen Stufen um den Zeiger, über `radZoom` in
-[`rad.ts`](../web/src/rad.ts) statt Leaflets `scrollWheelZoom`, siehe
-[0135](entscheidungen/0135-eigener-handler-fuer-das-rad.md). Steht das Rad
-still, beginnt nichts mehr, siehe
-[0136](entscheidungen/0136-rad-spielt-nichts-nach.md).
+Das Rad zoomt mit Leaflets `scrollWheelZoom` und seinen Vorgaben, siehe
+[0140](entscheidungen/0140-rad-von-leaflet.md). Die eigene Logik aus
+[0135](entscheidungen/0135-eigener-handler-fuer-das-rad.md) und
+[0136](entscheidungen/0136-rad-spielt-nichts-nach.md) ist abgelöst.
 
-- **Eine Stufe** sind 50 Pixel, in Chromium unter Windows im Pixelmodus
-  `-deltaY / 2`, sonst nach `L.DomEvent.getWheelDelta`. Dessen Teilen durch die
-  Skalierung passt in Chromium unter Windows nicht, siehe
-  [0135](entscheidungen/0135-eigener-handler-fuer-das-rad.md). Erreicht ein
-  Ereignis sie, zoomt die Karte sofort, ohne zu warten. Ein Ereignis ergibt
-  höchstens eine Stufe, wie viele Pixel es auch meldet. Der Rest verfällt, damit
-  grössere Rasten nicht nach einigen Rasten eine Stufe zu viel ergeben. Was ein
-  echtes Rad oder Touchpad je Raste
-  meldet, ist nicht gemessen; die Tests erzeugen ihre Ereignisse selbst.
-- **Während einer Animation** merkt sich der Handler nur die letzte Richtung.
-  Beim Ende folgt eine Stufe, wenn das letzte Ereignis höchstens 150 ms her ist,
-  und zwar ein Bild nach `zoomend`, nach
-  [0137](entscheidungen/0137-pfade-erst-nach-dem-zoom.md); bis dahin merkt ein
-  Ereignis nur die Richtung. Sonst verfällt sie. Das gilt auch für eine fremde Animation, etwa von den
-  Knöpfen.
-- **Bleibt `zoomend` aus,** weil ein Listener wirft oder ein `flyTo` abgebrochen
-  wird, gilt die Animation nach 1000 ms als beendet (`ANIMATION_HOECHSTENS`).
-  Die Stufe, deren Animation nie begann, ist verloren, und was wartete, ist dann
-  zu alt und verfällt.
-- **Eine Geste** endet nach 150 ms ohne Ereignis. Blieb sie unter einer Stufe,
-  zählt sie dann als eine, damit eine klein gemeldete Raste etwas tut.
-- **An der Grenze** des Zooms tut eine Raste nichts und sperrt nichts.
-- **Das Ziel ist eine ganze Stufe,** auch aus der gebrochenen Gesamtansicht
-  eines Skins. Nur eine gebrochene Grenze selbst bleibt gebrochen: Liegt sie mehr
-  als 0,5 unter der ganzen Stufe, erreicht das Rad sie. Liegt sie höchstens 0,5
-  darunter, rundet `setView` sie weg; dann hält das Rad auf der ganzen Stufe,
-  ohne zu schieben oder zu sperren. So liegt die Gesamtansicht des Tabletts
-  immer, siehe [0067](entscheidungen/0067-gesamtansicht-zwischen-zwei-stufen.md);
-  dorthin führt der Knopf.
+- **Leaflets Regel:** Es sammelt die Pixel eines Rads 40 ms
+  (`wheelDebounceTime`) und zoomt dann um den Zeiger, 60 Pixel nach
+  `L.DomEvent.getWheelDelta` sind etwa eine Stufe (`wheelPxPerZoomLevel`). Eine
+  angefangene Stufe rundet es auf; was in einer Animation kommt, geht verloren.
+- **Kein Springen beim nächsten Zoom:** Nach jedem `zoomend` liest ein
+  Microtask den Stil der SVGs der Formen, nach `moveend`. So beginnt der
+  Übergang eines Zooms, der im Bild danach startet, beim Massstab 1, gleich wer
+  ihn startet. Siehe [0140](entscheidungen/0140-rad-von-leaflet.md),
+  „Entscheidung“.
+- Was ein echtes Rad oder Touchpad je Raste meldet, ist nicht gemessen; die
+  Tests erzeugen ihre Ereignisse selbst.
 
 ## Grundschicht
 

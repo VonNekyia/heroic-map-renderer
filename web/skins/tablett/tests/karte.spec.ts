@@ -475,8 +475,10 @@ test('das Rad aus einer Gesamtansicht 0,4 unter der ganzen Stufe: ganze Stufen u
 
   await raste(1);
   await expect.poll(stufe).toBe(Math.ceil(fit));
-  // Die Gesamtansicht rundete `setView` weg: Hinaus tut nichts und sperrt nicht, hinein beginnt gleich, nicht erst nach 1000 ms.
+  // Die Gesamtansicht rundete `setView` weg: Hinaus sperrt nicht, hinein beginnt gleich, nicht erst nach 1000 ms.
   await raste(1);
+  // Leaflets Rad verliert Rasten in einer Animation, siehe docs/entscheidungen/0140-rad-von-leaflet.md; darum erst danach.
+  await page.waitForTimeout(400);
   const ms = await reaktion(-1);
   expect(ms).toBeGreaterThanOrEqual(0);
   expect(ms).toBeLessThan(500);

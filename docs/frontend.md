@@ -170,8 +170,10 @@ still, beginnt nichts mehr, siehe
   echtes Rad oder Touchpad je Raste
   meldet, ist nicht gemessen; die Tests erzeugen ihre Ereignisse selbst.
 - **Während einer Animation** merkt sich der Handler nur die letzte Richtung.
-  Beim Ende folgt eine Stufe, wenn das letzte Ereignis höchstens 150 ms her ist.
-  Sonst verfällt sie. Das gilt auch für eine fremde Animation, etwa von den
+  Beim Ende folgt eine Stufe, wenn das letzte Ereignis höchstens 150 ms her ist,
+  und zwar ein Bild nach `zoomend`, nach
+  [0137](entscheidungen/0137-pfade-erst-nach-dem-zoom.md); bis dahin merkt ein
+  Ereignis nur die Richtung. Sonst verfällt sie. Das gilt auch für eine fremde Animation, etwa von den
   Knöpfen.
 - **Bleibt `zoomend` aus,** weil ein Listener wirft oder ein `flyTo` abgebrochen
   wird, gilt die Animation nach 1000 ms als beendet (`ANIMATION_HOECHSTENS`).
@@ -761,6 +763,11 @@ mehr, siehe
       nach dem letzten `zoomend` oder `moveend`; bleibt der Zoom und liegt
       das Fenster im gerechneten Ausschnitt, bleibt alles, wie es ist. Die
       Höhen dafür nur aus den Regionen, die im Ausschnitt liegen können;
+    - nach [0137](entscheidungen/0137-pfade-erst-nach-dem-zoom.md) beim Zoom:
+      gerechnet ab `zoomanim` für das Ziel, gesetzt erst nach dem Ende der
+      Animation, sonst sprang die Grösse einer Region mitten in ihr. Von
+      `zoomstart` bis `zoomend` setzt die Karte keinen Pfad,
+      auch nicht beim Laden einer Ebene (`ruhig` in `ebenen.ts`);
     - nach [0123](entscheidungen/0123-formen-im-iso-gemerkt-je-stufe.md):
       - **Ganze Ebene:** Liegt ihr Rahmen über alle Höhen in 9 Fenstern
         und passen ihre Höhen ins Budget, rechnet die Karte sie ganz statt
@@ -800,7 +807,9 @@ mehr, siehe
       der Fokus. Eine Fläche ohne Ringe, ganz verdeckt oder ausserhalb, nimmt
       sie weg, auch aus der Reihe für Tab;
     - mit `?punkte` in der Adresse schreibt die Karte die Zahl dieser Punkte
-      als `data-punkte` an das Pane der Formen, für Tests und Messungen;
+      als `data-punkte` an das Pane der Formen, für Tests und Messungen,
+      dazu die begonnenen und gesetzten Rechnungen als `data-begonnen` und
+      `data-gesetzt`;
       gemessen in [Ebenen nach 0111](messungen/2026-10-20-ebenen-nach-0111.md)
       und [Flächen nach 0111](messungen/2026-10-20-flaechen-nach-0111.md);
   - **ohne Gelände,** wenn eine Ebene ganz auf `seaLevel` liegt, ohne Höhen

@@ -299,3 +299,53 @@ test('während der Animation der Knöpfe folgt eine Raste, solange das Rad dreht
   );
   expect(await zuletzt(page)).toBe(0);
 });
+
+/**
+ * Zwei Rasten im Abstand von 150 ms, dazu `dazwischen` im ersten Bild nach dem
+ * Ende der ersten Animation, also zwischen ihrem `zoomend` und der Folgestufe;
+ * gibt die Dauer jeder Animation in ms zurück. Hinein positiv.
+ */
+const mitLuecke = (page: Page, dazwischen: number, danach: number[] = []) =>
+  page.evaluate(
+    async ([raste, d, weiter]) => {
+      const pane = document.querySelector('.leaflet-map-pane')!;
+      const rad = (r: number) => document.querySelector('#map')!.dispatchEvent(new WheelEvent('wheel', { deltaY: -r * raste, clientX: 640, clientY: 360, bubbles: true, cancelable: true }));
+      const dauern: number[] = [];
+      let start: number | undefined;
+      new MutationObserver(() => {
+        const an = pane.classList.contains('leaflet-zoom-anim');
+        if (an && start === undefined) start = performance.now();
+        if (!an && start !== undefined) {
+          dauern.push(Math.round(performance.now() - start));
+          start = undefined;
+          if (dauern.length === 1) rad(d);
+        }
+      }).observe(pane, { attributes: true, attributeFilter: ['class'] });
+      rad(1);
+      await new Promise((r) => setTimeout(r, 150));
+      rad(1);
+      await new Promise((r) => setTimeout(r, 800));
+      for (const w of weiter) {
+        rad(w);
+        await new Promise((r) => setTimeout(r, 600));
+      }
+      return dauern;
+    },
+    [RASTE, dazwischen, danach] as const,
+  );
+
+test('ein Ereignis zwischen dem Ende einer Animation und ihrer Folgestufe merkt nur die Richtung: Jede Animation läuft ganz, keine Stufe kommt doppelt', async ({ page }) => {
+  await aufStufe(page, -2);
+  const dauern = await mitLuecke(page, 1);
+  // Zwei Stufen: die erste Raste und die Folgestufe; die Raste in der Lücke wartet und verfällt danach, weil das Rad dann 250 ms still steht.
+  expect(zoomDerAdresse(page)).toBe(0);
+  expect(dauern).toHaveLength(2);
+  for (const ms of dauern) expect(ms).toBeGreaterThanOrEqual(200);
+});
+
+test('zwischen dem Ende einer Animation und ihrer Folgestufe an der Grenze bleibt das Rad nicht gesperrt', async ({ page }) => {
+  await aufStufe(page, 1);
+  // Die Folgestufe ginge über 2 hinaus und tut nichts; eine Raste hinaus danach zoomt sofort.
+  await mitLuecke(page, 1, [-1]);
+  expect(zoomDerAdresse(page)).toBe(1);
+});

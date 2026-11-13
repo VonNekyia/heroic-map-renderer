@@ -17,6 +17,11 @@ type CpuInfo = unsafe extern "C" fn(c_int) -> c_int;
 unsafe extern "C" {
     /// `VP8GetCPUInfo` aus `src/dsp/cpu.h`: fragt libwebp, was die CPU kann.
     static mut VP8GetCPUInfo: Option<CpuInfo>;
+    /// Zwei Zeiger aus den Tabellen von libwebp: Welche Fassung dort steht,
+    /// zeigt, ob AVX2 gebaut und gewählt ist.
+    static VP8LVectorMismatch: usize;
+    static VP8LConvertBGRAToRGBA: usize;
+    fn WebPGetEncoderVersion() -> c_int;
 }
 
 static ECHT: OnceLock<Option<CpuInfo>> = OnceLock::new();
@@ -103,6 +108,10 @@ fn probe_simd() {
                 assert_eq!(bild.as_raw().len(), kachel.as_raw().len());
             }
         }
+        // Abstand zu einer festen Funktion: gleich über Läufe, anders je gewählter Fassung.
+        let anker = WebPGetEncoderVersion as usize as isize;
+        let (mismatch, convert) = unsafe { (VP8LVectorMismatch as isize - anker, VP8LConvertBGRAToRGBA as isize - anker) };
+        println!("PROBE modus={modus} packen={name} zeiger mismatch={mismatch} convert={convert}");
         println!(
             "PROBE modus={modus} packen={name} dekodieren ms_je_kachel={:.3}",
             1000.0 * beginn.elapsed().as_secs_f64() / (40 * kacheln.len()) as f64

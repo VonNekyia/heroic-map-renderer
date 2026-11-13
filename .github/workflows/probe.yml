@@ -22,13 +22,6 @@ jobs:
           workspaces: renderer
       - name: Bauen
         run: cargo test --release --test probe_simd --no-run
-      - name: Stehen SSE4.1 und AVX2 im Binär?
-        run: |
-          for f in target/release/deps/probe_simd-*; do
-            [ -x "$f" ] && [ ! -d "$f" ] || continue
-            echo "PROBE symbole avx2=$(nm "$f" | grep -c '_AVX2') sse41=$(nm "$f" | grep -c '_SSE41') sse2=$(nm "$f" | grep -c '_SSE2')"
-            nm "$f" | grep -E ' [tT] (VP8LEncDspInit(AVX2|SSE41)|VP8LDspInit(AVX2|SSE41)|VectorMismatch_AVX2)$' | sed 's/^/PROBE symbol /'
-          done
       - name: Messen
         run: |
           for m in alle sse2 ohne alle sse2 ohne alle sse2 ohne; do

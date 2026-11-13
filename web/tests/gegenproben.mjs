@@ -235,4 +235,8 @@ export default [
   { name: 'namen-aus-zeitgeber-bleibt', datei: 'src/ebenen.ts', alt: '    clearTimeout(namenAus.get(el));\n', neu: '', spec: 'tests/ebenen.spec.ts', titel: 'nach dem Ausblenden aus 0119 sind die Namen' },
   { name: 'namen-springen-ein', datei: 'src/ebenen.ts', alt: '      void el.offsetWidth;\n', neu: '', spec: 'tests/ebenen.spec.ts', titel: 'nach dem Ausblenden aus 0119 sind die Namen' },
   { name: 'namen-dauer-ohne-einheit', datei: 'src/ebenen.ts', alt: "return wert.endsWith('ms') ? zahl : zahl * 1000;", neu: "return wert.endsWith('ms') ? zahl : zahl;", spec: 'tests/ebenen.spec.ts', titel: 'nach dem Ausblenden aus 0119 sind die Namen' },
+  { name: 'ebenen-setzt-in-animation', datei: 'src/ebenen.ts', alt: 'const ruhig = (): Promise<void> => (zoomt ?', neu: 'const ruhig = (): Promise<void> => (zoomt && false ?', spec: 'tests/formen.spec.ts', titel: 'nach 0137' },
+  { name: 'ansicht-ohne-ruhe', datei: 'src/ebenen.ts', alt: '      await ruhig();\n      // Ein Zoom ohne Ziel', neu: '      // Ein Zoom ohne Ziel', spec: 'tests/formen.spec.ts', titel: 'nach 0137 ändert' },
+  { name: 'laden-ohne-ruhe', datei: 'src/ebenen.ts', alt: '    await ruhig();\n    if (!gilt()) return;\n    weg(e.id);', neu: '    if (!gilt()) return;\n    weg(e.id);', spec: 'tests/formen.spec.ts', titel: 'deren Datei in einer Zoom-Animation kommt' },
+  { name: 'rechnet-erst-nach-zoomend', datei: 'src/ebenen.ts', alt: '    queueMicrotask(alleNeu);\n', neu: '', spec: 'tests/formen.spec.ts', titel: 'höchstens 100 ms nach dem Ende der Animation' },
 ];

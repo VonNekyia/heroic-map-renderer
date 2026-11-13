@@ -170,8 +170,9 @@ still, beginnt nichts mehr, siehe
   echtes Rad oder Touchpad je Raste
   meldet, ist nicht gemessen; die Tests erzeugen ihre Ereignisse selbst.
 - **Während einer Animation** merkt sich der Handler nur die letzte Richtung.
-  Beim Ende folgt eine Stufe, wenn das letzte Ereignis höchstens 150 ms her ist.
-  Sonst verfällt sie. Das gilt auch für eine fremde Animation, etwa von den
+  Beim Ende folgt eine Stufe, wenn das letzte Ereignis höchstens 150 ms her ist,
+  und zwar ein Bild nach `zoomend`, nach
+  [0137](entscheidungen/0137-pfade-erst-nach-dem-zoom.md). Sonst verfällt sie. Das gilt auch für eine fremde Animation, etwa von den
   Knöpfen.
 - **Bleibt `zoomend` aus,** weil ein Listener wirft oder ein `flyTo` abgebrochen
   wird, gilt die Animation nach 1000 ms als beendet (`ANIMATION_HOECHSTENS`).

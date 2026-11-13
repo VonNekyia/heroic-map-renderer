@@ -55,8 +55,10 @@ export function radZoom(map: L.Map): void {
     laeuft = false;
     const richtung = wartet;
     wartet = 0;
-    // Nur, solange das Rad noch dreht; sonst zoomte die Karte nach.
-    if (richtung !== 0 && performance.now() - zuletzt <= GESTE_ZU) zoome(richtung);
+    // Nur, solange das Rad noch dreht; sonst zoomte die Karte nach. Erst ein Bild später:
+    // Sonst rechnet der Browser den zurückgesetzten Massstab des Renderers nie, und sein
+    // Übergang beginnt am Ziel. Siehe docs/entscheidungen/0137-pfade-erst-nach-dem-zoom.md.
+    if (richtung !== 0 && performance.now() - zuletzt <= GESTE_ZU) requestAnimationFrame(() => zoome(richtung));
   };
   // Auch fremdes Zoomen zählt, etwa Knöpfe oder Pinch: Während seiner Animation täte setZoomAround nichts.
   map.on('zoomstart', belegt);

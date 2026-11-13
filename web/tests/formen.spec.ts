@@ -1118,6 +1118,41 @@ const breiteJeBild = (page: Page, fuellung: string, zahl: number, ms: number) =>
     [fuellung, zahl, ms, RASTE] as const,
   );
 
+test('nach 0137 beginnt eine Folgestufe des Rads ein Bild nach dem Ende der Animation davor, und das SVG der Formen wächst dann von 1 an', async ({ page }) => {
+  await welt(page, staedte([{ ...GEBIET, stroke: { color: '#40E53FCC' } }], { hoehe: () => 10 }));
+  await page.goto(`${DEMO}&at=32,10,-16&zoom=-2`);
+  await expect(page.locator('path[data-fill="#40E53F55"]')).toHaveCount(1);
+  await page.mouse.move(640, 360);
+  const { gleich, starts } = await page.evaluate(async (d) => {
+    const pane = document.querySelector('.leaflet-map-pane')!;
+    const svg = document.querySelector('[class*="-formen-pane"] svg')!;
+    const ergebnis = { gleich: 0, starts: [] as number[] };
+    let an = false;
+    new MutationObserver(() => {
+      const jetzt = pane.classList.contains('leaflet-zoom-anim');
+      if (jetzt && !an) {
+        // Der Massstab, von dem der Übergang des SVG beginnt; ohne Übergang der, auf dem es steht.
+        const t = svg.getAnimations().find((a) => (a as CSSTransition).transitionProperty === 'transform');
+        const von = t ? (t.effect as KeyframeEffect).getKeyframes()[0]!.transform : getComputedStyle(svg).transform;
+        ergebnis.starts.push(von && von !== 'none' ? new DOMMatrix(String(von)).a : 1);
+      }
+      // Am Ende: Beginnt die Folgestufe noch im nächsten Bild, ist sie dort schon da, bevor dieses Bild fragt.
+      if (!jetzt && an) requestAnimationFrame(() => pane.classList.contains('leaflet-zoom-anim') && ergebnis.gleich++);
+      an = jetzt;
+    }).observe(pane, { attributes: true, attributeFilter: ['class'] });
+    for (let i = 0; i < 3; i++) {
+      if (i) await new Promise((r) => setTimeout(r, 200));
+      document.querySelector('#map')!.dispatchEvent(new WheelEvent('wheel', { deltaY: -d, clientX: 640, clientY: 360, bubbles: true, cancelable: true }));
+    }
+    await new Promise((r) => setTimeout(r, 1200));
+    return ergebnis;
+  }, RASTE);
+  expect(zoomDerAdresse(page)).toBe(1);
+  expect(gleich).toBe(0);
+  expect(starts).toHaveLength(3);
+  for (const s of starts) expect(s).toBeCloseTo(1, 2);
+});
+
 test('nach 0137 steht die Rechnung für die neue Stufe höchstens 100 ms nach dem Ende der Animation, nicht erst 150 ms danach', async ({ page }) => {
   await welt(page, staedte([{ ...GEBIET, stroke: { color: '#40E53FCC' } }], { hoehe: () => 10 }));
   await page.goto(`${DEMO}&punkte&at=32,10,-16&zoom=-1`);

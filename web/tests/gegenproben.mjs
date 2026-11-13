@@ -239,4 +239,5 @@ export default [
   { name: 'ansicht-ohne-ruhe', datei: 'src/ebenen.ts', alt: '      await ruhig();\n      // Ein Zoom ohne Ziel', neu: '      // Ein Zoom ohne Ziel', spec: 'tests/formen.spec.ts', titel: 'nach 0137 ändert' },
   { name: 'laden-ohne-ruhe', datei: 'src/ebenen.ts', alt: '    await ruhig();\n    if (!gilt()) return;\n    weg(e.id);', neu: '    if (!gilt()) return;\n    weg(e.id);', spec: 'tests/formen.spec.ts', titel: 'deren Datei in einer Zoom-Animation kommt' },
   { name: 'rechnet-erst-nach-zoomend', datei: 'src/ebenen.ts', alt: '    queueMicrotask(alleNeu);\n', neu: '', spec: 'tests/formen.spec.ts', titel: 'höchstens 100 ms nach dem Ende der Animation' },
+  { name: 'rad-folge-im-selben-bild', datei: 'src/rad.ts', alt: 'requestAnimationFrame(() => zoome(richtung));', neu: 'zoome(richtung);', spec: 'tests/formen.spec.ts', titel: 'beginnt eine Folgestufe des Rads ein Bild nach' },
 ];

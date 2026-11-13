@@ -1,11 +1,12 @@
 ---
 title: "0137: Pfade erst nach dem Zoom"
-description: Warum die Webkarte die Formen einer Ebene ab dem Start einer Zoom-Animation für das Ziel rechnet, aber erst nach ihrem Ende setzt, statt 150 ms nach dem Zoom; was verworfen ist und was es kostet; ergänzt 0111.
+description: Warum die Webkarte die Formen einer Ebene ab dem Start einer Zoom-Animation für das Ziel rechnet, aber erst nach ihrem Ende setzt, statt 150 ms nach dem Zoom, und warum eine Folgestufe des Rads ein Bild nach dem Ende beginnt; was verworfen ist und was es kostet; ergänzt 0111.
 status: gilt
 date: 2026-11-13
 issues: []
 code:
   - web/src/ebenen.ts
+  - web/src/rad.ts
 ---
 
 # 0137: Pfade erst nach dem Zoom
@@ -35,6 +36,15 @@ gilt für eine Ebene, deren Datei in einer Animation kommt.
 Dazu stand nach jedem Schritt 150 ms plus Rechenzeit die Geometrie der alten
 Stufe, im iso etwa die Wand mit zu wenigen Bändern.
 
+Ein zweiter Sprung zeigte sich erst in Bildfolgen: Am Start einer verketteten
+Animation stand die Region in einem Bild auf Endgrösse und wuchs dann nicht
+mehr, während die Kacheln weiterliefen. Der Renderer setzt bei `moveend` seinen
+Massstab zurück. Das Rad startete die nächste Stufe aus `zoomend`, Leaflet also
+im nächsten Bild, ohne dass der Browser dazwischen den Stil rechnete. Der
+Übergang des SVG begann deshalb am Ziel. Headless, 3 Läufe mit je 2
+Folgestufen: in 3 von 6 kein Übergang, das SVG stand schon auf 2. In den
+Bildfolgen sprang es auf master in 3 von 4 Läufen.
+
 ## Entscheidung
 
 - **Von `zoomstart` bis `zoomend` setzt die Karte keinen Pfad,** weder aus
@@ -46,6 +56,8 @@ Stufe, im iso etwa die Wand mit zu wenigen Bändern.
 - **Gerechnet wird ab `zoomanim`,** denn erst dort steht das Ziel fest. Gleich
   danach setzt Leaflet Zoom und Ursprung darauf. Beim Zoom mit zwei Fingern
   rechnet der Nachlauf nach `zoomend`.
+- **Eine Folgestufe des Rads beginnt ein Bild nach `zoomend`.** So rechnet der
+  Browser den zurückgesetzten Massstab, und der Übergang beginnt bei 1.
 - **Der Nachlauf von 150 ms bleibt** für Verschieben und als Sicherung nach
   dem Zoom. Läuft die Rechnung für dieselbe Stufe und dasselbe Fenster schon,
   beginnt er sie nicht noch einmal.
@@ -79,5 +91,8 @@ Stufe, im iso etwa die Wand mit zu wenigen Bändern.
   nachher. Beim Hineinzoomen liegt jedes Zwischenfenster im Fenster davor,
   dessen Höhen schon im Cache sind. Beim Hinauszoomen liegt es im Fenster
   danach, das ohnehin geladen wird.
+- Eine Folgestufe des Rads beginnt 16–33 ms später, headless 579–597 ms statt
+  563–578 ms nach der ersten Raste. Mit ihr in 6 von 6 Folgestufen ein
+  Übergang von 1 an, in 4 Bildfolgen kein Sprung.
 - Die Rechnung läuft jetzt in der Animation. Sie rechnet nach 0123 in
   Stücken von 8 ms, die Animation selbst ist ein Übergang in CSS.

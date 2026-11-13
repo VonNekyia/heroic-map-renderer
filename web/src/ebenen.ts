@@ -1514,6 +1514,15 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
   map.on('zoomend', () => {
     // Vor dem Zurücksetzen des Renderers bei `moveend`, im selben Task: kein Bild dazwischen.
     for (const a of strichAnimationen.splice(0)) a.cancel();
+    // Nach `moveend` den zurückgesetzten Massstab der SVGs rechnen lassen. Sonst beginnt ein Zoom,
+    // der im nächsten Bild startet, seinen Übergang am Ziel, und die Formen springen.
+    // Siehe docs/entscheidungen/0140-rad-von-leaflet.md.
+    queueMicrotask(() => {
+      for (const { formen } of panes.values()) {
+        const svg = map.getPane(formen)?.querySelector('svg');
+        if (svg) void getComputedStyle(svg).transform;
+      }
+    });
     zoomt = false;
     // Wer wartet, läuft als Microtask nach dem `moveend` desselben Tasks weiter, wenn der Renderer die neue `viewBox` hat, und vor dem nächsten Bild.
     for (const weiter of nachZoom.splice(0)) weiter();

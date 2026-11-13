@@ -1053,7 +1053,7 @@ for (const [art, mehr, y] of [
     await page.mouse.move(640, 360);
     await beobachte(page);
     // Die zweite Raste kommt in der ersten Animation, also folgt die zweite gleich auf die erste.
-    await rasten(page, 2, 200);
+    await rasten(page, 2, 320);
     await bisRuhig(page, 1);
     const p = await pfade(page);
     expect(p.in).toBe(0);
@@ -1067,7 +1067,7 @@ for (const [art, mehr, y] of [
     await page.goto(`${DEMO}&at=32,${y},-16&zoom=-2`);
     await expect(page.locator('path[data-fill="#3355AA55"]')).toHaveCount(1);
     await page.mouse.move(640, 360);
-    const bilder = await breiteJeBild(page, '#3355AA55', 2, 200);
+    const bilder = await breiteJeBild(page, '#3355AA55', 2, 320);
     expect(zoomDerAdresse(page)).toBe(0);
     const [erstes] = bilder;
     let vorher = 0;
@@ -1118,39 +1118,35 @@ const breiteJeBild = (page: Page, fuellung: string, zahl: number, ms: number) =>
     [fuellung, zahl, ms, RASTE] as const,
   );
 
-test('nach 0137 beginnt eine Folgestufe des Rads ein Bild nach dem Ende der Animation davor, und das SVG der Formen wächst dann von 1 an', async ({ page }) => {
+test('nach 0140 beginnt jeder Zoom, der im Bild nach dem Ende des vorigen startet, den Übergang des SVG der Formen bei 1', async ({ page }) => {
   await welt(page, staedte([{ ...GEBIET, stroke: { color: '#40E53FCC' } }], { hoehe: () => 10 }));
   await page.goto(`${DEMO}&at=32,10,-16&zoom=-2`);
   await expect(page.locator('path[data-fill="#40E53F55"]')).toHaveCount(1);
-  await page.mouse.move(640, 360);
-  const { gleich, starts } = await page.evaluate(async (d) => {
+  const starts = await page.evaluate(async () => {
     const pane = document.querySelector('.leaflet-map-pane')!;
     const svg = document.querySelector('[class*="-formen-pane"] svg')!;
-    const ergebnis = { gleich: 0, starts: [] as number[] };
+    const plus = document.querySelector<HTMLElement>('.leaflet-control-zoom-in')!;
+    const aus: number[] = [];
     let an = false;
     new MutationObserver(() => {
       const jetzt = pane.classList.contains('leaflet-zoom-anim');
       if (jetzt && !an) {
         // Der Massstab, von dem der Übergang des SVG beginnt; ohne Übergang der, auf dem es steht.
-        const t = svg.getAnimations().find((a) => (a as CSSTransition).transitionProperty === 'transform');
+        const t = svg.getAnimations().find((x) => (x as CSSTransition).transitionProperty === 'transform');
         const von = t ? (t.effect as KeyframeEffect).getKeyframes()[0]!.transform : getComputedStyle(svg).transform;
-        ergebnis.starts.push(von && von !== 'none' ? new DOMMatrix(String(von)).a : 1);
+        aus.push(von && von !== 'none' ? new DOMMatrix(String(von)).a : 1);
       }
-      // Am Ende: Beginnt die Folgestufe noch im nächsten Bild, ist sie dort schon da, bevor dieses Bild fragt.
-      if (!jetzt && an) requestAnimationFrame(() => pane.classList.contains('leaflet-zoom-anim') && ergebnis.gleich++);
+      // Am Ende gleich der nächste Zoom: Leaflet beginnt ihn im nächsten Bild, wie ein Rad, dessen Raste genau jetzt kommt.
+      if (!jetzt && an && aus.length < 3) plus.click();
       an = jetzt;
     }).observe(pane, { attributes: true, attributeFilter: ['class'] });
-    for (let i = 0; i < 3; i++) {
-      if (i) await new Promise((r) => setTimeout(r, 200));
-      document.querySelector('#map')!.dispatchEvent(new WheelEvent('wheel', { deltaY: -d, clientX: 640, clientY: 360, bubbles: true, cancelable: true }));
-    }
-    await new Promise((r) => setTimeout(r, 1200));
-    return ergebnis;
-  }, RASTE);
+    plus.click();
+    await new Promise((r) => setTimeout(r, 1500));
+    return aus;
+  });
   expect(zoomDerAdresse(page)).toBe(1);
-  expect(gleich).toBe(0);
   expect(starts).toHaveLength(3);
-  for (const s of starts) expect(s).toBeCloseTo(1, 2);
+  for (const x of starts) expect(x).toBeCloseTo(1, 2);
 });
 
 /** Eine gestrichelte Route über einen Wall: im iso ein verdeckter Lauf, dünn und blass, und ein sichtbarer mit Versatz. */
@@ -1201,7 +1197,7 @@ for (const [art, objekte, mehr, at] of [
     await expect(page.locator('[class*="-formen-pane"] path[stroke-dasharray]').first()).toBeAttached();
     await page.mouse.move(640, 360);
     const messung = stricheJeBild(page, 900);
-    await rasten(page, 2, 200);
+    await rasten(page, 2, 320);
     const { fehler, bilder, laeufe } = await messung;
     expect(zoomDerAdresse(page)).toBe(0);
     // Sonst prüfte der Test nichts: Es lief eine Animation, und im iso gab es einen verdeckten Lauf.
@@ -1281,7 +1277,7 @@ test('nach 0137 setzt eine Ebene, deren Datei in einer Zoom-Animation kommt, ihr
   await page.mouse.move(640, 360);
   await beobachte(page);
   // Zwei Rasten ketten zwei Animationen, so bleibt Zeit, die Datei mitten in einer zu laden.
-  const zug = rasten(page, 2, 200);
+  const zug = rasten(page, 2, 320);
   await page.waitForFunction(() => document.querySelector('.leaflet-zoom-anim') !== null, undefined, { polling: 'raf' });
   const antwort = page.waitForResponse('**/tiles-demo/layers/beispiel/staedte.json');
   frei();

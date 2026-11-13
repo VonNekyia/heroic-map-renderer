@@ -1,15 +1,16 @@
 ---
 title: "0135: Ein eigener Handler für das Rad"
 description: Warum die Webkarte das Rad selbst in ganze Stufen umsetzt, statt Leaflets scrollWheelZoom mit seinen Optionen zu nehmen.
-status: gilt
+status: abgelöst durch 0140
 date: 2026-11-01
 issues: []
 code:
-  - web/src/rad.ts
   - web/src/main.ts
 ---
 
 # 0135: Ein eigener Handler für das Rad
+
+Abgelöst durch [0140](0140-rad-von-leaflet.md): Das Rad zoomt wieder mit Leaflet.
 
 Abgelöst ist, dass jede Raste zählt und wartende Stufen nach der Animation folgen:
 siehe [0136](0136-rad-spielt-nichts-nach.md).

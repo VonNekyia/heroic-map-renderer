@@ -15,7 +15,6 @@ import {
 } from './pick';
 import { ebenen, ebenenVorab } from './ebenen';
 import { nimmToken } from './konto';
-import { radZoom } from './rad';
 import { FRISCH, hoehen, type Hoehenkarten } from './hoehen';
 import { VERSION, type Grenzen, type Rechteck } from './skin-api';
 import './style.css';
@@ -716,9 +715,7 @@ async function start(): Promise<void> {
     crs: crs(info),
     maxZoom: hoechste,
     attributionControl: false,
-    scrollWheelZoom: false,
   });
-  radZoom(map);
   // Ein Skin gestaltet um die Karte und sagt, was als ganze Karte gilt. Er
   // bekommt nur, was in skin-api.ts steht. Siehe docs/frontend.md, „Skins“.
   let ganz: Grenzen = info.bounds;

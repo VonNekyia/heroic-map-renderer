@@ -9,7 +9,7 @@ use std::path::Path;
 use std::sync::OnceLock;
 use std::time::Instant;
 
-use heroic_map_renderer::render::{Packen, encode_webp};
+use heroic_map_renderer::render::{Packen, decode_webp, encode_webp};
 use image::RgbaImage;
 
 type CpuInfo = unsafe extern "C" fn(c_int) -> c_int;
@@ -80,19 +80,33 @@ fn probe_simd() {
     kacheln.truncate(240);
     for (name, packen, runden) in [("schnell", Packen::Schnell, 12), ("kompakt", Packen::Kompakt, 4)] {
         let (mut bytes, mut hash) = (0usize, 0xcbf2_9ce4_8422_2325u64);
+        let mut gepackt = Vec::new();
         let beginn = Instant::now();
         for runde in 0..runden {
             for kachel in &kacheln {
                 let daten = encode_webp(kachel, packen).unwrap();
                 if runde == 0 {
                     bytes += daten.len();
-                    for b in daten {
+                    for &b in &daten {
                         hash = (hash ^ u64::from(b)).wrapping_mul(0x0000_0100_0000_01b3);
                     }
+                    gepackt.push(daten);
                 }
             }
         }
         let sekunden = beginn.elapsed().as_secs_f64();
+        // Dekodieren, wie die Pyramide ihre Kinder liest.
+        let beginn = Instant::now();
+        for _ in 0..40 {
+            for (daten, kachel) in gepackt.iter().zip(&kacheln) {
+                let bild = decode_webp(daten, (256, 256)).unwrap();
+                assert_eq!(bild.as_raw().len(), kachel.as_raw().len());
+            }
+        }
+        println!(
+            "PROBE modus={modus} packen={name} dekodieren ms_je_kachel={:.3}",
+            1000.0 * beginn.elapsed().as_secs_f64() / (40 * kacheln.len()) as f64
+        );
         println!(
             "PROBE modus={modus} cpu_sse2={} cpu_sse41={} cpu_avx2={} packen={name} kacheln={} runden={runden} \
              bytes={bytes} hash={hash:016x} sekunden={sekunden:.3} ms_je_kachel={:.3}",

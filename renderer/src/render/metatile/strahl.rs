@@ -395,7 +395,7 @@ impl ChunkCache<'_> {
                             continue;
                         };
                         let versatz = sy * 16 - unterste;
-                        for col in 0..256 {
+                        for (col, &wort) in bits.arbeit.iter().enumerate() {
                             let (x, z) = (cx * 16 + (col & 15) as i32, cz * 16 + (col >> 4) as i32);
                             if x < x0
                                 || z < z0
@@ -404,7 +404,7 @@ impl ChunkCache<'_> {
                             {
                                 continue;
                             }
-                            let w = u128::from(bits.arbeit[col]);
+                            let w = u128::from(wort);
                             let w = if versatz >= 0 {
                                 w << versatz
                             } else {

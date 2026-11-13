@@ -1,0 +1,32 @@
+# Probe, nicht mergen: Bytes und Zeit des kompakten Packens mit festem oder
+# begrenztem Farb-Cache gegen heute. Läuft nur auf Zweigen probe/**. Die
+# Kacheln der Tests liegen nicht im Tag, siehe
+# docs/messungen/2026-11-13-farbcache-fest-statt-suchen.md.
+name: Probe
+
+on:
+  push:
+    branches: ["probe/**"]
+
+jobs:
+  farbcache:
+    name: Farb-Cache von libwebp
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: renderer
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: renderer
+      - name: Bauen
+        run: cargo test --release --test probe_farbcache2 --no-run
+      - name: Messen
+        run: |
+          for runde in 1 2 3; do
+            cargo test --release --test probe_farbcache2 -- --ignored --nocapture > aus.txt 2>&1 || { tail -40 aus.txt; exit 1; }
+            grep '^PROBE2' aus.txt
+          done

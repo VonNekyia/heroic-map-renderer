@@ -13,6 +13,7 @@
 #include "src/enc/backward_references_enc.h"
 
 #include <assert.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "src/dsp/cpu.h"
@@ -961,8 +962,21 @@ static int GetBackwardReferences(int width, int height,
 
       if (i == 0) {
         // Try with a color cache.
-        if (!CalculateBestCacheSize(argb, quality, refs_tmp, &cache_bits)) {
-          goto Error;
+        // heroic-map-renderer, Probe: HEROIC_PROBE_CACHE=f<k> legt k Bit fest
+        // und sucht nicht; m<k> sucht nur bis k Bit. Ohne die Variable wie
+        // das Original.
+        const char* const probe = getenv("HEROIC_PROBE_CACHE");
+        if (probe != NULL && probe[0] == 'f') {
+          // Nie über die Vorgabe hinaus: Mit 0 ist hier kein Cache erlaubt,
+          // etwa für die Bilder der Transformationen.
+          if (cache_bits > atoi(probe + 1)) cache_bits = atoi(probe + 1);
+        } else {
+          if (probe != NULL && probe[0] == 'm' && cache_bits > atoi(probe + 1)) {
+            cache_bits = atoi(probe + 1);
+          }
+          if (!CalculateBestCacheSize(argb, quality, refs_tmp, &cache_bits)) {
+            goto Error;
+          }
         }
         if (cache_bits > 0) {
           if (!BackwardRefsWithLocalCache(argb, cache_bits, refs_tmp)) {

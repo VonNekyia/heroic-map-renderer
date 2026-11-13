@@ -57,7 +57,10 @@ Bildfolgen sprang es auf master in 3 von 4 Läufen.
   danach setzt Leaflet Zoom und Ursprung darauf. Beim Zoom mit zwei Fingern
   rechnet der Nachlauf nach `zoomend`.
 - **Eine Folgestufe des Rads beginnt ein Bild nach `zoomend`.** So rechnet der
-  Browser den zurückgesetzten Massstab, und der Übergang beginnt bei 1.
+  Browser den zurückgesetzten Massstab, und der Übergang beginnt bei 1. Bis
+  dahin gilt das Rad als belegt: Ein Ereignis in diesem Bild merkt nur die
+  Richtung. Sonst zoomten zwei Aufrufe zur selben Stufe, und Leaflet beendete
+  die Animation nach einem Bild, gemessen 15–17 ms.
 - **Der Nachlauf von 150 ms bleibt** für Verschieben und als Sicherung nach
   dem Zoom. Läuft die Rechnung für dieselbe Stufe und dasselbe Fenster schon,
   beginnt er sie nicht noch einmal.

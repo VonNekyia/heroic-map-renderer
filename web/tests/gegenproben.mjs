@@ -37,10 +37,10 @@ export default [
   { name: 'schrift-nicht-geladen', datei: 'src/ebenen.ts', alt: '      void ladeSchrift();\n', neu: '      if (b < 0) void ladeSchrift();\n', spec: 'tests/ebenen.spec.ts', titel: 'eine Nadel mit Namen lädt die Kartenschrift' },
   { name: 'spacing-ungekappt', datei: 'src/schrift.ts', alt: 'Math.min(SPERRUNG, Math.max(0, wert.spacing))', neu: 'Math.min(SPERRUNG * 100, Math.max(-100, wert.spacing))', spec: 'tests/formen.spec.ts', titel: 'Grenzfälle der Kartenschrift' },
   // Das Rad, 0135.
-  { name: 'rad-spielt-nach', datei: 'src/rad.ts', alt: 'performance.now() - zuletzt <= GESTE_ZU', neu: 'performance.now() - zuletzt <= 1e9', spec: 'tests/rad.spec.ts', titel: 'sechs Rasten in einem Zug' },
-  { name: 'rad-folgt-nie', datei: 'src/rad.ts', alt: 'performance.now() - zuletzt <= GESTE_ZU', neu: 'performance.now() - zuletzt < 0', spec: 'tests/rad.spec.ts', titel: 'das letzte Ereignis 150 ms her' },
-  { name: 'rad-folgt-unter-150', datei: 'src/rad.ts', alt: 'performance.now() - zuletzt <= GESTE_ZU', neu: 'performance.now() - zuletzt < GESTE_ZU', spec: 'tests/rad.spec.ts', titel: 'das letzte Ereignis 150 ms her' },
-  { name: 'rad-folgt-bis-151', datei: 'src/rad.ts', alt: 'performance.now() - zuletzt <= GESTE_ZU', neu: 'performance.now() - zuletzt <= GESTE_ZU + 1', spec: 'tests/rad.spec.ts', titel: 'das letzte Ereignis 151 ms her' },
+  { name: 'rad-spielt-nach', datei: 'src/rad.ts', alt: 'performance.now() - zuletzt > GESTE_ZU', neu: 'performance.now() - zuletzt > 1e9', spec: 'tests/rad.spec.ts', titel: 'sechs Rasten in einem Zug' },
+  { name: 'rad-folgt-nie', datei: 'src/rad.ts', alt: 'performance.now() - zuletzt > GESTE_ZU', neu: 'performance.now() - zuletzt >= 0', spec: 'tests/rad.spec.ts', titel: 'das letzte Ereignis 150 ms her' },
+  { name: 'rad-folgt-unter-150', datei: 'src/rad.ts', alt: 'performance.now() - zuletzt > GESTE_ZU', neu: 'performance.now() - zuletzt >= GESTE_ZU', spec: 'tests/rad.spec.ts', titel: 'das letzte Ereignis 150 ms her' },
+  { name: 'rad-folgt-bis-151', datei: 'src/rad.ts', alt: 'performance.now() - zuletzt > GESTE_ZU', neu: 'performance.now() - zuletzt > GESTE_ZU + 1', spec: 'tests/rad.spec.ts', titel: 'das letzte Ereignis 151 ms her' },
   { name: 'rad-richtung-summe', datei: 'src/rad.ts', alt: 'if (laeuft) wartet = richtung;', neu: 'if (laeuft) wartet += richtung;', spec: 'tests/rad.spec.ts', titel: 'zählt die letzte Richtung' },
   { name: 'rad-richtung-erste', datei: 'src/rad.ts', alt: 'if (laeuft) wartet = richtung;', neu: 'if (laeuft) wartet = wartet || richtung;', spec: 'tests/rad.spec.ts', titel: 'zählt die letzte Richtung' },
   { name: 'rad-mehrere-je-ereignis', datei: 'src/rad.ts', alt: 'stufe(Math.sign(stufen));', neu: 'stufe(stufen);', spec: 'tests/rad.spec.ts', titel: 'ein Ereignis ist höchstens eine Stufe' },
@@ -239,5 +239,7 @@ export default [
   { name: 'ansicht-ohne-ruhe', datei: 'src/ebenen.ts', alt: '      await ruhig();\n      // Ein Zoom ohne Ziel', neu: '      // Ein Zoom ohne Ziel', spec: 'tests/formen.spec.ts', titel: 'nach 0137 ändert' },
   { name: 'laden-ohne-ruhe', datei: 'src/ebenen.ts', alt: '    await ruhig();\n    if (!gilt()) return;\n    weg(e.id);', neu: '    if (!gilt()) return;\n    weg(e.id);', spec: 'tests/formen.spec.ts', titel: 'deren Datei in einer Zoom-Animation kommt' },
   { name: 'rechnet-erst-nach-zoomend', datei: 'src/ebenen.ts', alt: '    queueMicrotask(alleNeu);\n', neu: '', spec: 'tests/formen.spec.ts', titel: 'höchstens 100 ms nach dem Ende der Animation' },
-  { name: 'rad-folge-im-selben-bild', datei: 'src/rad.ts', alt: 'requestAnimationFrame(() => zoome(richtung));', neu: 'zoome(richtung);', spec: 'tests/formen.spec.ts', titel: 'beginnt eine Folgestufe des Rads ein Bild nach' },
+  { name: 'rad-folge-im-selben-bild', datei: 'src/rad.ts', alt: '    requestAnimationFrame(() => {\n      laeuft = false;', neu: '    queueMicrotask(() => {\n      laeuft = false;', spec: 'tests/formen.spec.ts', titel: 'beginnt eine Folgestufe des Rads ein Bild nach' },
+  { name: 'rad-luecke-frei', datei: 'src/rad.ts', alt: '    laeuft = true;\n    requestAnimationFrame(', neu: '    requestAnimationFrame(', spec: 'tests/rad.spec.ts', titel: 'zwischen dem Ende einer Animation und ihrer Folgestufe' },
+  { name: 'rad-luecke-bleibt-belegt', datei: 'src/rad.ts', alt: '    requestAnimationFrame(() => {\n      laeuft = false;\n', neu: '    requestAnimationFrame(() => {\n', spec: 'tests/rad.spec.ts', titel: 'zwischen dem Ende einer Animation und ihrer Folgestufe' },
 ];

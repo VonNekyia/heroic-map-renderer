@@ -172,7 +172,8 @@ still, beginnt nichts mehr, siehe
 - **Während einer Animation** merkt sich der Handler nur die letzte Richtung.
   Beim Ende folgt eine Stufe, wenn das letzte Ereignis höchstens 150 ms her ist,
   und zwar ein Bild nach `zoomend`, nach
-  [0137](entscheidungen/0137-pfade-erst-nach-dem-zoom.md). Sonst verfällt sie. Das gilt auch für eine fremde Animation, etwa von den
+  [0137](entscheidungen/0137-pfade-erst-nach-dem-zoom.md); bis dahin merkt ein
+  Ereignis nur die Richtung. Sonst verfällt sie. Das gilt auch für eine fremde Animation, etwa von den
   Knöpfen.
 - **Bleibt `zoomend` aus,** weil ein Listener wirft oder ein `flyTo` abgebrochen
   wird, gilt die Animation nach 1000 ms als beendet (`ANIMATION_HOECHSTENS`).

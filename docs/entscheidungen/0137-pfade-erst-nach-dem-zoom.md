@@ -17,7 +17,9 @@ beim Zoomen rechnet und setzt. Die Regeln im Einzelnen stehen in
 ## Anlass
 
 Der User am 13.11.2026: „regionen flackern beim reinzoomen und dass sich das
-zoomen zu langsam anfühlt“, „man merkt es mehr beim schnellen zoomen“.
+zoomen zu langsam anfühlt“, „man merkt es mehr beim schnellen zoomen“. Danach
+genauer: „flackern ist falsch ausgedrückt eher spontanes skalieren also von groß
+zu klein es skaliert nicht smooth“.
 
 Nach 0111 rechnete die Karte 150 ms nach `zoomend` oder `moveend` neu und
 setzte das Ergebnis sofort. Dreht das Rad weiter, beginnt die nächste Animation
@@ -26,7 +28,8 @@ ein Bild nach `zoomend` und dauert 250 ms, nach
 
 In der Animation hat Leaflet 1.9.4 Zoom und Ursprung schon am Ziel. Der Renderer
 behält `viewBox` und Rahmen der alten Stufe bis `moveend`. Gesetzte Pfade lagen
-deshalb bis zum Ende der Animation versetzt und rund doppelt so gross. Dasselbe
+deshalb bis zum Ende der Animation versetzt und rund doppelt so gross, dann
+sprangen sie auf die richtige Grösse zurück. Dasselbe
 gilt für eine Ebene, deren Datei in einer Animation kommt.
 
 Dazu stand nach jedem Schritt 150 ms plus Rechenzeit die Geometrie der alten
@@ -46,6 +49,14 @@ Stufe, im iso etwa die Wand mit zu wenigen Bändern.
 - **Der Nachlauf von 150 ms bleibt** für Verschieben und als Sicherung nach
   dem Zoom. Läuft die Rechnung für dieselbe Stufe und dasselbe Fenster schon,
   beginnt er sie nicht noch einmal.
+
+## Nicht belegt
+
+- **Zoom mit zwei Fingern:** nur am Code von Leaflet 1.9.4 gelesen
+  (`TouchZoom`), nicht im Test.
+- **Bleibt `zoomend` aus,** bleibt `zoomt` wahr. Dann warten neue Rechnungen
+  und neu geladene Ebenen bis zum Ende des nächsten Zooms. Leaflet beendet jede
+  Animation spätestens nach 250 ms mit einem eigenen Zeitgeber.
 
 ## Verworfene Alternativen
 

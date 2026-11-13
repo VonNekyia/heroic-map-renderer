@@ -763,7 +763,8 @@ mehr, siehe
       Höhen dafür nur aus den Regionen, die im Ausschnitt liegen können;
     - nach [0137](entscheidungen/0137-pfade-erst-nach-dem-zoom.md) beim Zoom:
       gerechnet ab `zoomanim` für das Ziel, gesetzt erst nach dem Ende der
-      Animation. Von `zoomstart` bis `zoomend` setzt die Karte keinen Pfad,
+      Animation, sonst sprang die Grösse einer Region mitten in ihr. Von
+      `zoomstart` bis `zoomend` setzt die Karte keinen Pfad,
       auch nicht beim Laden einer Ebene (`ruhig` in `ebenen.ts`);
     - nach [0123](entscheidungen/0123-formen-im-iso-gemerkt-je-stufe.md):
       - **Ganze Ebene:** Liegt ihr Rahmen über alle Höhen in 9 Fenstern

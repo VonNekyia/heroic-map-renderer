@@ -872,6 +872,8 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     /** Gerechnet für die ganze Ebene: Auf derselben Stufe braucht kein Verschieben eine neue Rechnung. */
     ganz: boolean;
     nummer: number;
+    /** Stufe und Fenster der Rechnung, die gerade läuft; dieselbe beginnt nicht noch einmal. */
+    unterwegs?: string;
   }
   const geladen = new Map<string, Geladen>();
   /** Je Ebene ein Zähler: Ein Laden, das ein späteres Umschalten überholt, verwirft sich selbst. */
@@ -1453,6 +1455,31 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
   const zaehle = (id: string, punkte: number): void => {
     if (ZAEHLEN) map.getPane(pane(id).formen)!.dataset.punkte = String(punkte);
   };
+  /** Zählt mit `?punkte` am Pane der Formen, etwa begonnene und gesetzte Rechnungen. */
+  const zaehleMit = (id: string, was: 'begonnen' | 'gesetzt'): void => {
+    if (!ZAEHLEN) return;
+    const d = map.getPane(pane(id).formen)!.dataset;
+    d[was] = String(Number(d[was] ?? 0) + 1);
+  };
+
+  /**
+   * Von `zoomstart` bis `zoomend` setzt die Karte keine Pfade: Leaflet hat
+   * Zoom und Ursprung dann schon am Ziel oder je Bild dazwischen, der
+   * Renderer seine `viewBox` noch auf der alten Stufe. Siehe
+   * docs/entscheidungen/0137-pfade-erst-nach-dem-zoom.md.
+   */
+  let zoomt = false;
+  const nachZoom: (() => void)[] = [];
+  /** Löst sofort auf, im Zoom erst mit `zoomend`. */
+  const ruhig = (): Promise<void> => (zoomt ? new Promise((weiter) => nachZoom.push(weiter)) : Promise.resolve());
+  map.on('zoomstart', () => {
+    zoomt = true;
+  });
+  map.on('zoomend', () => {
+    zoomt = false;
+    // Wer wartet, läuft als Microtask nach dem `moveend` desselben Tasks weiter, wenn der Renderer die neue `viewBox` hat, und vor dem nächsten Bild.
+    for (const weiter of nachZoom.splice(0)) weiter();
+  });
 
   /**
    * Setzt eine Rechnung in die Ebene: Wände und Striche weg, die Ringe der
@@ -1484,18 +1511,33 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     [g.waende, g.striche, g.schirm, g.ganz] = [neu.waende, neu.striche, neu.schirm, neu.ganz];
     versetze(g.striche, faktor());
     zaehle(id, neu.punkte);
+    zaehleMit(id, 'gesetzt');
   };
 
-  /** Rechnet eine Ebene neu, wenn sich der Zoom geändert hat oder das Fenster aus dem gerechneten Ausschnitt läuft. */
+  /**
+   * Rechnet eine Ebene neu, wenn sich der Zoom geändert hat oder das Fenster
+   * aus dem gerechneten Ausschnitt läuft; gesetzt wird erst nach dem Zoom.
+   */
   const ansichtNeu = async (id: string, g: Geladen): Promise<void> => {
     if (g.schirm.faktor === faktor() && (g.ganz || imRahmen(g.schirm))) return;
+    const schluessel = `${faktor()} ${fenster().join()}`;
+    if (g.unterwegs === schluessel) return;
+    g.unterwegs = schluessel;
+    zaehleMit(id, 'begonnen');
     const nummer = ++g.nummer;
     // Ist die Ebene weg, neu geladen oder schon wieder neu gerechnet, gilt dieses Ergebnis nicht.
     const gilt = () => geladen.get(id) === g && g.nummer === nummer;
-    const neu = ganzGemerkt(id, g, faktor()) ?? (await ansichtJetzt(g.quelle, g.renderer, gilt));
-    if (!neu || !gilt()) return;
-    ganzMerken(id, g, neu);
-    setze(id, g, neu);
+    try {
+      const neu = ganzGemerkt(id, g, faktor()) ?? (await ansichtJetzt(g.quelle, g.renderer, gilt));
+      if (!neu || !gilt()) return;
+      ganzMerken(id, g, neu);
+      await ruhig();
+      // Ein Zoom ohne Ziel am Anfang, etwa mit zwei Fingern, endet woanders: Dann rechnet der Nachlauf nach `zoomend`.
+      if (!gilt() || neu.schirm.faktor !== faktor()) return;
+      setze(id, g, neu);
+    } finally {
+      if (g.nummer === nummer) g.unterwegs = undefined;
+    }
   };
   let ansichtWarten: ReturnType<typeof setTimeout> | undefined;
 
@@ -1560,11 +1602,12 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
       for (const [id, g] of geladen) if (g.orte.innen && !g.orte.innen.contains(fenster)) orteNeu(id, g);
     });
   };
+  const alleNeu = (): void => {
+    for (const [id, g] of geladen) if (map.hasLayer(g.formen)) void ansichtNeu(id, g).catch((fehler: unknown) => console.error(id, fehler));
+  };
   const ansichtGeaendert = (): void => {
     clearTimeout(ansichtWarten);
-    ansichtWarten = setTimeout(() => {
-      for (const [id, g] of geladen) if (map.hasLayer(g.formen)) void ansichtNeu(id, g).catch((fehler: unknown) => console.error(id, fehler));
-    }, REGEL.warten);
+    ansichtWarten = setTimeout(alleNeu, REGEL.warten);
   };
 
   /**
@@ -1683,6 +1726,8 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
     const neu = { gruppe, orte: { lagen, marker: new Map<number, Promise<L.Marker | undefined>>(), baue, nummer: 0 } };
     await zeigeOrte(neu, gilt);
     // Hat jemand inzwischen umgeschaltet, gilt sein Auftrag; erst jetzt die alte Gruppe ersetzen.
+    if (!gilt()) return;
+    await ruhig();
     if (!gilt()) return;
     weg(e.id);
     // Erst Flächen, Wände, Ränder und Linien, in dieser Reihenfolge von `setze`; zuletzt die Schrift, je in einem eigenen svg über dem des Renderers.
@@ -2160,6 +2205,11 @@ export async function ebenen(umgebung: Umgebung): Promise<void> {
   };
   map.on('zoomend', bereichAnwenden);
   map.on('zoomend moveend', ansichtGeaendert);
+  // Ab `zoomanim` steht das Ziel fest; nach dem Handler setzt Leaflet Zoom und Ursprung darauf, also im Microtask rechnen.
+  map.on('zoomanim', () => {
+    clearTimeout(ansichtWarten);
+    queueMicrotask(alleNeu);
+  });
   map.on('moveend', () => {
     for (const [id, g] of geladen) orteNeu(id, g);
   });

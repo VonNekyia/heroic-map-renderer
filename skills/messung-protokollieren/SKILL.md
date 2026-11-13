@@ -10,7 +10,10 @@ description: Misst Laufzeit, Grösse oder Speicher vergleichbar und hält das Er
 1. **Vergleichsbasis suchen:** die letzte Messung zum Thema in
    `docs/messungen/`. Ihre Bedingungen übernehmen: Welt, Ausschnitt,
    Kachelzahl, scale, Threads, Grafikkarte an oder aus, native Stufen,
-   Build-Profil.
+   Build-Profil. Auf der grossen Welt gibt es keine alte Basis: Basis und
+   Kandidat laufen auf derselben frischen Kopie, und die Seite nennt
+   Spielversion, Regionen und Tag der Kopie, siehe
+   [0138](../../docs/entscheidungen/0138-grosse-welt-als-frische-kopie.md).
 2. **Umfang planen:** nur messen, was die Entscheidung braucht, und vor der
    Reihe ihre Dauer schätzen und nennen.
    - Nur so oft wiederholen, wie die Entscheidung braucht. Kalte Builds

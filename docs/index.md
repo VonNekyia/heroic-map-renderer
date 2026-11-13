@@ -221,6 +221,7 @@ Seiten, die ein Mensch angefordert hat; was für sie gilt, steht in [`AGENTS.md`
 - [0136](entscheidungen/0136-rad-spielt-nichts-nach.md): Steht das Rad still, beginnt keine Stufe mehr, und ein Ereignis ergibt höchstens eine; löst den Teil von 0135 ab, der jede Raste abspielt.
 - [0135](entscheidungen/0135-eigener-handler-fuer-das-rad.md): Die Webkarte setzt das Rad selbst in ganze Stufen um; Leaflets `scrollWheelZoom` verliert Rasten und rundet auf, und seine Optionen beheben das nicht.
 - [0134](entscheidungen/0134-relief-hoehen-ohne-pflanzen.md): Die Höhen des Reliefs kommen aus `MOTION_BLOCKING` statt aus `WORLD_SURFACE`, Bodenpflanzen werfen kein Kreuz mehr; die Regel des Spiels statt einer Liste, Rückfall je Chunk, `ZEICHENSTAND_RELIEF` 3; ergänzt 0122.
+- [0138](entscheidungen/0138-grosse-welt-als-frische-kopie.md): Messungen auf der grossen Welt laufen an einer frischen Kopie der Welt eines laufenden Servers, die nach der Reihe wegfällt; Basis und Kandidat auf derselben Kopie, also zwei volle Läufe je Reihe; keine eingefrorene Kopie; alte Reihen bleiben, sind aber nicht vergleichbar.
 
 ## Versuche
 

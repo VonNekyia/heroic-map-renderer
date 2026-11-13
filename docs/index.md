@@ -81,6 +81,7 @@ einer Datei findet `git grep -l "<pfad>" docs/` ihre Seiten.
 Seiten, die ein Mensch angefordert hat; was für sie gilt, steht in [`AGENTS.md`](../AGENTS.md), Regel 28.
 
 - [Optimierungen](humankeys/optimierungen.md): bekannte Techniken für Tempo und Speicher, ob der Renderer und sein Build sie nutzen, mit Stelle im Code und Beleg.
+- [Wohin die Zeit beim Rendern geht](humankeys/renderzeit.md): die Zeit eines Renders je Phase und Funktion, für volle Läufe und Updates von oben und im iso mit Cinematic; erneuert vom Skill `renderzeit-erneuern`.
 
 ## Entscheidungen
 
@@ -317,6 +318,7 @@ Gemessen und tragfähig, aber nicht übernommen. Der Code liegt je in einem Tag 
 - [2026-10-24, Kartenschrift als WOFF2](messungen/2026-10-24-kartenschrift-als-woff2.md): TTF 183 932 B, gzip 110 094, Brotli 88 888, WOFF2 85 776 (−53 %); Namen und Kartenschrift mit TTF und WOFF2 bei dpr 1 und 2 bitgleich.
 - [2026-10-24, Grundschicht](messungen/2026-10-24-grundschicht.md): Kachelstrom auf der grossen Welt vor und mit einer Grundschicht, fünf Stände, 50 und 10 Mbit/s; mit 3 Stufen ohne Ring schwarz beim Ziehen 8,2 → 1,8 %, beim Hineinzoomen 19,4 → 0 %, für +3–15 % Bytes.
 - [2026-11-04, Grundschicht beim Zeichnen](messungen/2026-11-04-grundschicht-zeichnen.md): Kacheln von 2048 px gegen `scale(8)`, je drei Läufe auf der Testwelt unter Software-Raster: kein Unterschied über die Streuung, keine Aussage über echte Grafikkarte, Telefon oder Netz
+- [2026-11-13, Renderzeit je Funktion](messungen/2026-11-13-renderzeit-je-funktion.md): CPU-Profil von vollen Läufen und Updates von oben und im iso mit Cinematic, wie im Betrieb eingestellt; Dauer, Phasen des Renderers und je Lauf eine CSV mit der Zeit je Funktion.
 - [2026-10-24, Regionen im iso schneller](messungen/2026-10-24-regionen-im-iso-schneller.md): Rechnen der Ansichten, lange Tasks, Bildzeit, Heap und Anfragen der Höhen auf der grossen Welt vor und nach 0123, je drei Läufe; Blockieren 3 952 → 21 ms, Rechnen 3 828 → 454 ms.
 - [2026-10-09, Flächen im Browser](messungen/2026-10-09-flaechen-im-browser.md): was ein Kreis mit 2000 Blöcken Radius auf der Webkarte an Zeit, JS-Heap und Punkten kostet, nur mit Rand, gefüllt und mit Tafel und Schrift, von oben und im iso.
 - [2026-10-09, Pyramide von oben](messungen/2026-10-09-pyramide-von-oben.md): was `--pyramid` auf einem Thread mit dem nächsten Pixel gegen gemittelt kostet und wie gross die Stufen werden, an der ganzen Testwelt in `top-north` bei scale 4, dazu der einmalige Umbau eines Baums der grossen Welt.

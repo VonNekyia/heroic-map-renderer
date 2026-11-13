@@ -51,6 +51,7 @@ Die Schnittstelle zwischen Grundkarte und Skins ist
 | [`tabellen-neu-erzeugen`](skills/tabellen-neu-erzeugen/SKILL.md) | eine neue Spielversion, oder `blocks.txt`, `leuchten.txt`, `licht.txt`, `schatten.txt`, `nachbarn.txt`, `seiten.txt`, `blockentities.txt`, `dimensionstypen.txt`, `hell.txt`, `grau.txt` oder `blueten.txt` passt nicht mehr zum Spiel |
 | [`goldbild-erneuern`](skills/goldbild-erneuern/SKILL.md) | ein Goldbild fällt nach einer gewollten Änderung am Bild |
 | [`doku-bilder-rendern`](skills/doku-bilder-rendern/SKILL.md) | ein Bild in `docs/bilder/`, im README oder unter `web/public` ist veraltet |
+| [`renderzeit-erneuern`](skills/renderzeit-erneuern/SKILL.md) | die Zeitaufschlüsselung in `docs/humankeys/renderzeit.md` wird erneuert: vor einem Release, das den Renderpfad oder die Leistung merklich ändert, und auf Wunsch des Maintainers |
 
 Vor dem Arbeitsschritt die `SKILL.md` ganz lesen und ihr folgen.
 

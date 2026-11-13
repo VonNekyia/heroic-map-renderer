@@ -89,7 +89,7 @@ Zwischenspeicher der CPU passt und wie viele Schritte ein Zugriff braucht.
 | Pixel-Hashes als ein festes Feld | da | [`pixel.rs`](../../renderer/src/cli/pixel.rs), `Pixel` | [Pixel-Hashes als Feld](../messungen/2026-10-25-pixel-hashes-als-feld.md) |
 | Die gepackten Indizes der Welt bleiben gepackt | da | [`palette.rs`](../../renderer/src/world/palette.rs), `PackedIndices` | nicht gemessen |
 | Nummern statt Strings: Familie, Leuchten und Biom je Paletteneintrag einmal je Chunk nachgeschlagen, danach nur noch Nummern | da | [`metatile.rs`](../../renderer/src/render/metatile.rs), `Loaded::new` | nicht gemessen |
-| Nummern statt Strings für die Palette selbst | offen | [`palette.rs`](../../renderer/src/world/palette.rs), `BlockState`; [`chunk.rs`](../../renderer/src/world/chunk.rs), `decode_section` | nicht gemessen |
+| Nummern statt Strings für die Palette selbst | offen | [`palette.rs`](../../renderer/src/world/palette.rs), `BlockState`; [`chunk.rs`](../../renderer/src/world/chunk.rs), `decode_section` | Anteil der betroffenen Funktionen in [Wohin die Zeit beim Rendern geht](renderzeit.md); der Gewinn selbst nicht gemessen |
 | Daten am Stück statt je Element auf dem Heap: Heute hält jeder Paletteneintrag seinen Namen und seine Eigenschaften einzeln | offen | [`palette.rs`](../../renderer/src/world/palette.rs), `BlockState` | nicht gemessen |
 
 ## 4. Threads
@@ -143,7 +143,7 @@ Compiler die Prüfung beweisen und weglassen kann.
 | Technik | Stand | Stelle im Code | Beleg |
 |---|---|---|---|
 | Grenzprüfungen bleiben an; ungeprüfter Code steht im Renderpfad nur an der Grenze zur C-Bibliothek | da | [`tiles.rs`](../../renderer/src/render/tiles.rs), `encode_webp`, `decode_webp` | nicht gemessen |
-| Prüfungen aus den Schleifen je Pixel herausheben | offen | [`metatile.rs`](../../renderer/src/render/metatile.rs), `blit_sichtbar`, `blit_hdr` | nicht gemessen |
+| Prüfungen aus den Schleifen je Pixel herausheben | offen | [`metatile.rs`](../../renderer/src/render/metatile.rs), `blit_sichtbar`, `blit_hdr` | Anteil der Funktionen in [Wohin die Zeit beim Rendern geht](renderzeit.md); der Gewinn selbst nicht gemessen |
 | Kleine Funktionen je Pixel gezielt einbetten | da | [`metatile.rs`](../../renderer/src/render/metatile.rs), `faktor`, `anteile`, `mische`, `mische_hdr` | nicht gemessen |
 | Direkte statt dynamischer Aufrufe beim Zeichnen der Karte | da | – | nicht gemessen |
 | Direkter statt dynamischer Aufruf der Sonne je Pixel im Cinematic | offen | [`metatile.rs`](../../renderer/src/render/metatile.rs), `blit_hdr`, Parameter `sonne` | nicht gemessen |
@@ -151,7 +151,8 @@ Compiler die Prüfung beweisen und weglassen kann.
 
 ## 8. Kodieren und Ablegen
 
-Jede Kachel wird gepackt und als Datei geschrieben.
+Jede Kachel wird gepackt und als Datei geschrieben. Wie viel Zeit das
+braucht, steht in [Wohin die Zeit beim Rendern geht](renderzeit.md).
 
 | Technik | Stand | Stelle im Code | Beleg |
 |---|---|---|---|

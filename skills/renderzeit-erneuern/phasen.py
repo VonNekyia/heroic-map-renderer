@@ -100,8 +100,7 @@ def fremdes_modul(modul):
         return "Laufzeit von Windows"
     if m in ("wdfilter.sys", "mpengine.dll"):
         return "Echtzeitschutz"
-    if m in ("ntfs.sys", "fltmgr.sys", "fileinfo.sys", "wof.sys", "wcifs.sys", "storport.sys", "stornvme.sys", "classpnp.sys", "filecrypt.sys", "volmgr.sys",
-             "partmgr.sys", "volsnap.sys", "disk.sys", "cldflt.sys", "bindflt.sys", "luafv.sys"):
+    if re.match(r"(ntfs|fltmgr|fileinfo|wof|wcifs|stor\w*|classpnp|filecrypt|volmgr|partmgr|volsnap|disk|cldflt|bindflt|luafv)\.sys$", m):
         return "Dateisystem und Platte"
     return "übrige Treiber"
 

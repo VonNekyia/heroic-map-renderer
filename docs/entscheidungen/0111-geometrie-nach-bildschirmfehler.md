@@ -12,6 +12,9 @@ code:
 
 # 0111: Geometrie der Ebenen nach Bildschirmfehler
 
+Wann die Karte beim Zoomen rechnet und setzt, ergänzt
+[0137](0137-pfade-erst-nach-dem-zoom.md).
+
 ## Anlass
 
 Auf einem Server lagte die Karte, sobald eine Ebene grosser Kreise an war.

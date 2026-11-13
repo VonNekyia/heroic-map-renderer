@@ -768,6 +768,11 @@ mehr, siehe
       Animation, sonst sprang die Grösse einer Region mitten in ihr. Von
       `zoomstart` bis `zoomend` setzt die Karte keinen Pfad,
       auch nicht beim Laden einer Ebene (`ruhig` in `ebenen.ts`);
+    - nach [0139](entscheidungen/0139-striche-halten-ihre-breite.md) halten
+      Ränder und Linien in der Zoom-Animation ihre Breite auf dem Schirm:
+      Breite, Muster und Versatz stehen als `calc(… * var(--strich))` am Pfad,
+      und am SVG läuft `--strich` von 1 auf 1 / Massstab, mit Dauer und Kurve
+      seines Übergangs; ohne `CSS.registerProperty` bleibt er 1;
     - nach [0123](entscheidungen/0123-formen-im-iso-gemerkt-je-stufe.md):
       - **Ganze Ebene:** Liegt ihr Rahmen über alle Höhen in 9 Fenstern
         und passen ihre Höhen ins Budget, rechnet die Karte sie ganz statt

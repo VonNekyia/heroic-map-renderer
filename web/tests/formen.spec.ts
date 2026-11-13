@@ -1153,6 +1153,106 @@ test('nach 0137 beginnt eine Folgestufe des Rads ein Bild nach dem Ende der Anim
   for (const s of starts) expect(s).toBeCloseTo(1, 2);
 });
 
+/** Eine gestrichelte Route über einen Wall: im iso ein verdeckter Lauf, dünn und blass, und ein sichtbarer mit Versatz. */
+const ROUTE = { id: 'route', type: 'line', points: [[0, 4], [80, 4]], stroke: { color: '#3A6EA5', width: 3, style: 'dashed', dash: [10, 8] } };
+const WALL = { hoehe: (i: number, j: number) => (i + j === 10 ? 150 : 0) };
+
+/**
+ * Misst `ms` lang je Bild jeden Strich der Ebenen: Breite, Muster und Versatz,
+ * berechnet mal Massstab des SVG, gegen das Attribut, das Leaflet setzt; so
+ * breit soll er auf dem Schirm aussehen. Abweichungen über 5 % in `fehler`.
+ */
+const stricheJeBild = (page: Page, ms: number) =>
+  page.evaluate(async (dauer) => {
+    const aus = { fehler: [] as string[], bilder: 0, laeufe: new Set<string>() };
+    const pruefe = (p: SVGPathElement, attr: string, wert: string, s: number) => {
+      const soll = parseFloat(p.getAttribute(attr) ?? '');
+      if (!(soll > 0)) return;
+      const ist = parseFloat(wert) * s;
+      if (Math.abs(ist - soll) > 0.05 * soll) aus.fehler.push(`${attr} ${ist.toFixed(2)} statt ${soll}`);
+    };
+    const start = performance.now();
+    await new Promise<void>((fertig) => {
+      const bild = () => {
+        if (document.querySelector('.leaflet-zoom-anim')) aus.bilder++;
+        for (const p of document.querySelectorAll<SVGPathElement>('[class*="-formen-pane"] path[stroke-width]')) {
+          const s = new DOMMatrix(getComputedStyle(p.ownerSVGElement!).transform).a;
+          const stil = getComputedStyle(p);
+          aus.laeufe.add(`${p.getAttribute('stroke-width')} ${p.getAttribute('stroke-dasharray')}`);
+          pruefe(p, 'stroke-width', stil.strokeWidth, s);
+          pruefe(p, 'stroke-dasharray', stil.strokeDasharray, s);
+          pruefe(p, 'stroke-dashoffset', stil.strokeDashoffset, s);
+        }
+        if (performance.now() - start > dauer) fertig();
+        else requestAnimationFrame(bild);
+      };
+      bild();
+    });
+    return { fehler: aus.fehler, bilder: aus.bilder, laeufe: [...aus.laeufe] };
+  }, ms);
+
+for (const [art, objekte, mehr, at] of [
+  ['im iso, auch verdeckte Läufe', [ROUTE], WALL, '40,0,4'],
+  ['von oben', [{ ...GEBIET, stroke: { color: '#40E53FCC', width: 2, style: 'dashed', dash: [8, 6] } }], { mehr: VON_OBEN }, '32,0,-16'],
+] as const) {
+  test(`nach 0139 halten Striche, Muster und Versatz ${art} in jedem Bild einer Kette von zwei Schritten ihre Grösse auf dem Schirm`, async ({ page }) => {
+    await welt(page, staedte([...objekte], mehr));
+    await page.goto(`${DEMO}&at=${at}&zoom=-2`);
+    await expect(page.locator('[class*="-formen-pane"] path[stroke-dasharray]').first()).toBeAttached();
+    await page.mouse.move(640, 360);
+    const messung = stricheJeBild(page, 900);
+    await rasten(page, 2, 200);
+    const { fehler, bilder, laeufe } = await messung;
+    expect(zoomDerAdresse(page)).toBe(0);
+    // Sonst prüfte der Test nichts: Es lief eine Animation, und im iso gab es einen verdeckten Lauf.
+    expect(bilder).toBeGreaterThan(5);
+    if (art.startsWith('im iso')) expect(laeufe).toContain('1.5 3 4');
+    expect(fehler.slice(0, 5)).toEqual([]);
+  });
+}
+
+test('nach 0139 halten Striche im iso auch bei einem Sprung über vier Stufen ihre Grösse, mit dem Zoomrechteck', async ({ page }) => {
+  await welt(page, staedte([ROUTE], WALL));
+  await page.goto(`${DEMO}&at=40,0,4&zoom=-2`);
+  await expect(page.locator('[class*="-formen-pane"] path[stroke-dasharray]').first()).toBeAttached();
+  // Beim Start der Animation die Stützstellen des Faktors: Zwischen ihnen läuft er gerade, er soll überall 1 / Massstab treffen.
+  const stuetzen = page.evaluate(
+    () =>
+      new Promise<{ offset: number; wert: number }[]>((fertig) => {
+        const pane = document.querySelector('.leaflet-map-pane')!;
+        new MutationObserver((_, o) => {
+          if (!pane.classList.contains('leaflet-zoom-anim')) return;
+          o.disconnect();
+          const svg = document.querySelector('[class*="-formen-pane"] svg')!;
+          const a = svg.getAnimations().find((x) => !(x instanceof CSSTransition))!;
+          fertig((a.effect as KeyframeEffect).getKeyframes().map((k) => ({ offset: k.computedOffset, wert: Number(k['--strich']) })));
+        }).observe(pane, { attributes: true, attributeFilter: ['class'] });
+      }),
+  );
+  // 80 × 45 von 1280 × 720 sind vier Stufen auf einmal, als eine Animation.
+  await page.keyboard.down('Shift');
+  await page.mouse.move(600, 338);
+  await page.mouse.down();
+  await page.mouse.move(680, 383, { steps: 4 });
+  const messung = stricheJeBild(page, 900);
+  await page.mouse.up();
+  await page.keyboard.up('Shift');
+  const { fehler, bilder } = await messung;
+  expect(zoomDerAdresse(page)).toBe(2);
+  expect(bilder).toBeGreaterThan(5);
+  expect(fehler.slice(0, 5)).toEqual([]);
+  // Linear zwischen den Stützen gegen den Kehrwert des Massstabs 1 + 15 p, je Promille des Fortschritts.
+  const k = await stuetzen;
+  let schlimmst = 0;
+  for (let p = 0; p <= 1; p += 0.001) {
+    const i = Math.max(0, k.findIndex((x) => x.offset >= p) - 1);
+    const [a, b] = [k[i]!, k[i + 1] ?? k[i]!];
+    const wert = b.offset > a.offset ? a.wert + ((b.wert - a.wert) * (p - a.offset)) / (b.offset - a.offset) : a.wert;
+    schlimmst = Math.max(schlimmst, Math.abs(wert * (1 + 15 * p) - 1));
+  }
+  expect(schlimmst).toBeLessThanOrEqual(0.02);
+});
+
 test('nach 0137 steht die Rechnung für die neue Stufe höchstens 100 ms nach dem Ende der Animation, nicht erst 150 ms danach', async ({ page }) => {
   await welt(page, staedte([{ ...GEBIET, stroke: { color: '#40E53FCC' } }], { hoehe: () => 10 }));
   await page.goto(`${DEMO}&punkte&at=32,10,-16&zoom=-1`);

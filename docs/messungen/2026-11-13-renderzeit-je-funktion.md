@@ -105,3 +105,7 @@ Seite.
   mit weniger SIMD; der Anteil des Kodierens ist dort höher, wie viel, ist
   nicht gemessen.
 - **Die Seite dazu:** [Wohin die Zeit beim Rendern geht](../humankeys/renderzeit.md).
+- **Nachtrag vom 13.11.2026:** Der Satz oben, unter Linux sei der Anteil
+  des Kodierens höher, hat sich nicht bestätigt:
+  [libwebp mit SIMD unter Linux](2026-11-13-libwebp-simd-unter-linux.md)
+  misst beim Packen keinen Unterschied über die Streuung.

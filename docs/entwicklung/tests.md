@@ -313,6 +313,10 @@ PW_PORT=4203 npm run gegenproben -- tafel-auf-30     # einzelne, nach name
   zusammen 1299 s.
   Wer eine Stelle ändert, die eine Gegenprobe nennt, zieht sie im selben PR
   nach.
+- **Stellen in der CI:** `node tests/gegenproben-laufen.mjs --anker` prüft
+  ohne Tests, dass jedes `alt` genau einmal in seiner Datei steht, und endet
+  sonst mit 1. Der Job „Frontend“ führt es nach dem Lint aus. Bis zum 13.11.
+  liefen 8 Gegenproben unbemerkt ins Leere.
 
 ## Goldbild
 

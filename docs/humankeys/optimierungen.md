@@ -133,7 +133,7 @@ je nach Alter der CPU in mehreren Stufen.
 | Beim Packen der Kacheln unter Windows: alle Stufen im Binär, gewählt zur Laufzeit | da | [`tiles.rs`](../../renderer/src/render/tiles.rs), `richte_libwebp_ein` | [0028](../entscheidungen/0028-libwebp-statt-image.md), [Kompakt packen](../messungen/2026-10-08-kompakt.md) |
 | Beim Packen der Kacheln unter Linux: nur die erste Stufe | da | [`build.rs`](../../renderer/vendor/libwebp-sys/build.rs), `setup_build` | [0028](../entscheidungen/0028-libwebp-statt-image.md) |
 | Unter Linux die höheren Stufen für das ganze Binär einschalten | verworfen | [`build.rs`](../../renderer/vendor/libwebp-sys/build.rs), `setup_build` | [0028](../entscheidungen/0028-libwebp-statt-image.md) |
-| Unter Linux die höheren Stufen nur für ihre Dateien, gewählt zur Laufzeit | offen | [`build.rs`](../../renderer/vendor/libwebp-sys/build.rs), `setup_build` | nicht gemessen |
+| Unter Linux die höheren Stufen nur für ihre Dateien, gewählt zur Laufzeit | verworfen | [`build.rs`](../../renderer/vendor/libwebp-sys/build.rs), `do_build` | [libwebp mit SIMD unter Linux](../messungen/2026-11-13-libwebp-simd-unter-linux.md) |
 
 ## 7. Grenzprüfungen und direkter Code
 

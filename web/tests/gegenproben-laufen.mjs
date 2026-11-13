@@ -54,6 +54,13 @@ const lauf = (spec, titel, projekt = 'grund') =>
     kind.on('exit', (code) => fertig(code === 0 ? 'gruen' : text.includes('config.webServer') ? 'bau' : 'rot'));
   });
 
+// Mit --anker nur prüfen, dass jede Stelle genau einmal in ihrer Datei steht, ohne Tests; für die CI.
+if (process.argv.includes('--anker')) {
+  const veraltet = liste.filter(({ datei, alt }) => readFileSync(datei, 'utf8').replaceAll('\r\n', '\n').split(alt).length !== 2);
+  for (const { name, datei } of veraltet) console.log(`VERALTET ${name}: Stelle nicht genau einmal in ${datei}`);
+  console.log(`${liste.length} Gegenproben, ${veraltet.length} veraltet`);
+  process.exit(veraltet.length ? 1 : 0);
+}
 const nur = process.argv.slice(2);
 const fremd = nur.filter((n) => !liste.some((e) => e.name === n));
 if (fremd.length) throw new Error(`keine Gegenprobe heisst ${fremd.join(', ')}`);

@@ -1,0 +1,50 @@
+phase,datei,symbol,eigene_prozent,gesamt_prozent,eigene_s,gesamt_s
+"Vorlauf, Assets und Sprites",,"übrige unter 0,5 %",0.68,,1.17,
+Lesen und Dekodieren,Crate miniz_oxide,miniz_oxide::inflate::core::decompress_fast,1.51,2.25,2.59,3.86
+Lesen und Dekodieren,renderer/src/render/metatile.rs,Masks::of,1.37,1.76,2.36,3.02
+Lesen und Dekodieren,renderer/src/world/chunk.rs,decode_section,1.06,1.59,1.83,2.73
+Lesen und Dekodieren,,"übrige unter 0,5 %",2.84,,4.87,
+Licht,renderer/src/render/licht.rs,Ausbreitung::breite_aus,2.17,2.22,3.72,3.82
+Licht,renderer/src/render/licht.rs,Ausbreitung::chunk,0.88,3.36,1.51,5.78
+Licht,,"übrige unter 0,5 %",0.22,,0.38,
+Sammeln und Deckung,renderer/src/render/metatile.rs,ChunkCache::slot,2.94,11.90,5.06,20.45
+Sammeln und Deckung,renderer/src/world/chunk.rs,Chunk::slot,2.94,3.01,5.05,5.18
+Sammeln und Deckung,renderer/src/render/metatile.rs,von_vorn,2.13,16.11,3.67,27.66
+Sammeln und Deckung,renderer/src/render/metatile.rs,ChunkCache::zelle,1.08,4.98,1.85,8.56
+Sammeln und Deckung,renderer/src/render/metatile.rs,ChunkCache::block_at,1.05,4.32,1.81,7.42
+Sammeln und Deckung,renderer/src/render/metatile.rs,ChunkCache::sorted_candidates,0.76,5.65,1.31,9.70
+Sammeln und Deckung,renderer/src/render/metatile.rs,ChunkCache::biome_of,0.68,1.56,1.16,2.67
+Sammeln und Deckung,renderer/src/world/biomzoom.rs,zoom,0.60,0.61,1.02,1.05
+Sammeln und Deckung,renderer/src/render/metatile.rs,ChunkCache::sprite_at,0.55,7.22,0.95,12.41
+Sammeln und Deckung,,"übrige unter 0,5 %",1.97,,3.39,
+Strahl zur Sonne,renderer/src/render/metatile.rs,ChunkCache::sonne_im_gang,12.52,39.01,21.50,66.99
+Strahl zur Sonne,renderer/src/render/sonne.rs,Sonnenform::trifft,8.21,8.44,14.10,14.49
+Strahl zur Sonne,renderer/src/render/metatile.rs,ChunkCache::frei_in,7.46,12.85,12.82,22.07
+Strahl zur Sonne,renderer/src/render/metatile.rs,ChunkCache::sonnen_bits,2.99,3.12,5.13,5.36
+Strahl zur Sonne,renderer/src/render/metatile.rs,ChunkCache::saeule,2.20,8.65,3.77,14.86
+Strahl zur Sonne,renderer/src/render/metatile.rs,ChunkCache::frei_zur_sonne,2.06,10.55,3.53,18.11
+Strahl zur Sonne,renderer/src/render/metatile/strahl.rs,Gang::springe,1.27,1.30,2.19,2.24
+Strahl zur Sonne,renderer/src/render/metatile.rs,ChunkCache::wirkung,0.96,9.44,1.65,16.21
+Strahl zur Sonne,,"übrige unter 0,5 %",0.26,,0.45,
+Zeichnen,renderer/src/render/metatile.rs,render_hdr,15.53,83.42,26.68,143.28
+Zeichnen,renderer/src/render/pyramid.rs,to_srgb,2.68,2.75,4.61,4.73
+Zeichnen,renderer/src/render/kino.rs,Kino::ton,1.50,4.27,2.58,7.34
+Zeichnen,renderer/src/render/metatile.rs,Hdr::bild,1.40,6.88,2.40,11.82
+Zeichnen,renderer/src/render/kino.rs,Kino::bloom,0.90,0.95,1.55,1.63
+Zeichnen,,"übrige unter 0,5 %",0.21,,0.36,
+Kodieren,,"übrige unter 0,5 %",0.78,,1.35,
+Pyramide,renderer/src/render/pyramid.rs,halbiere,1.09,1.10,1.87,1.89
+Pyramide,,"übrige unter 0,5 %",0.17,,0.29,
+Fingerabdruck und Pixel-Hash,,"übrige unter 0,5 %",0.51,,0.87,
+Höhen und Boden,Crate miniz_oxide,miniz_oxide::deflate::core::compress_inner,0.57,0.60,0.97,1.02
+Höhen und Boden,,"übrige unter 0,5 %",0.08,,0.14,
+Ablegen,,"übrige unter 0,5 %",0.09,,0.15,
+Allokator,mimalloc (C),mi_malloc_aligned,0.66,0.98,1.13,1.68
+Allokator,,"übrige unter 0,5 %",0.97,,1.67,
+"C-Laufzeit: Kopieren, Füllen, Rechnen",C-Laufzeit,MoveSmall4,0.88,0.91,1.51,1.57
+"C-Laufzeit: Kopieren, Füllen, Rechnen",C-Laufzeit,expf,0.86,0.88,1.48,1.52
+"C-Laufzeit: Kopieren, Füllen, Rechnen",,"übrige unter 0,5 %",2.55,,4.38,
+Kern und Dateisystem,Kern von Windows,–,3.62,,6.22,
+Kern und Dateisystem,Dateisystem und Platte,–,0.65,,1.11,
+Kern und Dateisystem,,"übrige unter 0,5 %",0.23,,0.39,
+Rest,,"übrige unter 0,5 %",0.72,,1.23,

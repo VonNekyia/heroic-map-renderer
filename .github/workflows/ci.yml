@@ -134,6 +134,10 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Gegenproben haben ihre Stelle
+        timeout-minutes: 2
+        run: node tests/gegenproben-laufen.mjs --anker
+
       - name: Browser
         run: npx playwright install --with-deps chromium
 

@@ -513,7 +513,9 @@ bei einem vollen Lauf.
 Basiskacheln, die jünger sind als dessen angefangener Stand, ohne die
 frischen der letzten zwei Minuten wie
 [0019](../entscheidungen/0019-resume-behaelt-die-basiskacheln.md); ältere im
-Gebiet zeichnet es neu (`update_setzt_mit_resume_fort`). Am Ende gilt der
+Gebiet zeichnet es neu. Vorher entfernt es nur die frischen: Die älteren
+bleiben stehen, bis es sie neu zeichnet, und was dieselben Pixel zeigt,
+bleibt liegen, mit seiner Zeit (`update_setzt_mit_resume_fort`). Am Ende gilt der
 angefangene Stand, mit allem als unbekannt, was der Server seitdem schrieb.
 
 Ein voller Lauf mit `--resume` nimmt ebenso den angefangenen Stand des

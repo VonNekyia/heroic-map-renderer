@@ -2173,11 +2173,22 @@ fn write_tiles(
         .as_ref()
         .map(|g| (0..=max_zoom).map(|z| g.flaeche(max_zoom - z)).collect());
     let flaeche_auf = |z: u32| flaechen.as_ref().map(|f| &f[z as usize]);
-    let zeiten = if resume {
-        Some(vorhandene_mit_zeit(dir, max_zoom)?)
+    let eintraege = if resume {
+        Some(vorhandene_mit(dir, max_zoom, |m| {
+            Ok((m.modified()?, m.len()))
+        })?)
     } else {
         None
     };
+    let zeiten: Option<BTreeMap<TileId, SystemTime>> = eintraege
+        .as_ref()
+        .map(|e| e.iter().map(|(&tile, &(zeit, _))| (tile, zeit)).collect());
+    // Durchsichtig steht nur, was ein abgebrochener Lauf verblassen liess.
+    let durchsichtig = match &eintraege {
+        Some(e) => verblasste(e.iter().map(|(&tile, &(_, n))| (tile, n)))?,
+        None => BTreeSet::new(),
+    };
+    drop(eintraege);
     // Ein Update liest die Basis nur in seinem Gebiet und führt die Grenzen
     // aus der alten map.json fort; mit --resume, beim Umstellen und nach
     // einem abgebrochenen Lauf ganz.
@@ -2477,15 +2488,19 @@ fn write_tiles(
     // auf jeder Stufe, zusammen mit denen ohne Chunk; bis dahin zeigen sie
     // schon nichts mehr (`verblasse`). Eine leere Elternkachel über einem
     // Kind, das bleibt, bleibt durchsichtig stehen. Mit --resume bleibt, was
-    // in der Liste der Basis steht, ausser den frischen Kacheln (`frische`).
+    // in der Liste der Basis steht, ausser den frischen Kacheln (`frische`)
+    // und den durchsichtigen: Die liess er verblassen, sie gehören weg.
     // Siehe docs/benutzung/kacheln.md, „Wann entfernt wird“.
     // Ein Update behält nur, was der abgebrochene Lauf schrieb: die Kacheln
     // seit seinem angefangenen Stand, ohne den keine. Ebenso ein voller Lauf
     // mit angefangenem Stand: Ältere Kacheln zeigen einen älteren Stand.
     // Dazu, was er liegen liess, weil es schon dieselben Bytes hatte.
+    let frisch = zeiten
+        .as_ref()
+        .map(|zeiten| frische(zeiten, gelistet))
+        .unwrap_or_default();
     let bleiben: BTreeSet<TileId> = match &zeiten {
         Some(zeiten) => {
-            let frisch = frische(zeiten, gelistet);
             let seit_dem_stand = |tile: &TileId| {
                 fortgesetzt_seit
                     .is_some_and(|seit| zeiten.get(tile).is_some_and(|&zeit| zeit >= seit))
@@ -2493,7 +2508,7 @@ fn write_tiles(
             };
             basis
                 .iter()
-                .filter(|tile| !frisch.contains(tile))
+                .filter(|tile| !frisch.contains(tile) && !durchsichtig.contains(tile))
                 .filter(|tile| match bereich {
                     Bereich::Update => seit_dem_stand(tile),
                     Bereich::Welt if fortgesetzt_seit.is_some() => seit_dem_stand(tile),
@@ -2510,16 +2525,15 @@ fn write_tiles(
         .filter(|tile| !bleiben.contains(tile))
         .copied()
         .collect();
-    // Die frischen entfernt der Lauf, bevor er sie neu rendert. Bricht er
-    // vorher ab, fehlen sie, und das nächste Fortsetzen rendert sie. Stünden
-    // sie noch da, wäre dessen jüngste Kachel eine aus diesem Lauf, und sie
-    // lägen ausserhalb der zwei Minuten.
-    if let Some(zeiten) = &zeiten {
-        reihe
-            .par_iter()
-            .filter(|tile| zeiten.contains_key(tile))
-            .try_for_each(|tile| entferne(&tile_path(dir, max_zoom, *tile)))?;
-    }
+    // Die frischen entfernt der Lauf, bevor er sie neu rendert, nur sie.
+    // Bricht er vorher ab, fehlen sie, und das nächste Fortsetzen rendert
+    // sie. Stünden sie noch da, wäre dessen jüngste Kachel eine aus diesem
+    // Lauf, und sie lägen ausserhalb der zwei Minuten. Ältere bleiben
+    // stehen, bis der Lauf sie neu zeichnet: Gleiche Pixel lässt er liegen.
+    reihe
+        .par_iter()
+        .filter(|tile| frisch.contains(tile))
+        .try_for_each(|tile| entferne(&tile_path(dir, max_zoom, *tile)))?;
     // Was schon dieselben Pixel zeigt, kodiert der Lauf nicht, auf keiner
     // Stufe.
     let hashes = pixel::Pixel::neu(dir, pixel::KODIERSTAND)?;
@@ -2542,7 +2556,19 @@ fn write_tiles(
             ))
         })
         .transpose()?;
-    let ohne_rest = Mutex::new(BTreeSet::new());
+    // Einen Rest, den ein abgebrochener Lauf verblassen liess, nimmt dieser
+    // am Ende weg, wo die Kachel bleibt; sonst legt sie ihn neu ab.
+    let ohne_rest = Mutex::new(match relief {
+        Some(_) if resume => {
+            let reste = vorhandene_mit(&rest_dir, max_zoom, |m| Ok(m.len()))?;
+            verblasste(reste)?
+                .into_iter()
+                .filter(|tile| bleiben.contains(tile))
+                .map(|tile| (max_zoom, tile))
+                .collect()
+        }
+        _ => BTreeSet::new(),
+    });
     let schicht = hashes_der_schicht.as_ref().map(|(schicht, rest)| Schicht {
         dir: &schicht_dir,
         ablage: Ablage {
@@ -5389,6 +5415,23 @@ fn verblasse(dir: &Path, z: u32, tile: TileId) -> Result<()> {
     Ok(())
 }
 
+/// Die Länge der Kachel, die [`verblasse`] schreibt. Eine gerenderte
+/// Basiskachel und ein Rest der Schicht sind nie ganz durchsichtig; eine
+/// andere mit derselben Länge zeichnet `--resume` nur unnötig neu.
+fn verblasst_laenge() -> Result<u64> {
+    Ok(encode_webp(&RgbaImage::new(TILE, TILE), Ablage::default().packen)?.len() as u64)
+}
+
+/// Die Kacheln mit der Länge einer verblassten, siehe [`verblasst_laenge`].
+fn verblasste(laengen: impl IntoIterator<Item = (TileId, u64)>) -> Result<BTreeSet<TileId>> {
+    let laenge = verblasst_laenge()?;
+    Ok(laengen
+        .into_iter()
+        .filter(|&(_, n)| n == laenge)
+        .map(|(tile, _)| tile)
+        .collect())
+}
+
 /// Kacheln, deren Elternkachel fehlt, je Stufe, etwa weil ein Lauf beim
 /// Entfernen abbrach: entfernt wird von der gröbsten Stufe an. Ihre Eltern
 /// entstehen in diesem Lauf neu, nativ oder aus ihren Kindern. Ein
@@ -5467,11 +5510,20 @@ fn vorhandene(dir: &Path, z: u32, flaeche: Option<&Flaeche>) -> Result<BTreeSet<
 /// unter Windows kostet sie nichts, unter Linux einen `statx` je Datei,
 /// aber kein Öffnen. Was zwischen Liste und Abfrage verschwindet, fehlt.
 fn vorhandene_mit_zeit(dir: &Path, z: u32) -> Result<BTreeMap<TileId, SystemTime>> {
+    vorhandene_mit(dir, z, |m| m.modified())
+}
+
+/// Wie [`vorhandene_mit_zeit`], mit dem, was `aus` dem Eintrag entnimmt.
+fn vorhandene_mit<T>(
+    dir: &Path,
+    z: u32,
+    aus: impl Fn(&std::fs::Metadata) -> std::io::Result<T>,
+) -> Result<BTreeMap<TileId, T>> {
     let mut out = BTreeMap::new();
     je_kachel(dir, z, None, |tile, eintrag| {
-        match eintrag.metadata().and_then(|m| m.modified()) {
-            Ok(zeit) => {
-                out.insert(tile, zeit);
+        match eintrag.metadata().and_then(|m| aus(&m)) {
+            Ok(wert) => {
+                out.insert(tile, wert);
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             Err(e) => {

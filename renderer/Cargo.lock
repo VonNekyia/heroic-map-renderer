@@ -531,6 +531,7 @@ dependencies = [
  "clap",
  "crc32fast",
  "fastnbt",
+ "fdeflate",
  "flate2",
  "http-body-util",
  "httpdate",

@@ -1992,6 +1992,7 @@ fn write_tiles(
                 &aenderungen,
                 look.as_ref(),
                 relief,
+                false,
             );
             // Was Läufe ohne neuen Stand zeichneten, zeichnet es noch einmal.
             let offen = lies_offen(dir, stufen)?;
@@ -2207,6 +2208,7 @@ fn write_tiles(
             &bleiben,
             look.as_ref(),
             relief,
+            false,
         );
         let weg = gebiet_der_aenderungen(
             projection,
@@ -2215,6 +2217,7 @@ fn write_tiles(
             &fehlen,
             look.as_ref(),
             relief,
+            false,
         );
         let dazu: Vec<TileId> = bestehend
             .iter()

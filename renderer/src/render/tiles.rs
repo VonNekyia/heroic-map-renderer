@@ -478,6 +478,62 @@ fn zur_sonne(projection: Projection, look: &Look) -> [[i32; 2]; 2] {
     [[x.min(0) - 2, z.min(0) - 2], [x.max(0) + 2, z.max(0) + 2]]
 }
 
+/// Wie weit ein Modell aus seinem Würfel ragen darf, in Würfeln je Achse,
+/// damit das Gebiet am Weg des Schattens reicht: Der Rand von 16 Blöcken
+/// deckt den Start des Strahls im ragenden Modell, das Ragen um jede Zelle
+/// und die Lava daneben, 2 · 7 + 1. Ragt eines weiter, nimmt ein Update das
+/// Hüllrechteck.
+/// Siehe docs/benutzung/updates.md, „Wo ein Update zeichnet“.
+pub const RAGT_HOECHSTENS: i32 = 7;
+
+/// Wie viele Blöcke waagrecht ein Schritt entlang des Wegs zur Sonne
+/// vorrückt, siehe [`gebiet_der_aenderungen`].
+const SCHRITT_ZUR_SONNE: f64 = 4.0;
+
+/// Ein Schritt entlang des Wegs zur Sonne für die Strahlen, die durch einen
+/// Chunk laufen: Ihre Empfänger liegen bei Block − t · d für t im Schritt,
+/// um `von` bis `bis` Blöcke im Blick gegen den Chunk verschoben, und höchstens
+/// `sinkt` Blöcke unter seinem höchsten Block.
+struct Schritt {
+    von: [i32; 2],
+    bis: [i32; 2],
+    sinkt: i32,
+}
+
+/// Die Schritte von t = 0 bis [`Look::sonne_weite`], je
+/// [`SCHRITT_ZUR_SONNE`] Blöcke waagrecht. Ein Schritt deckt jedes t
+/// zwischen seinem Anfang und dem nächsten.
+fn schritte_zur_sonne(projection: Projection, look: &Look) -> Vec<Schritt> {
+    let d = look.sonne_im_blick(projection.kamera()).map(f64::from);
+    let weite = f64::from(look.sonne_weite);
+    let waagrecht = d[0].abs().max(d[2].abs());
+    if waagrecht == 0.0 {
+        return vec![Schritt {
+            von: [0, 0],
+            bis: [0, 0],
+            sinkt: 0,
+        }];
+    }
+    let s = SCHRITT_ZUR_SONNE / waagrecht;
+    let mut schritte = Vec::new();
+    let mut t0 = 0.0;
+    while t0 < weite {
+        let t1 = (t0 + s).min(weite);
+        let reicht = |c: f64| {
+            let (a, b) = (-t0 * c, -t1 * c);
+            (a.min(b).floor() as i32, a.max(b).ceil() as i32)
+        };
+        let ((x0, x1), (z0, z1)) = (reicht(d[0]), reicht(d[2]));
+        schritte.push(Schritt {
+            von: [x0, z0],
+            bis: [x1, z1],
+            sinkt: (t0 * d[1]).floor() as i32,
+        });
+        t0 = t1;
+    }
+    schritte
+}
+
 /// Wo ein Update zeichnet: die Kacheln der Stufe `stufen`, auf die ein
 /// geänderter Chunk wirken kann. Das sind seine Blöcke und die bis zu
 /// 16 Blöcke daneben, so weit reichen Licht (15) und weiche Beleuchtung (1),
@@ -485,11 +541,16 @@ fn zur_sonne(projection: Projection, look: &Look) -> [[i32; 2]; 2] {
 /// Unterkante der Dimension, bis 16 Blöcke über [`Aenderung::oben`], denn
 /// Himmelslicht fällt in einer Spalte beliebig tief. Die Karte ohne
 /// Cinematic und Relief beginnt erst bei [`Aenderung::unten`], wenn es das
-/// gibt. Mit Cinematic dazu
-/// jeder Chunk, dessen Strahlen zur Sonne ihn lesen ([`Reach::mit_sonne`]
-/// umgekehrt), und der Rand des Bloom auf jeder nativen Stufe. Mit Relief
-/// dazu die Chunks im Südosten, deren Relief er ändert
+/// gibt. Mit Relief dazu die Chunks im Südosten, deren Relief er ändert
 /// ([`Relief::chunks_nach_suedosten`]).
+///
+/// Mit Cinematic dazu der Weg des Schattens: derselbe Kasten, in Schritten
+/// gegen die Richtung zur Sonne verschoben bis [`Look::sonne_weite`], und
+/// mit jedem Schritt so viel niedriger, wie der Strahl darin steigt. Dazu
+/// der Rand des Bloom auf jeder nativen Stufe. Mit `huelle` statt des Wegs
+/// das Rechteck um jeden Chunk, dessen Strahlen ihn lesen
+/// ([`Reach::mit_sonne`] umgekehrt), für Modelle, die weiter als
+/// [`RAGT_HOECHSTENS`] ragen.
 /// Siehe docs/benutzung/updates.md, „Wo ein Update zeichnet“.
 pub fn gebiet_der_aenderungen(
     projection: Projection,
@@ -498,9 +559,17 @@ pub fn gebiet_der_aenderungen(
     aenderungen: &[Aenderung],
     look: Option<&Look>,
     relief: Option<Relief>,
+    huelle: bool,
 ) -> Gebiet {
     let richtung = projection.richtung();
-    let [mut von, bis] = look.map_or([[-1, -1], [1, 1]], |look| zur_sonne(projection, look));
+    let [mut von, bis] = match look {
+        Some(look) if huelle => zur_sonne(projection, look),
+        _ => [[-1, -1], [1, 1]],
+    };
+    let schritte = match look {
+        Some(look) if !huelle => schritte_zur_sonne(projection, look),
+        _ => Vec::new(),
+    };
     if let Some(relief) = relief {
         let n = relief.chunks_nach_suedosten();
         von = [von[0].min(-n), von[1].min(-n)];
@@ -515,21 +584,15 @@ pub fn gebiet_der_aenderungen(
     // Siehe docs/entscheidungen/0127-grenze-nach-unten.md.
     let mit_grenze = look.is_none() && relief.is_none();
     let mut kacheln = BTreeSet::new();
-    for aenderung in aenderungen {
-        let boden = match aenderung.unten {
-            Some(grenze) if mit_grenze => grenze.max(unten),
-            _ => unten,
-        };
-        // Gelesen wird ein Chunk X von jedem Chunk X − d mit d in [von, bis].
-        let [x, z] = richtung.in_den_blick(aenderung.chunk);
-        let a = richtung.in_die_welt([x - bis[0], z - bis[1]]);
-        let b = richtung.in_die_welt([x - von[0], z - von[1]]);
+    // Die Blöcke von `von` bis vor `bis` im Blick, in der Höhe `hoehe`.
+    let mut kasten = |von: [i32; 2], bis: [i32; 2], hoehe: (i32, i32)| {
+        let a = richtung.in_die_welt(von);
+        let b = richtung.in_die_welt([bis[0] - 1, bis[1] - 1]);
         let rect = block_box(
             projection,
-            [a[0].min(b[0]) * CHUNK, a[1].min(b[1]) * CHUNK],
-            [(a[0].max(b[0]) + 1) * CHUNK, (a[1].max(b[1]) + 1) * CHUNK],
-            // Bis zur Oberkante des obersten Blocks, wie in `Reach::new`.
-            (boden, aenderung.oben + CHUNK + 1),
+            [a[0].min(b[0]), a[1].min(b[1])],
+            [a[0].max(b[0]) + 1, a[1].max(b[1]) + 1],
+            hoehe,
         );
         let rect = ScreenRect {
             x: rect.x - bloom,
@@ -538,6 +601,34 @@ pub fn gebiet_der_aenderungen(
             height: rect.height + 2 * bloom as u32,
         };
         kacheln.extend(raster(rect, TILE << stufen));
+    };
+    for aenderung in aenderungen {
+        let boden = match aenderung.unten {
+            Some(grenze) if mit_grenze => grenze.max(unten),
+            _ => unten,
+        };
+        // Bis zur Oberkante des obersten Blocks, wie in `Reach::new`.
+        let oben = aenderung.oben + CHUNK + 1;
+        // Gelesen wird ein Chunk X von jedem Chunk X − d mit d in [von, bis].
+        let [x, z] = richtung.in_den_blick(aenderung.chunk);
+        let (lo, hi) = (
+            [(x - bis[0]) * CHUNK, (z - bis[1]) * CHUNK],
+            [(x - von[0] + 1) * CHUNK, (z - von[1] + 1) * CHUNK],
+        );
+        kasten(lo, hi, (boden, oben));
+        // Die Strahlen durch den Kasten treffen Blöcke weiter gegen die
+        // Sonne und tiefer, auch unter der Grenze nach unten.
+        for schritt in &schritte {
+            let decke = oben - schritt.sinkt;
+            if decke <= unten {
+                break;
+            }
+            kasten(
+                [lo[0] + schritt.von[0], lo[1] + schritt.von[1]],
+                [hi[0] + schritt.bis[0], hi[1] + schritt.bis[1]],
+                (unten, decke),
+            );
+        }
     }
     Gebiet::aus(stufen, kacheln)
 }
@@ -1097,6 +1188,7 @@ mod tests {
                             &[aenderung],
                             None,
                             None,
+                            false,
                         );
                         for x in chunk[0] * 16 - 16..chunk[0] * 16 + 32 {
                             for z in chunk[1] * 16 - 16..chunk[1] * 16 + 32 {
@@ -1124,6 +1216,140 @@ mod tests {
         }
     }
 
+    /// Mit Cinematic enthält das Gebiet einer Änderung jede Kachel, auf die
+    /// ein Strahl zur Sonne durch den Kasten ohne Cinematic fällt, also durch
+    /// den Chunk und 16 Blöcke daneben bis 16 über seinem höchsten Block:
+    /// die von Block − t · d, je Ecke, für jedes t bis `sonne_weite` in
+    /// Schritten von 0,5, über alle Höhen ab der Unterkante. Nötig sind
+    /// 2 · [`RAGT_HOECHSTENS`] + 1 Blöcke daneben. Geprüft wird der Ring der
+    /// Spalten am Rand, genau an der Kante des Kastens; jeder Kasten ist
+    /// konvex, das Innere liegt darin. Bei scale 32, damit eine Kachel wenige
+    /// Blöcke deckt. Aus jeder Richtung dreier Kameras, auf der Basis und bei
+    /// drei Stufen. Die Grenze nach unten gilt nicht.
+    /// Siehe docs/benutzung/updates.md, „Wo ein Update zeichnet“.
+    #[test]
+    fn gebiet_reicht_den_weg_des_schattens() {
+        use crate::render::look::LOOK;
+        use crate::render::{Kamera, Richtung};
+        use std::collections::HashSet;
+        let (dimension, oben, chunk) = (-64, 40, [2, -3]);
+        let aenderung = Aenderung {
+            chunk,
+            oben,
+            bleibt: true,
+            unten: Some(10),
+        };
+        let rand = 16;
+        assert!(2 * RAGT_HOECHSTENS < rand);
+        let (x0, x1) = (chunk[0] * 16 - rand, chunk[0] * 16 + 15 + rand);
+        let (z0, z1) = (chunk[1] * 16 - rand, chunk[1] * 16 + 15 + rand);
+        let ring: Vec<[i32; 2]> = (x0..=x1)
+            .flat_map(|x| (z0..=z1).map(move |z| [x, z]))
+            .filter(|&[x, z]| x == x0 || x == x1 || z == z0 || z == z1)
+            .collect();
+        for kamera in ["2:1", "top-north", "north-45"] {
+            let kamera = Kamera::parse(kamera).unwrap();
+            let namen = if kamera.genordet() {
+                ["s", "w", "n", "e"]
+            } else {
+                ["se", "sw", "nw", "ne"]
+            };
+            let d = LOOK.sonne_im_blick(kamera).map(f64::from);
+            for name in namen {
+                let projection =
+                    Projection::mit_kamera(32, kamera).aus(Richtung::parse(name, kamera).unwrap());
+                let richtung = projection.richtung();
+                // Die Projektion ist linear, also genügen die drei Achsen.
+                let achse = |k: usize| {
+                    let mut e = [0; 3];
+                    e[k] = 1;
+                    projection.project_block(e)
+                };
+                let (ex, ey, ez) = (achse(0), achse(1), achse(2));
+                for stufen in [0, 3] {
+                    let gebiet = gebiet_der_aenderungen(
+                        projection,
+                        stufen,
+                        dimension,
+                        &[aenderung],
+                        Some(&LOOK),
+                        None,
+                        false,
+                    );
+                    let kacheln: HashSet<TileId> = gebiet.kacheln().iter().copied().collect();
+                    let kante = f64::from(TILE << stufen);
+                    for &[x, z] in &ring {
+                        for y in dimension..=oben + 16 {
+                            for ecke in 0..8 {
+                                let p = richtung.versatz_in_den_blick([
+                                    x + (ecke & 1),
+                                    y + (ecke >> 1 & 1),
+                                    z + (ecke >> 2),
+                                ]);
+                                for schritt in 0..=(2.0 * f64::from(LOOK.sonne_weite)) as i32 {
+                                    let t = f64::from(schritt) / 2.0;
+                                    let q = [0, 1, 2].map(|k| f64::from(p[k]) - t * d[k]);
+                                    if q[1] < f64::from(dimension) {
+                                        break;
+                                    }
+                                    let sx = q[0] * ex.0 + q[1] * ey.0 + q[2] * ez.0;
+                                    let sy = q[0] * ex.1 + q[1] * ey.1 + q[2] * ez.1;
+                                    let tile = TileId {
+                                        x: (sx / kante).floor() as i32,
+                                        y: (sy / kante).floor() as i32,
+                                    };
+                                    assert!(
+                                        kacheln.contains(&tile),
+                                        "{kamera:?} {name} {stufen} Stufen, Ecke {p:?}, t {t}"
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Am Weg des Schattens ist das Gebiet mit Cinematic kleiner als das
+    /// Rechteck um alle Chunks, deren Strahlen die Änderung lesen; mit dem
+    /// Schalter `huelle` ist es dieses Rechteck. Die Zahlen stehen in
+    /// docs/benutzung/updates.md, „Wo ein Update zeichnet“.
+    #[test]
+    fn weg_des_schattens_kleiner_als_die_huelle() {
+        use crate::render::look::LOOK;
+        use crate::render::{Kamera, Richtung};
+        let aenderung = Aenderung {
+            chunk: [2, -3],
+            oben: 90,
+            bleibt: true,
+            unten: None,
+        };
+        for (kamera, name, scale) in [("4:3", "se", 24), ("top-north", "s", 8)] {
+            let kamera = Kamera::parse(kamera).unwrap();
+            let projection =
+                Projection::mit_kamera(scale, kamera).aus(Richtung::parse(name, kamera).unwrap());
+            for stufen in [0, 1] {
+                let zahl = |huelle| {
+                    gebiet_der_aenderungen(
+                        projection,
+                        stufen,
+                        -64,
+                        &[aenderung],
+                        Some(&LOOK),
+                        None,
+                        huelle,
+                    )
+                    .kacheln()
+                    .len()
+                };
+                let (weg, huelle) = (zahl(false), zahl(true));
+                eprintln!("{kamera:?} scale {scale}, {stufen} Stufen: {weg} statt {huelle} Kacheln");
+                assert!(weg < huelle, "{kamera:?} {stufen}: {weg} gegen {huelle}");
+            }
+        }
+    }
+
     /// Die Grenze nach unten macht das Gebiet schräg kleiner; mit Cinematic
     /// und mit Relief gilt sie nicht, denn deren Schatten fallen auch auf
     /// tiefere Blöcke.
@@ -1141,7 +1367,7 @@ mod tests {
         let schraeg = Projection::mit_kamera(16, Kamera::parse("2:1").unwrap())
             .aus(Richtung::parse("se", Kamera::parse("2:1").unwrap()).unwrap());
         let gebiet = |projection, unten, look, relief| {
-            gebiet_der_aenderungen(projection, 0, -64, &[aenderung(unten)], look, relief)
+            gebiet_der_aenderungen(projection, 0, -64, &[aenderung(unten)], look, relief, false)
                 .kacheln()
                 .len()
         };
@@ -1183,7 +1409,7 @@ mod tests {
         let projection = Projection::mit_kamera(32, Kamera::ObenNord)
             .aus(Richtung::parse("s", Kamera::ObenNord).unwrap());
         let gebiet =
-            |relief| gebiet_der_aenderungen(projection, 0, -64, &[aenderung], None, relief);
+            |relief| gebiet_der_aenderungen(projection, 0, -64, &[aenderung], None, relief, false);
         let schatten = gebiet(Some(Relief::Schatten));
         for x in chunk[0] * 16..chunk[0] * 16 + 16 + 32 {
             for z in chunk[1] * 16..chunk[1] * 16 + 16 + 32 {

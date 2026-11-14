@@ -305,6 +305,10 @@ pub struct MapInfo {
     /// Feld, packt er schnell.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compact: Option<bool>,
+    /// `"standard"`, wenn der Baum nicht verlustfrei packt, siehe
+    /// `--quality`. Fehlt das Feld, packt er verlustfrei.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quality: Option<String>,
     /// `"nearest"`, wenn die Pyramide je 2 × 2 einen Pixel nimmt, siehe
     /// [`Verkleinern::Pixel`]. Fehlt das Feld, mittelt sie.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -444,6 +448,7 @@ impl MapInfo {
             native_levels: None,
             biome_blend: None,
             compact: None,
+            quality: None,
             downscale: None,
             world: None,
             heights: None,

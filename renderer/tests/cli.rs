@@ -1145,6 +1145,8 @@ fn pyramide_passt_auf_jeder_stufe_zu_ihren_kindern() {
         // scale 8 mit einer nativen Stufe (4), dann Verkleinerungen — beide Wege.
         let kamera_text = kamera.to_string();
         let mut args = vec![
+            "--quality",
+            "lossless",
             "--scale",
             "8",
             "--native-levels",
@@ -1377,9 +1379,30 @@ fn feine_stufen_im_speicher_wie_von_der_platte() {
         reihe[schnitt].parent(),
         "der erste Schnitt zwischen drei Threads trennt keine Geschwister"
     );
-    let ganz = ["--scale", "32", "--native-levels", "0"];
-    let nativ = ["--scale", "32", "--native-levels", "1"];
-    let zwei = ["--scale", "32", "--native-levels", "2"];
+    let ganz = [
+        "--quality",
+        "lossless",
+        "--scale",
+        "32",
+        "--native-levels",
+        "0",
+    ];
+    let nativ = [
+        "--quality",
+        "lossless",
+        "--scale",
+        "32",
+        "--native-levels",
+        "1",
+    ];
+    let zwei = [
+        "--quality",
+        "lossless",
+        "--scale",
+        "32",
+        "--native-levels",
+        "2",
+    ];
     for (threads, args, stufen) in [(1, &ganz, 0), (3, &ganz, 0), (1, &nativ, 1), (1, &zwei, 2)] {
         let fall = format!("{threads} Threads, {args:?}");
         let out = neuer_baum("2x1-se");
@@ -1490,7 +1513,16 @@ fn native_stufen_wie_der_weg_je_stufe() {
         .map(|&(threads, scale, stufen, gpu, kino)| {
             let out = neuer_baum(if kino { "2x1-se-cinematic" } else { "2x1-se" });
             let (scale, stufen) = (scale.to_string(), stufen.to_string());
-            let mut args = vec!["--scale", &scale, "--native-levels", &stufen, "--gpu", gpu];
+            let mut args = vec![
+                "--quality",
+                "lossless",
+                "--scale",
+                &scale,
+                "--native-levels",
+                &stufen,
+                "--gpu",
+                gpu,
+            ];
             if kino {
                 args.push("--cinematic");
             }
@@ -1554,7 +1586,14 @@ fn native_stufen_wie_der_weg_je_stufe() {
 #[test]
 fn abgebrochener_export_setzt_sich_fort_wie_in_einem_stueck() {
     let welt = weite_welt();
-    let args = ["--scale", "32", "--native-levels", "0"];
+    let args = [
+        "--quality",
+        "lossless",
+        "--scale",
+        "32",
+        "--native-levels",
+        "0",
+    ];
     let ganz = neuer_baum("2x1-se");
     gelungen(&export_auf(1, welt.path(), ganz.path(), &args));
     let soll = schnappschuss(ganz.path());
@@ -1673,7 +1712,14 @@ fn pyramide_holt_jede_aenderung_nach() {
     gelungen(&tiles(
         welt.path(),
         out.path(),
-        &["--scale", "8", "--native-levels", "0"],
+        &[
+            "--quality",
+            "lossless",
+            "--scale",
+            "8",
+            "--native-levels",
+            "0",
+        ],
     ));
     let basis = max_zoom(out.path());
     assert!(basis > 2, "zu wenig Stufen");
@@ -2577,7 +2623,14 @@ fn kompakt_bleibt_beim_baum() {
         .flat_map(|x| (0..4).map(move |z| (x * 3, z * 3)))
         .collect();
     common::write_world(welt.path(), &chunks, gelaende);
-    let args = ["--scale", "8", "--native-levels", "0"];
+    let args = [
+        "--quality",
+        "lossless",
+        "--scale",
+        "8",
+        "--native-levels",
+        "0",
+    ];
     let mit: Vec<&str> = args.iter().copied().chain(["--compact"]).collect();
     let ohne_karte = |mut dateien: BTreeMap<String, Vec<u8>>| {
         dateien.remove("map.json");
@@ -2644,6 +2697,118 @@ fn kompakt_bleibt_beim_baum() {
     assert_eq!(ohne_karte(schnappschuss(schnell.path())), vorher);
 }
 
+/// Ohne `--quality` packt ein neuer Baum `standard` und merkt es sich in
+/// `map.json`: von oben near-lossless, also VP8L, im iso verlustbehaftet mit
+/// eigenem Alpha, VP8X. Schicht und Rest des Reliefs bleiben Pixel für
+/// Pixel wie in einem verlustfreien Baum, denn sie sind Daten für den Mod.
+/// Siehe docs/entscheidungen/0143-kacheln-je-baum-und-gebiet.md.
+#[test]
+fn standard_ist_die_vorgabe() {
+    let welt = tempdir();
+    baue_update_welt(welt.path(), hell_am_hang, &[], 1);
+    let karte = |dir: &Path| -> serde_json::Value {
+        serde_json::from_str(&std::fs::read_to_string(dir.join("map.json")).unwrap()).unwrap()
+    };
+    let format = |pfad: &Path| std::fs::read(pfad).unwrap()[12..16].to_vec();
+
+    let oben = ["--camera", "top-north", "--scale", "8", "--relief", "slope"];
+    let standard = neuer_baum("top-north-s");
+    gelungen(&export(welt.path(), standard.path(), &oben));
+    assert_eq!(karte(standard.path())["quality"], "standard");
+    let verlustfrei = neuer_baum("top-north-s");
+    let mit: Vec<&str> = oben
+        .iter()
+        .copied()
+        .chain(["--quality", "lossless"])
+        .collect();
+    gelungen(&export(welt.path(), verlustfrei.path(), &mit));
+    assert_eq!(karte(verlustfrei.path()).get("quality"), None);
+    let mut rest = 0;
+    for rel in dateien(standard.path()) {
+        let pfad = standard.path().join(&rel);
+        assert_eq!(format(&pfad), b"VP8L", "{rel}");
+        if rel.starts_with("relief/") {
+            assert_eq!(bild(&pfad), bild(&verlustfrei.path().join(&rel)), "{rel}");
+            rest += usize::from(rel.starts_with("relief/rest/"));
+        }
+    }
+    assert!(rest > 0, "kein Rest");
+
+    let iso = neuer_baum("2x1-se");
+    gelungen(&export(welt.path(), iso.path(), &["--scale", "16"]));
+    assert_eq!(karte(iso.path())["quality"], "standard");
+    for rel in dateien(iso.path()) {
+        assert_eq!(format(&iso.path().join(&rel)), b"VP8X", "{rel}");
+    }
+}
+
+/// Eine andere Qualität nimmt nur ein voller Lauf: Ein Update mit anderem
+/// `--quality` bricht vor der ersten Kachel ab und sagt es, ohne den
+/// Schalter behält der Baum seine. Ein voller Lauf stellt um, zeichnet jede
+/// Kachel neu und gleicht danach einem neuen Baum. `--compact-tree` lehnt
+/// einen Baum mit `standard` ab.
+/// Siehe docs/entscheidungen/0143-kacheln-je-baum-und-gebiet.md.
+#[test]
+fn qualitaet_wechselt_nur_im_vollen_lauf() {
+    let welt = tempdir();
+    baue_gelaende(welt.path());
+    let karte = |dir: &Path| -> serde_json::Value {
+        serde_json::from_str(&std::fs::read_to_string(dir.join("map.json")).unwrap()).unwrap()
+    };
+    let baum = neuer_baum("2x1-se");
+    gelungen(&export(
+        welt.path(),
+        baum.path(),
+        &["--scale", "16", "--quality", "lossless"],
+    ));
+
+    let update = export(
+        welt.path(),
+        baum.path(),
+        &["--scale", "16", "--update", "--quality", "standard"],
+    );
+    let fehler = String::from_utf8_lossy(&update.stderr);
+    assert!(!update.status.success(), "{fehler}");
+    assert!(
+        fehler.contains("packt lossless, dieser Lauf will standard")
+            && fehler.contains("stellt nicht um"),
+        "{fehler}"
+    );
+    gelungen(&export(
+        welt.path(),
+        baum.path(),
+        &["--scale", "16", "--update"],
+    ));
+    assert_eq!(
+        karte(baum.path()).get("quality"),
+        None,
+        "ohne Schalter umgestellt"
+    );
+
+    let voll = export(
+        welt.path(),
+        baum.path(),
+        &["--scale", "16", "--quality", "standard"],
+    );
+    let log = String::from_utf8_lossy(&gelungen(&voll).stdout).into_owned();
+    assert!(
+        log.contains("packt lossless, dieser Lauf packt standard und jede Kachel neu"),
+        "{log}"
+    );
+    assert_eq!(karte(baum.path())["quality"], "standard");
+    let neu = neuer_baum("2x1-se");
+    gelungen(&export(welt.path(), neu.path(), &["--scale", "16"]));
+    gleiche_baeume(baum.path(), neu.path(), "umgestellt");
+
+    let verdichten = cli(&[OsStr::new("--compact-tree"), baum.path().as_os_str()]);
+    let fehler = String::from_utf8_lossy(&verdichten.stderr);
+    assert!(!verdichten.status.success(), "{fehler}");
+    assert!(
+        fehler.contains("nur einen Baum mit --quality lossless"),
+        "{fehler}"
+    );
+}
+
 /// `--compact-tree` macht einen schnellen Baum mit einer nativen Stufe
 /// kompakt. Danach hat jede Kachel dieselben Bytes wie nach einem Lauf mit
 /// `--compact` in einen leeren Baum und dieselbe Zeit wie vorher, und
@@ -2658,7 +2823,14 @@ fn nachverdichten_wie_kompakt() {
         .flat_map(|x| (0..4).map(move |z| (x * 3, z * 3)))
         .collect();
     common::write_world(welt.path(), &chunks, gelaende);
-    let args = ["--scale", "8", "--native-levels", "1"];
+    let args = [
+        "--quality",
+        "lossless",
+        "--scale",
+        "8",
+        "--native-levels",
+        "1",
+    ];
     let ohne_karte = |mut dateien: BTreeMap<String, Vec<u8>>| {
         dateien.remove("map.json");
         dateien
@@ -2725,7 +2897,14 @@ fn nachverdichten_wie_kompakt() {
 #[test]
 fn gleiche_pixel_auch_im_speicher() {
     let welt = weite_welt();
-    let args = ["--scale", "32", "--native-levels", "0"];
+    let args = [
+        "--quality",
+        "lossless",
+        "--scale",
+        "32",
+        "--native-levels",
+        "0",
+    ];
     let out = neuer_baum("2x1-se");
     let erster = export_auf(1, welt.path(), out.path(), &args);
     let meldung = String::from_utf8_lossy(&gelungen(&erster).stdout).into_owned();
@@ -4750,11 +4929,19 @@ fn richtung_ist_ein_eigener_baum() {
         }
     });
     let se = neuer_baum("2x1-se");
-    gelungen(&tiles(welt.path(), se.path(), &[]));
+    gelungen(&tiles(welt.path(), se.path(), &["--quality", "lossless"]));
     let nw = se.wurzel().join("2x1-nw");
-    gelungen(&tiles(welt.path(), &nw, &["--direction", "nw"]));
+    gelungen(&tiles(
+        welt.path(),
+        &nw,
+        &["--quality", "lossless", "--direction", "nw"],
+    ));
     let sw = se.wurzel().join("2x1-sw");
-    gelungen(&tiles(welt.path(), &sw, &["--direction", "sw"]));
+    gelungen(&tiles(
+        welt.path(),
+        &sw,
+        &["--quality", "lossless", "--direction", "sw"],
+    ));
     let info: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(nw.join("map.json")).unwrap()).unwrap();
     assert_eq!(info["direction"], "nw");
@@ -8524,7 +8711,16 @@ fn eigene_laubfarben_faerben_genau_das_laub() {
         gelungen(&tiles(
             welt.path(),
             ziel.path(),
-            &["--scale", "16", "--native-levels", "1", "--gpu", "off"],
+            &[
+                "--quality",
+                "lossless",
+                "--scale",
+                "16",
+                "--native-levels",
+                "1",
+                "--gpu",
+                "off",
+            ],
         ));
         let z = max_zoom(ziel.path());
         // Die Basis bei scale 16 und die native Stufe darunter bei 8.

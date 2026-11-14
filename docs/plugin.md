@@ -28,6 +28,16 @@ dem Plugin-Programmierer ab.
   `--data`, `--tiles`, `--camera`, `--direction`, `--scale`, `--cinematic`,
   `--relief`, `--gpu`, `--update`, `--resume` und `--compact`, siehe
   [Schalter und Beispiele](benutzung/schalter.md).
+- **Qualität:** Ein neuer Baum packt ohne `--quality` das Preset `standard`,
+  siehe [map.json](benutzung/map-json.md), „Packen“. Gibt das Plugin den
+  Schalter nicht, behält jeder bestehende Baum, was seine `map.json` sagt;
+  nach dem Aktualisieren des Plugins bricht also kein Lauf ab.
+  - Bäume zum Download sind `top-north` und packen near-lossless, nie
+    verlustbehaftet; Schicht und Rest des Reliefs bleiben verlustfrei.
+  - Stellt ein voller Lauf einen Baum um, ist danach jede Kachel neu, und
+    jeder Spieler mit dem Mod lädt den Baum zum Download einmal ganz neu.
+  - Auf near-lossless rechnet der Mod das Relief auf etwa ±5 wie der
+    Renderer, auf verlustfreien Bäumen auf ±1.
 - **Kompakt packen, für Plugin und CLI gleich** (Maintainer, 08.10.):
   - `--compact` bei jedem vollen Lauf, wenn `renderer.compact` in der
     `config.yml` des Plugins `true` ist; Updates bekommen ihn nicht, sie

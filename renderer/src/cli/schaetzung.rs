@@ -15,8 +15,8 @@ use heroic_map_renderer::world::World;
 use rayon::prelude::*;
 
 use super::{
-    Args, Y_RANGE, baum_name, lies_bestand, melde_json, mischung, native_stufen, packen, rechteck,
-    sekunden,
+    Args, Bereich, Y_RANGE, baum_name, lies_bestand, melde_json, mischung, native_stufen, packen,
+    rechteck, sekunden,
 };
 
 // Die Faktoren der Eichung, je `(unten, oben)`. Woher jeder kommt, steht in
@@ -112,7 +112,15 @@ pub(super) fn schaetze(
             max_zoom,
         )?,
         blend: mischung(&baum, bestand.as_ref(), args.biome_blend)?,
-        packen: packen(&baum, bestand.as_ref(), args.compact),
+        packen: packen(
+            &baum,
+            bestand.as_ref(),
+            args.compact,
+            args.quality,
+            projection.kamera(),
+            &Bereich::Welt,
+        )?
+        .0,
         bereich: fest,
     };
 
@@ -500,6 +508,10 @@ fn probe_schalter(
     }
     if einstellung.packen == Packen::Kompakt {
         s.push("--compact".into());
+    }
+    if einstellung.packen.verlustfrei() {
+        s.push("--quality".into());
+        s.push("lossless".into());
     }
     // Das Rechteck in Chunks, `--area` nimmt zwei inklusive Ecken in Blöcken.
     if let Some([x0, z0, x1, z1]) = einstellung.bereich {

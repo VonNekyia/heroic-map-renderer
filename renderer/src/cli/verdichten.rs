@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::time::{Instant, SystemTime};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use heroic_map_renderer::render::{MapInfo, Packen, TILE, TileId, decode_webp, encode_webp};
 use rayon::prelude::*;
 
@@ -44,6 +44,14 @@ pub(super) fn verdichte(dir: &Path, mit_manifest: bool) -> Result<()> {
             dir.join("map.json").display()
         )
     })?;
+    // Verlustbehaftete Kacheln geben ihre Pixel nicht genau zurück; ihr Hash
+    // gälte dann falschen Pixeln.
+    if super::qualitaet_des_baums(&alt) != super::Qualitaet::Lossless {
+        bail!(
+            "{} packt standard: --compact-tree verdichtet nur einen Baum mit --quality lossless",
+            dir.join("map.json").display()
+        );
+    }
     if alt.compact != Some(true) {
         let info = MapInfo {
             compact: Some(true),

@@ -204,6 +204,14 @@ pub struct Args {
     #[arg(long, requires = "tiles")]
     compact: bool,
 
+    /// Mit --tiles, wie der Baum packt: `standard` von oben near-lossless 40,
+    /// sonst verlustbehaftet mit quality 90, Alpha Bit für Bit; `lossless`
+    /// Pixel für Pixel, schnell oder mit --compact kompakt. Ein neuer Baum
+    /// ohne den Schalter packt `standard`, ein bestehender behält seine
+    /// Qualität aus map.json; einen anderen Wert nimmt nur ein voller Lauf
+    #[arg(long, value_enum, value_name = "ART", requires = "tiles")]
+    quality: Option<Qualitaet>,
+
     /// Mit --tiles vorhandene Basiskacheln stehen lassen statt sie neu zu
     /// rendern: setzt einen abgebrochenen Lauf fort, und nur den. Stammt
     /// der angefangene Stand eines vollen Laufs von einem Renderer, der
@@ -282,7 +290,7 @@ pub struct Args {
         "serve", "web", "listen", "max_connections", "header_timeout", "max_header_bytes", "max_headers",
         "write_timeout", "exit_with_stdin", "tls_cert", "tls_key", "secret_file", "player_dir", "trusted_proxy", "recognize_origin", "recognize_url", "site_url",
         "site_title", "site_description", "site_image", "download_client_jar", "client_version",
-        "cache_dir", "compact", "compact_tree", "flat", "relief", "banners", "out",
+        "cache_dir", "compact", "quality", "compact_tree", "flat", "relief", "banners", "out",
     ])]
     pyramid: Option<PathBuf>,
 
@@ -293,7 +301,7 @@ pub struct Args {
     #[arg(long, value_name = "VERZEICHNIS", conflicts_with_all = [
         "world", "assets", "data", "at", "block", "sprite", "scale", "camera", "direction",
         "biome_blend", "render", "cinematic", "center", "area", "tiles", "size", "scan", "prune",
-        "native_levels", "resume", "update", "gpu", "progress", "estimate", "defender_exclusion", "heights",
+        "native_levels", "quality", "resume", "update", "gpu", "progress", "estimate", "defender_exclusion", "heights",
         "serve", "web", "listen", "max_connections", "header_timeout", "max_header_bytes", "max_headers",
         "write_timeout", "exit_with_stdin", "tls_cert", "tls_key", "secret_file", "player_dir", "trusted_proxy", "recognize_origin", "recognize_url", "site_url",
         "site_title", "site_description", "site_image", "download_client_jar", "client_version",
@@ -317,7 +325,7 @@ pub struct Args {
         "world", "at", "block", "sprite", "scale", "camera", "direction", "biome_blend", "render",
         "cinematic", "center", "area", "size", "scan", "prune", "native_levels", "resume", "update",
         "gpu", "progress", "estimate", "defender_exclusion", "heights", "pyramid", "compact_tree",
-        "manifest", "serve", "compact", "flat", "relief",
+        "manifest", "serve", "compact", "quality", "flat", "relief",
     ])]
     banners: Option<Vec<PathBuf>>,
 
@@ -333,7 +341,7 @@ pub struct Args {
         "world", "assets", "data", "at", "block", "sprite", "scale", "camera", "direction",
         "biome_blend", "render", "cinematic", "center", "area", "tiles", "size", "scan", "prune",
         "native_levels", "resume", "update", "gpu", "progress", "estimate", "defender_exclusion", "heights",
-        "pyramid", "manifest", "download_client_jar", "client_version", "cache_dir", "compact",
+        "pyramid", "manifest", "download_client_jar", "client_version", "cache_dir", "compact", "quality",
         "compact_tree", "flat", "relief", "banners", "out",
     ])]
     serve: Option<PathBuf>,
@@ -549,6 +557,25 @@ fn projektion_des_baums(dir: &Path, info: &MapInfo) -> Result<Projection> {
         }
     };
     Ok(Projection::mit_kamera(info.scale, kamera).aus(richtung))
+}
+
+/// Wie ein Baum packt, aus `--quality`.
+/// Siehe docs/entscheidungen/0143-kacheln-je-baum-und-gebiet.md.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+enum Qualitaet {
+    /// Von oben near-lossless 40, sonst verlustbehaftet 90.
+    Standard,
+    /// Verlustfrei, schnell oder kompakt.
+    Lossless,
+}
+
+impl Qualitaet {
+    fn name(self) -> &'static str {
+        match self {
+            Qualitaet::Standard => "standard",
+            Qualitaet::Lossless => "lossless",
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -1127,6 +1154,7 @@ pub fn run() -> Result<()> {
                     &gpu,
                     args.biome_blend,
                     args.compact,
+                    args.quality,
                     args.cinematic.then_some(LOOK),
                     args.relief,
                     args.manifest,
@@ -1879,6 +1907,7 @@ fn write_tiles(
     gpu: &Gpuwahl,
     blend: Option<u8>,
     kompakt: bool,
+    qualitaet: Option<Qualitaet>,
     look: Option<Look>,
     relief: Option<Relief>,
     mit_manifest: bool,
@@ -1931,7 +1960,14 @@ fn write_tiles(
     // Stufe braucht.
     let stufen = native_stufen(dir, bestand.as_ref(), native, projection, max_zoom)?;
     let blend = mischung(dir, bestand.as_ref(), blend)?;
-    let packen = packen(dir, bestand.as_ref(), kompakt);
+    let (packen, qualitaet_wechselt) = packen(
+        dir,
+        bestand.as_ref(),
+        kompakt,
+        qualitaet,
+        projection.kamera(),
+        &bereich,
+    )?;
     let (verkleinern, umstellen) =
         verkleinern(bestand.as_ref(), projection.kamera() == Kamera::ObenNord);
 
@@ -1968,7 +2004,7 @@ fn write_tiles(
         );
     }
     // Wer das Relief wechselt, zeichnet jede Kachel neu, wie ohne --resume.
-    let resume = resume && !frisch && !wechsel;
+    let resume = resume && !frisch && !wechsel && !qualitaet_wechselt;
     let fortgesetzt = match angefangen {
         Angefangen::Passend(stand, seit) => Some((stand, seit)),
         Angefangen::Keiner | Angefangen::Fremd => None,
@@ -2523,14 +2559,22 @@ fn write_tiles(
         }
         _ => BTreeSet::new(),
     });
+    // Schicht und Rest sind Daten für den Mod: immer verlustfrei.
+    let daten = if packen.verlustfrei() {
+        packen
+    } else {
+        Packen::Kompakt
+    };
     let schicht = hashes_der_schicht.as_ref().map(|(schicht, rest)| Schicht {
         dir: &schicht_dir,
         ablage: Ablage {
+            packen: daten,
             hashes: Some(schicht),
             ..ablage
         },
         rest: &rest_dir,
         rest_ablage: Ablage {
+            packen: daten,
             hashes: Some(rest),
             ..ablage
         },
@@ -2538,7 +2582,11 @@ fn write_tiles(
     });
     // Ohne native Stufen gibt die Basis die Viertel für die feinen Stufen
     // ab.
-    let speicher = (stufen == 0).then(|| {
+    // Packt der Baum nicht verlustfrei, entstehen die Eltern aus den Kindern,
+    // wie sie auf der Platte stehen, auch im vollen Lauf: So gleicht ein
+    // Update ihm Byte für Byte.
+    // Siehe docs/entscheidungen/0143-kacheln-je-baum-und-gebiet.md.
+    let speicher = (stufen == 0 && packen.verlustfrei()).then(|| {
         ImSpeicher::new(
             dir,
             max_zoom,
@@ -3448,11 +3496,13 @@ fn rebuild_pyramid(
         )
     })?;
     let max_zoom = alt.max_zoom;
-    let packen = match alt.compact {
-        Some(true) => Packen::Kompakt,
-        _ => Packen::Schnell,
+    let kamera = projektion_des_baums(dir, &alt)?.kamera();
+    let packen = match qualitaet_des_baums(&alt) {
+        Qualitaet::Standard => packung_standard(kamera),
+        Qualitaet::Lossless if alt.compact == Some(true) => Packen::Kompakt,
+        Qualitaet::Lossless => Packen::Schnell,
     };
-    let nord = projektion_des_baums(dir, &alt)?.kamera() == Kamera::ObenNord;
+    let nord = kamera == Kamera::ObenNord;
     let (verkleinern, umstellen) = verkleinern(Some(&alt), nord);
     if umstellen {
         melde_umstellen(dir);
@@ -3596,6 +3646,7 @@ fn rebuild_pyramid(
         native_levels: alt.native_levels,
         biome_blend: alt.biome_blend,
         compact: alt.compact,
+        quality: alt.quality.clone(),
         downscale: downscale(verkleinern),
         world: alt.world,
         heights: alt.heights,
@@ -3871,6 +3922,7 @@ fn schreibe_map_json(
         native_levels: Some(stufen),
         biome_blend: Some(blend),
         compact: (packen == Packen::Kompakt).then_some(true),
+        quality: (!packen.verlustfrei()).then(|| Qualitaet::Standard.name().to_string()),
         downscale: downscale(verkleinern),
         sea_level: Some(welt.sea_level),
         area: welt.area,
@@ -4581,10 +4633,80 @@ fn mischung(dir: &Path, bestand: Option<&MapInfo>, verlangt: Option<u8>) -> Resu
     }
 }
 
-/// Wie der Baum packt: wie seine `map.json` sagt, ein neuer nach
-/// `kompakt`. Ein bestehender Baum behält seine Packung.
+/// Wie der Baum packt. Die Qualität nach seiner `map.json`, ein neuer Baum
+/// nach `qualitaet`, ohne den Schalter `standard`. Einen anderen Wert nimmt
+/// nur ein voller Lauf, dann ist der zweite Wert `true` und der Lauf zeichnet
+/// jede Kachel neu; ein Update und ein Ausschnitt brechen ab. `standard` packt
+/// von oben near-lossless 40, sonst verlustbehaftet 90.
+/// Siehe docs/entscheidungen/0143-kacheln-je-baum-und-gebiet.md.
+fn packen(
+    dir: &Path,
+    bestand: Option<&MapInfo>,
+    kompakt: bool,
+    qualitaet: Option<Qualitaet>,
+    kamera: Kamera,
+    bereich: &Bereich,
+) -> Result<(Packen, bool)> {
+    let gespeichert = bestand.map(qualitaet_des_baums);
+    let (gilt, wechselt) = match (gespeichert, qualitaet) {
+        (Some(dort), Some(hier)) if dort != hier => {
+            let pfad = dir.join("map.json");
+            if !matches!(bereich, Bereich::Welt) {
+                bail!(
+                    "Qualität:   {} packt {}, dieser Lauf will {}. Ein Update oder Ausschnitt \
+                     stellt nicht um, ein voller Lauf ohne --update mit --quality {} schon.",
+                    pfad.display(),
+                    dort.name(),
+                    hier.name(),
+                    hier.name()
+                );
+            }
+            println!(
+                "Qualität:   {} packt {}, dieser Lauf packt {} und jede Kachel neu",
+                pfad.display(),
+                dort.name(),
+                hier.name()
+            );
+            (hier, true)
+        }
+        (Some(dort), _) => (dort, false),
+        (None, hier) => (hier.unwrap_or(Qualitaet::Standard), false),
+    };
+    if gilt == Qualitaet::Standard {
+        let packen = packung_standard(kamera);
+        if kompakt {
+            println!("Packen:     --compact gilt nur für einen Baum mit --quality lossless");
+        }
+        match packen {
+            Packen::Nah40 => println!("Packen:     standard, near-lossless 40"),
+            _ => println!("Packen:     standard, verlustbehaftet mit quality 90"),
+        }
+        return Ok((packen, wechselt));
+    }
+    Ok((verlustfrei(dir, bestand, kompakt), wechselt))
+}
+
+/// Die Qualität, die `map.json` nennt; ohne das Feld verlustfrei.
+fn qualitaet_des_baums(info: &MapInfo) -> Qualitaet {
+    match info.quality.as_deref() {
+        Some("standard") => Qualitaet::Standard,
+        _ => Qualitaet::Lossless,
+    }
+}
+
+/// Wie `standard` ausserhalb der Gebiete packt: von oben near-lossless 40,
+/// jede andere Kamera verlustbehaftet 90.
+fn packung_standard(kamera: Kamera) -> Packen {
+    match kamera {
+        Kamera::Oben | Kamera::ObenNord => Packen::Nah40,
+        _ => Packen::Verlust90,
+    }
+}
+
+/// Wie ein verlustfreier Baum packt: wie seine `map.json` sagt, ein neuer
+/// nach `kompakt`. Ein bestehender Baum behält seine Packung.
 /// Siehe docs/entscheidungen/0092-kompakt-ohne-vorhersage.md.
-fn packen(dir: &Path, bestand: Option<&MapInfo>, kompakt: bool) -> Packen {
+fn verlustfrei(dir: &Path, bestand: Option<&MapInfo>, kompakt: bool) -> Packen {
     let packen = match bestand.map(|alt| alt.compact == Some(true)) {
         Some(true) => Packen::Kompakt,
         Some(false) if kompakt => {
@@ -4984,10 +5106,15 @@ fn render_coarser(
     let breite = streifen(kandidaten.len(), scale);
     let mut reihe: Vec<TileId> = kandidaten.iter().copied().collect();
     reihe.sort_unstable_by_key(|tile| (tile.x.div_euclid(breite as i32), tile.y, tile.x));
+    // Ohne verlustfreie Packung keine Eltern aus dem Speicher, siehe `write_tiles`.
     let speicher = ImSpeicher::new(
         dir,
         grob,
-        breite,
+        if ablage.packen.verlustfrei() {
+            breite
+        } else {
+            1
+        },
         |tile| kandidaten.contains(tile),
         &kandidaten,
         waisen,

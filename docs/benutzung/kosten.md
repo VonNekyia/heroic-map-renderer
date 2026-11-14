@@ -77,8 +77,8 @@ wuchs, bei scale 32 für die ganze Testwelt:
 
 Die weiche Beleuchtung legt je nach Inhalt 18 bis 30 % darauf, auf diesem
 Ausschnitt 27 %, denn ihr Verlauf packt sich schlechter als eine ebene
-Fläche. Warum verlustfrei:
-[0004](../entscheidungen/0004-webp-verlustfrei.md).
+Fläche. Die Zahlen hier gelten für verlustfreie Bäume; wie viel `--quality
+standard` spart: [0143](../entscheidungen/0143-kacheln-je-baum-und-gebiet.md).
 
 ## Dauer
 
@@ -351,8 +351,8 @@ Lauf kostete die Live-Ansicht rund 7 %, siehe
 
 Die Grösse wächst nach libwebp wieder, weil man mit #17 ins Wasser sieht
 und sich die Verläufe der weichen Beleuchtung schlechter packen als ebene
-Flächen. Beim Packen geht dabei nichts verloren: libwebp bleibt verlustfrei,
-Pixel für Pixel.
+Flächen. Beim Packen ging dabei nichts verloren: libwebp packte
+verlustfrei, Pixel für Pixel.
 
 In 2:1 ist eine Kachel ein schräger Schnitt durch die volle Bauhöhe von 384
 Blöcken: rund 320 000 Blockpositionen, gut hundert Chunks, und neun von zehn

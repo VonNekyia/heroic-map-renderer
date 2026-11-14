@@ -105,6 +105,11 @@ den Bildern im Speicher: `ImSpeicher` in
 beginnt das über der gröbsten, und diese gibt die Viertel ab, nicht die
 Basis.
 
+Nur ein verlustfreier Baum tut das. Packt ein Baum `standard`, entsteht jede
+Elternkachel aus ihren Kindern, wie sie auf der Platte stehen, im vollen
+Lauf wie im Update; so gleicht ein Update einem vollen Lauf Byte für Byte,
+siehe [0143](../entscheidungen/0143-kacheln-je-baum-und-gebiet.md).
+
 - **Viertel abgeben:** Jede gerenderte Kachel gibt ihr Bild auf die halbe
   Kante verkleinert ab, 64 KiB, oder die Nachricht, dass sie nichts zeigt.
   Wer das letzte Viertel einer Elternkachel abgibt, setzt sie zusammen

@@ -12,8 +12,9 @@ code:
 
 # Kacheln exportieren
 
-`--tiles` rendert die Welt als verlustfreie WebP-Kacheln von 256 mal 256
-Pixeln, stapelt die gröberen Zoomstufen darüber und schreibt `map.json`.
+`--tiles` rendert die Welt als WebP-Kacheln von 256 mal 256 Pixeln, je
+nach `--quality` near-lossless, verlustbehaftet oder verlustfrei, siehe
+[map.json](map-json.md), „Packen“, stapelt die gröberen Zoomstufen darüber und schreibt `map.json`.
 `--tiles` nennt die Wurzel; jeder Baum liegt darunter in seinem Ordner,
 siehe „Wo die Kacheln liegen“.
 Ein Vorlauf liest dafür jeden Chunk einmal, dann rendern alle Threads die

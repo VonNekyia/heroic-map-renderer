@@ -374,8 +374,24 @@ Baum wie die nativen Stufen, siehe
 
 ## Packen
 
-`--compact` ändert die Bytes jeder Kachel, nicht ihre Pixel. Die Packung
-gehört deshalb zum Baum, siehe
+Die Qualität gehört zum Baum, siehe
+[0143](../entscheidungen/0143-kacheln-je-baum-und-gebiet.md):
+
+- **`"quality": "standard"`** trägt ein neuer Baum ohne `--quality` ein,
+  oder mit `--quality standard`. Er packt von oben (`top`, `top-north`)
+  near-lossless 40, mit jeder anderen Kamera verlustbehaftet mit quality 90.
+  Alpha bleibt Bit für Bit; Schicht und Rest des Reliefs packen
+  verlustfrei kompakt.
+- **Ohne das Feld** packt der Baum verlustfrei, schnell oder kompakt wie
+  unten. So bleibt jeder Baum aus einem älteren Stand, wie er ist.
+- **Jeder spätere Lauf** packt wie der Baum, wenn er `--quality` nicht
+  nennt. Einen anderen Wert nimmt nur ein voller Lauf und zeichnet jede
+  Kachel neu; ein Update oder ein Ausschnitt bricht vor der ersten Kachel
+  ab, mit dem Wortlaut aus 0143.
+- **`--compact` und `--compact-tree`** gelten nur für verlustfreie Bäume.
+
+In einem verlustfreien Baum ändert `--compact` die Bytes jeder Kachel,
+nicht ihre Pixel. Die Packung gehört deshalb zum Baum, siehe
 [0092](../entscheidungen/0092-kompakt-ohne-vorhersage.md):
 
 - Ein neuer Baum mit `--compact` trägt `"compact": true` ein. Ohne den
@@ -387,7 +403,7 @@ gehört deshalb zum Baum, siehe
   es. Einen bestehenden Baum packt `--compact-tree` nach und trägt das Feld
   dabei als Erstes ein, siehe [Kacheln exportieren](kacheln.md),
   „Nachverdichten“.
-- Das Frontend liest das Feld nicht; es dekodiert beide Packungen gleich.
+- Das Frontend liest die Felder nicht; es dekodiert jede Packung gleich.
 
 ## Verkleinern
 

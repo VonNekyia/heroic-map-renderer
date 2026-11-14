@@ -61,7 +61,7 @@ Beide Bilder stammen aus Gametests des Mods.
 | **rund 950 Kacheln/s** | Basis der grossen Welt bei scale 32 auf 24 Threads mit Grafikkarte, im ganzen Lauf gemessen, mit Live-Ansicht nebenher, siehe [Vollrender mit #49](docs/messungen/2026-09-29-vollrender-mit-49.md) |
 | **95 Minuten** | für die grosse Welt mit 2,5 Millionen Basiskacheln bei scale 32, samt drei nativen Stufen, 188 GB, ebenda |
 | **Byte für Byte** | dasselbe Bild auf der CPU und auf der Grafikkarte, von der CI geprüft, siehe [Grafikkarte](docs/benutzung/grafikkarte.md) |
-| **verlustfrei** | WebP über libwebp, Pixel für Pixel |
+| **klein gepackt** | WebP über libwebp: neue Bäume von oben near-lossless, sonst verlustbehaftet, Alpha Bit für Bit; verlustfrei auf Wunsch, siehe [0143](docs/entscheidungen/0143-kacheln-je-baum-und-gebiet.md) |
 | **vorher geschätzt** | `--estimate` nennt Dauer und Platz als Spanne, bevor ein Lauf beginnt, siehe [Was ein Lauf kostet](docs/benutzung/kosten.md) |
 
 ## Was drin ist

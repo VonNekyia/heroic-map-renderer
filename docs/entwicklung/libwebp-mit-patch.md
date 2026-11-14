@@ -44,6 +44,10 @@ Zeilen im Bauskript. Warum:
   - Die letzten drei aus
     [0142](../entscheidungen/0142-kompakt-ohne-suche-rle-und-analyse.md),
     Cache und RLE auch für Bilder mit Palette.
+  - Nach dem Runden von near-lossless (`VP8ApplyNearLossless`) setzt der
+    Patch Alpha auf das der Vorlage zurück: Alpha bleibt Bit für Bit,
+    [0143](../entscheidungen/0143-kacheln-je-baum-und-gebiet.md). Getestet
+    mit `nah_verlustfrei_haelt_alpha_und_die_enden`.
 - **Wann es wirkt:**
   - nur bei method 1 bis 6, wo libwebp eine Transformation schätzt;
   - nicht bei method 0, das einen eigenen Weg nimmt, und nicht bei

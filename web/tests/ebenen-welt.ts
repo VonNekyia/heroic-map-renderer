@@ -12,8 +12,8 @@ export const BILDER: Record<string, Buffer> = {
 };
 export const LEER = -32768;
 
-/** Ein PNG b × h, RGBA, jedes Pixel anders gefärbt: (x · 7, y · 3, 128, 255). */
-export function png(b: number, h: number): Buffer {
+/** Ein PNG b × h, RGBA, ohne `pixel` jedes Pixel anders gefärbt: (x · 7, y · 3, 128, 255). */
+export function png(b: number, h: number, pixel = (x: number, y: number): number[] => [(x * 7) % 256, (y * 3) % 256, 128, 255]): Buffer {
   const teil = (art: string, daten: Buffer) => {
     const laenge = Buffer.alloc(4);
     laenge.writeUInt32BE(daten.length);
@@ -27,7 +27,7 @@ export function png(b: number, h: number): Buffer {
   kopf.writeUInt32BE(h, 4);
   kopf.set([8, 6, 0, 0, 0], 8);
   const zeilen = Buffer.alloc(h * (1 + 4 * b));
-  for (let y = 0; y < h; y++) for (let x = 0; x < b; x++) zeilen.set([(x * 7) % 256, (y * 3) % 256, 128, 255], y * (1 + 4 * b) + 1 + 4 * x);
+  for (let y = 0; y < h; y++) for (let x = 0; x < b; x++) zeilen.set(pixel(x, y), y * (1 + 4 * b) + 1 + 4 * x);
   return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), teil('IHDR', kopf), teil('IDAT', deflateSync(zeilen)), teil('IEND', Buffer.alloc(0))]);
 }
 

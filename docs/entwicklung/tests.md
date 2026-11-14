@@ -30,6 +30,7 @@ code:
   - web/tests/messung-ebenen.spec.ts
   - web/tests/messung-viele-orte.spec.ts
   - web/tests/pick.spec.ts
+  - web/tests/saum.spec.ts
   - web/skins/tablett/tests/tablett.spec.ts
   - web/skins/tablett/tests/bilder.spec.ts
   - web/skins/tablett/tests/karte.spec.ts
@@ -134,6 +135,7 @@ rund zwei Sekunden. Im Debug-Build dauerte er zu lange und trägt dort
 | `web/skins/tablett/tests/auslagern.spec.ts` | dass die Karte mit einer Kopie des Skins aus einem Ordner ausserhalb des Repositorys baut, der Skin ein eigenes Stück ist und Leaflet nur im Bündel der Karte steht |
 | `web/skins/tablett/tests/brett.spec.ts` | die gerenderten Bilder in Node, für alle 32 Blicke: dass der Name einer Kamera dem von `--camera` und `--direction` folgt; dass Ecken, Mitte und ein Punkt über der Karte, über `lage` gelegt, auf 10⁻⁶ px ihren Bildpunkt der Projektion treffen; dass jedes Bild die Gesamtansicht in Fenstern von Telefonen hochkant bis 21:9 und 4K deckt, bei `devicePixelRatio` 1 bis 3, mit `tests/fixtures/brett-alle.json`; dass die Gesamtansicht ein ganzes n nimmt, wo eine erlaubte Stufe zwischen 71 und 100 % eines hat, die nächste an 92,5 %, sonst die Stufe nach 0067, und unter 71 % keines |
 | `web/skins/tablett/tests/gerendert.spec.ts` | den Skin mit gerenderten Bildern im Browser, gebaut mit dem Platzhalter für 2:1 aus `tests/fixtures/brett` wie ein Skin von aussen, die Seite aus dem Build ohne Server: bei `devicePixelRatio` 1 ohne ganzes n, bei 2 mit n = 3, bei 1,5 mit n = 2 und bei 2 in 1920 × 1080 unter dem Deckel, in der Gesamtansicht und eine Stufe tiefer, dass die Leinwand das Mass aus `leinwandMass` hat, die Stufe die aus `gesamtstufe` ist, beide Leinwände nur Farben des Bilds haben, 99,9 % der Stichproben genau ihr Pixel zeigen und das Bild höchstens 1 px neben der Lage aus der Projektion liegt; dass Gesamtstufe und Auflösung der Leinwände einem neuen `devicePixelRatio` ohne `resize` folgen, per CDP, mit dem `change` der Anfrage nach der Auflösung vom Test; dass das Tablett ausbleibt und die Konsole es sagt, wenn die Kamera in `brett.json` fehlt |
+| `web/tests/saum.spec.ts` | die Grundschicht am Rand der Welt nach [0141](../entscheidungen/0141-grundschicht-nur-deckend.md), an einer Szene in einer Farbe, schräg wie im iso und gerade wie in 2D, Alpha wie `pyramid.rs`: ein Pixel mit Alpha 254 in der Grundschicht; nach dem Laden der Ausschnitt pixelgleich ohne Grundschicht, auch wenn `getImageData` Zufall liefert; beim Laden nur die Farbe der Welt und der Grund der Karte, keine Mischung |
 | `web/tests/pick.spec.ts` | den Strahl: für 2:1, 8:5, 4:3, 1:1, 5:3, `top`, `top-north` und `north-45` jeder Bildpunkt eines kleinen Geländes gegen den Würfel, den das Zeichnen dort in der Reihenfolge (y, v, u) und nach der Füllregel hinterlässt; dazu die Projektion jeder Kamera und die Kantenpixel auf Oberseiten und an Wänden gegen `renderer/tests/fixtures/projektion.json` des Renderers |
 
 Dazu stehen Unit-Tests in den Quelldateien selbst, unter `mod tests`.

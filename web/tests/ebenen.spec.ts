@@ -1,7 +1,9 @@
 import { expect, test, type Page } from './test';
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { deflateSync } from 'node:zlib';
 import { projiziere, zweiZuEins } from '../src/pick';
+import { lesePng } from '../src/png';
 import { aufDemSchirm, BILDER, DEMO, fuss, HAFEN, KREISE, LEER, pixelAufPixel, png, STAEDTE, staedte, welt } from './ebenen-welt';
 
 test('ohne layers.json gibt es keine Liste der Ebenen, und die Karte fragt bis zum Neuladen nicht nach', async ({ page }) => {
@@ -252,6 +254,51 @@ test('das Feld des Schilds trägt color, abgeschnitten, das Symbol liegt unter d
     await expect(leinwand).toHaveJSProperty('width', b);
     const ist = await leinwand.evaluate((c: HTMLCanvasElement) => [...c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data]);
     expect(ist, name).toEqual(await schildSoll(page, groesse, b, h, [0x40, 0xe5, 0x3f], symbol));
+  }
+});
+
+test('das Schild bleibt gleich, auch wenn Zurücklesen einer Leinwand Zufall liefert wie mit Schutz vor Fingerabdrücken', async ({ browser }) => {
+  const bilder: number[][] = [];
+  for (const verrauscht of [false, true]) {
+    const page = await browser.newPage();
+    if (verrauscht) {
+      await page.addInitScript(() => {
+        CanvasRenderingContext2D.prototype.getImageData = function (_x: number, _y: number, b: number, h: number) {
+          const d = new ImageData(b, h);
+          for (let i = 0; i < d.data.length; i++) d.data[i] = Math.floor(Math.random() * 256);
+          return d;
+        };
+      });
+    }
+    await welt(page, staedte([{ ...HAFEN, id: 'g', name: 'G', size: 'large', at: [30.5, -20.5] }]));
+    await page.goto(DEMO);
+    const leinwand = page.locator('.nadel-icon[title="G"] canvas');
+    await expect(leinwand).toHaveJSProperty('width', 23);
+    // Über eine OffscreenCanvas gelesen; ihr getImageData ist nicht verfälscht.
+    bilder.push(
+      await leinwand.evaluate((c: HTMLCanvasElement) => {
+        const ctx = new OffscreenCanvas(c.width, c.height).getContext('2d')!;
+        ctx.drawImage(c, 0, 0);
+        return [...ctx.getImageData(0, 0, c.width, c.height).data];
+      }),
+    );
+    await page.close();
+  }
+  expect(bilder[1], 'das Feld zeigt, was das Zurücklesen liefert').toEqual(bilder[0]);
+});
+
+test('lesePng liest die drei Felder des Schilds wie der Browser; sie nutzen die Filter 0, 1, 2 und 4', async ({ page }) => {
+  await page.goto(DEMO);
+  for (const groesse of ['gross', 'mittel', 'klein']) {
+    const bytes = readFileSync(new URL(`../src/ebenen/schild_${groesse}.png`, import.meta.url));
+    const { pixel } = await lesePng(`data:image/png;base64,${bytes.toString('base64')}`);
+    const soll = await page.evaluate(async (b64) => {
+      const bmp = await createImageBitmap(new Blob([Uint8Array.from(atob(b64), (c) => c.charCodeAt(0))], { type: 'image/png' }));
+      const ctx = new OffscreenCanvas(bmp.width, bmp.height).getContext('2d')!;
+      ctx.drawImage(bmp, 0, 0);
+      return [...ctx.getImageData(0, 0, bmp.width, bmp.height).data];
+    }, bytes.toString('base64'));
+    expect([...pixel], groesse).toEqual(soll);
   }
 });
 

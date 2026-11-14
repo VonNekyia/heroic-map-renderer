@@ -5,6 +5,7 @@
  * docs/frontend.md, „Ebenen“.
  */
 import L from 'leaflet';
+import { lesePng } from './png';
 import feldGross from './ebenen/schild_gross.png?url&no-inline';
 import rahmenGross from './ebenen/schild_gross_rahmen.png?url&no-inline';
 import feldKlein from './ebenen/schild_klein.png?url&no-inline';
@@ -381,6 +382,21 @@ function nameImBogen(name: string, h: number, winkel: number): SVGSVGElement {
 /** Die Bilder des Schilds; die Symbole hält jede geladene Ebene selbst. */
 const schildBilder = new Map<string, Promise<HTMLImageElement>>();
 
+/** Die Pixel der Felder, ohne Leinwand gelesen, einmal je Adresse; ein Fehlschlag bleibt nicht im Cache. */
+const schildFelder = new Map<string, ReturnType<typeof lesePng>>();
+function feldPixel(adresse: string, b: number, h: number): ReturnType<typeof lesePng> {
+  let laden = schildFelder.get(adresse);
+  if (!laden) {
+    laden = lesePng(adresse).then((f) => {
+      if (f.breite !== b || f.hoehe !== h) throw new Error(`${adresse}: ${f.breite} × ${f.hoehe} statt ${b} × ${h}`);
+      return f;
+    });
+    laden.catch(() => schildFelder.delete(adresse));
+    schildFelder.set(adresse, laden);
+  }
+  return laden;
+}
+
 /** Ein Bild vom eigenen Server, einmal je Adresse und Cache; ein Fehlschlag bleibt nicht im Cache. */
 function bild(adresse: string, bilder: Map<string, Promise<HTMLImageElement>>): Promise<HTMLImageElement> {
   let laden = bilder.get(adresse);
@@ -400,8 +416,9 @@ function bild(adresse: string, bilder: Map<string, Promise<HTMLImageElement>>): 
 /**
  * Zeichnet die Nadel: das Feld mal `color` je Kanal, abgeschnitten, dann das
  * Symbol mit der linken oberen Ecke bei (⌊(b − Seite) / 2⌋, 3), zuletzt
- * Rahmen und Nadel. Ein Symbol in falscher Grösse bleibt weg. Siehe
- * docs/benutzung/ebenen.md, „Nadel“.
+ * Rahmen und Nadel. Ein Symbol in falscher Grösse bleibt weg. Die Pixel des
+ * Felds kommen aus dem PNG, nicht von der Leinwand, siehe docs/frontend.md,
+ * „Leinwände“. Siehe docs/benutzung/ebenen.md, „Nadel“.
  */
 async function zeichneNadel(
   groesse: Groesse,
@@ -414,12 +431,11 @@ async function zeichneNadel(
   [leinwand.width, leinwand.height] = [b, h];
   const ctx = leinwand.getContext('2d')!;
   const [f, r, s] = await Promise.all([
-    bild(feld, schildBilder),
+    feldPixel(feld, b, h),
     bild(rahmen, schildBilder),
     symbol ? bild(symbol, symbole).catch(() => undefined) : undefined,
   ]);
-  ctx.drawImage(f, 0, 0);
-  const daten = ctx.getImageData(0, 0, b, h);
+  const daten = new ImageData(new Uint8ClampedArray(f.pixel), b, h);
   const kanal = [1, 3, 5].map((i) => Number.parseInt(farbe.slice(i, i + 2), 16));
   for (let i = 0; i < daten.data.length; i += 4) {
     for (let c = 0; c < 3; c++) daten.data[i + c] = Math.floor((daten.data[i + c]! * kanal[c]!) / 255);

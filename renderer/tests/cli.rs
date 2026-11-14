@@ -18,7 +18,7 @@ use heroic_map_renderer::render::look::LOOK;
 use heroic_map_renderer::render::rasterizer::{Light, Lightmap};
 use heroic_map_renderer::render::stand::{ALTE_BUILDS, ZEICHENSTAND_1};
 use heroic_map_renderer::render::{
-    BLEND_DEFAULT, BiomeTable, ChunkCache, Kamera, Packen, Projection, SpriteSet, TileId,
+    BLEND_DEFAULT, BiomeTable, ChunkCache, Kamera, Packen, Projection, SpriteSet, TILE, TileId,
     Verkleinern, encode_webp, pyramid, render_area, render_area_with, streifenbreite, survey,
 };
 use heroic_map_renderer::world::World;
@@ -6103,6 +6103,83 @@ fn update_nach_abbruch_gleicht_einem_vollen_lauf() {
     }
 }
 
+/// Leert ein Lauf Basiskacheln, die Spitzen der Türme, oder den Rest der
+/// Schicht des Reliefs und bricht vor der Pyramide ab, stehen sie
+/// durchsichtig da (`verblasse`). `--resume` behält keine davon, auch wenn
+/// sie seit dem angefangenen Stand und mehr als zwei Minuten vor der
+/// jüngsten Kachel geschrieben sind, und auch nach einem zweiten Abbruch:
+/// Danach gleicht der Baum einem Lauf in einem Stück. Als Update und als
+/// voller Lauf, ein Thread.
+/// Siehe docs/benutzung/kacheln.md, „Wann entfernt wird“.
+#[test]
+fn resume_behaelt_keine_durchsichtigen_kacheln() {
+    type Bloecke = fn(i32, i32, i32) -> &'static str;
+    /// Welt vorher und nachher, Schalter, Name des Baums, Art des Laufs.
+    type Fall<'a> = (Bloecke, Bloecke, &'a [&'a str], &'a str, &'a [&'a str]);
+    let durchsichtig = encode_webp(&RgbaImage::new(TILE, TILE), Packen::Schnell).unwrap();
+    let iso = ["--scale", "16"];
+    let relief = ["--camera", "top-north", "--scale", "8", "--relief", "slope"];
+    let faelle: [Fall; 3] = [
+        (mit_aenderungen, mit_dach, &iso, "2x1-se", &["--update"]),
+        (mit_aenderungen, mit_dach, &iso, "2x1-se", &[]),
+        (
+            hell_am_hang,
+            mit_aenderungen,
+            &relief,
+            "top-north-s",
+            &["--update"],
+        ),
+    ];
+    for (vorher, nachher, extra, name, lauf) in faelle {
+        let was = format!("{name} {lauf:?}");
+        let welt = tempdir();
+        baue_update_welt(welt.path(), vorher, &[], 1);
+        let baum = neuer_baum(name);
+        gelungen(&export(welt.path(), baum.path(), extra));
+        baue_update_welt(welt.path(), nachher, &UPDATE_CHUNKS, 2);
+        let z = max_zoom(baum.path());
+        let rest = baum.path().join("relief/rest");
+        let mut weiter = [extra, lauf, &["--threads", "1"][..]].concat();
+        let leer = |pfad: &Path| pfad.is_file() && std::fs::read(pfad).unwrap() == durchsichtig;
+        // Was vor dem ersten Abbruch dastand, ist eine Stunde alt.
+        altern(baum.path());
+        for abbruch in 0..2 {
+            let beginn = SystemTime::now();
+            let ausgabe = update_mit_abbruch(welt.path(), baum.path(), &weiter, "vor-pyramide");
+            assert!(!ausgabe.status.success(), "{was}, Abbruch {abbruch}");
+            // Der abgebrochene Lauf begann vor einer Stunde und schrieb vor
+            // einer halben. Die jüngste Kachel ist eine, unter der nichts
+            // verblasst ist: Nur was in den zwei Minuten vor ihr liegt, ist
+            // frisch.
+            let damals = SystemTime::now() - Duration::from_secs(3600);
+            setze_zeit(&baum.path().join("stand-neu.bin"), damals);
+            let basis = kacheln(baum.path(), z);
+            for pfad in basis.values().filter(|pfad| zeit_von(pfad) >= beginn) {
+                setze_zeit(pfad, damals + Duration::from_secs(1800));
+            }
+            let verblasst = |(tile, pfad): &(&TileId, &PathBuf)| {
+                leer(pfad) || leer(&kachel_pfad(&rest, z, **tile))
+            };
+            assert!(
+                basis.iter().any(|k| verblasst(&k)),
+                "{was}, Abbruch {abbruch}: nichts verblasst"
+            );
+            let (_, juengste) = basis
+                .iter()
+                .find(|k| !verblasst(k))
+                .expect("eine Kachel ohne Verblasstes");
+            setze_zeit(juengste, SystemTime::now());
+            if abbruch == 0 {
+                weiter.push("--resume");
+            }
+        }
+        gelungen(&export(welt.path(), baum.path(), &weiter));
+        let voll = neuer_baum(name);
+        gelungen(&export(welt.path(), voll.path(), extra));
+        gleiche_baeume(baum.path(), voll.path(), &was);
+    }
+}
+
 /// Entfernt ein Update den einzigen Inhalt von Basiskacheln, die Spitzen
 /// der Türme über dem Gelände, baut es deren Eltern neu, auch wenn ihre
 /// Geschwister Treffer haben: Danach gleicht der Baum einem vollen Lauf, auch
@@ -7947,12 +8024,25 @@ fn update_setzt_mit_resume_fort() {
     std::fs::write(&anders[3].1, &alt).unwrap();
     setze_zeit(&anders[3].1, jetzt - Duration::from_secs(3600));
     // Wer `bleibt` neu zeichnete, schriebe dieselben Bytes; die Zeit zeigt es.
+    // Ebenso bei den Kacheln, die sich nicht ändern: Auch die im Gebiet
+    // entfernt es nicht vorab, sie bleiben liegen.
+    let unveraendert: BTreeMap<TileId, SystemTime> = kacheln(baum.path(), basis)
+        .into_iter()
+        .filter(|(tile, _)| anders.iter().all(|(t, _)| t != tile))
+        .map(|(tile, pfad)| (tile, zeit_von(&pfad)))
+        .collect();
     gelungen(&tiles(
         welt.path(),
         baum.path(),
         &["--scale", "12", "--update", "--resume"],
     ));
     gleiche_baeume(baum.path(), voll.path(), "");
+    let danach: BTreeMap<TileId, SystemTime> = kacheln(baum.path(), basis)
+        .into_iter()
+        .filter(|(tile, _)| unveraendert.contains_key(tile))
+        .map(|(tile, pfad)| (tile, zeit_von(&pfad)))
+        .collect();
+    assert_eq!(danach, unveraendert, "unveränderte Kacheln neu geschrieben");
     assert_eq!(
         zeit_von(&bleibt),
         jetzt - Duration::from_secs(900),

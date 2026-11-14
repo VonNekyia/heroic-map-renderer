@@ -10,6 +10,7 @@ code:
   - renderer/src/cli/pixel.rs
   - renderer/src/cli/verdichten.rs
   - renderer/src/render/gpu.rs
+  - renderer/src/render/heights.rs
   - renderer/src/render/kino.rs
   - renderer/src/render/licht.rs
   - renderer/src/render/metatile.rs
@@ -18,8 +19,10 @@ code:
   - renderer/src/render/tiles.rs
   - renderer/src/world/chunk.rs
   - renderer/src/world/palette.rs
+  - renderer/src/world/region.rs
   - renderer/vendor/libwebp-sys/build.rs
   - renderer/vendor/libwebp-sys/vendor/src/enc/backward_references_enc.c
+  - renderer/vendor/libwebp-sys/vendor/src/enc/vp8l_enc.c
 ---
 
 # Optimierungen
@@ -161,6 +164,14 @@ braucht, steht in [Wohin die Zeit beim Rendern geht](renderzeit.md).
 | Die C-Bibliothek des Formats statt eines Encoders in Rust | da | [`tiles.rs`](../../renderer/src/render/tiles.rs), `encode_webp` | [0028](../entscheidungen/0028-libwebp-statt-image.md), [libwebp](../messungen/2026-09-27-libwebp.md) |
 | Schnell packen, aber Wiederholungen in der ganzen Kachel finden | da | [`tiles.rs`](../../renderer/src/render/tiles.rs), `encode_webp` | [0090](../entscheidungen/0090-webp-mit-quality-75.md), [WebP mit quality 75](../messungen/2026-10-08-webp-quality-75.md) |
 | Kompakt packen auf Wunsch: kleinere Dateien für mehr Zeit | da | [`tiles.rs`](../../renderer/src/render/tiles.rs), `Packen` | [0092](../entscheidungen/0092-kompakt-ohne-vorhersage.md), [Kompakt packen](../messungen/2026-10-08-kompakt.md) |
-| Beim kompakten Packen die Grösse des Farb-Caches festlegen, statt sie je Kachel zu suchen | offen | [`backward_references_enc.c`](../../renderer/vendor/libwebp-sys/vendor/src/enc/backward_references_enc.c), `CalculateBestCacheSize` | [Farb-Cache fest statt gesucht](../messungen/2026-11-13-farbcache-fest-statt-suchen.md) |
+| Beim kompakten Packen die Grösse des Farb-Caches festlegen, statt sie je Kachel zu suchen | offen | [`backward_references_enc.c`](../../renderer/vendor/libwebp-sys/vendor/src/enc/backward_references_enc.c), `CalculateBestCacheSize` | [Farb-Cache fest statt gesucht](../messungen/2026-11-13-farbcache-fest-statt-suchen.md), [libwebp für Kacheln zuschneiden](../messungen/2026-11-14-libwebp-zuschneiden.md) |
+| Beim kompakten Packen RLE nicht als zweite Art neben LZ77 probieren | offen | [`vp8l_enc.c`](../../renderer/vendor/libwebp-sys/vendor/src/enc/vp8l_enc.c), `EncoderAnalyze` | [libwebp für Kacheln zuschneiden](../messungen/2026-11-14-libwebp-zuschneiden.md) |
+| Beim kompakten Packen die Analyse der Entropie auslassen, wo ihr Ergebnis feststeht | offen | [`vp8l_enc.c`](../../renderer/vendor/libwebp-sys/vendor/src/enc/vp8l_enc.c), `EncoderAnalyze`, `AnalyzeEntropy` | [libwebp für Kacheln zuschneiden](../messungen/2026-11-14-libwebp-zuschneiden.md) |
+| Beim kompakten Packen weniger Aufwand: quality 51, weniger Felder für Histogramme, ohne TraceBackwards | offen | [`tiles.rs`](../../renderer/src/render/tiles.rs), `kodiere`; [`vp8l_enc.c`](../../renderer/vendor/libwebp-sys/vendor/src/enc/vp8l_enc.c), `GetHistoBits`; [`backward_references_enc.c`](../../renderer/vendor/libwebp-sys/vendor/src/enc/backward_references_enc.c), `GetBackwardReferences` | [libwebp für Kacheln zuschneiden](../messungen/2026-11-14-libwebp-zuschneiden.md) |
+| Schnell packen ohne räumliche Vorhersage und mit Farb-Cache | offen | [`vp8l_enc.c`](../../renderer/vendor/libwebp-sys/vendor/src/enc/vp8l_enc.c), `EncoderAnalyze`; [`backward_references_enc.c`](../../renderer/vendor/libwebp-sys/vendor/src/enc/backward_references_enc.c), `GetBackwardReferencesLowEffort` | [libwebp für Kacheln zuschneiden](../messungen/2026-11-14-libwebp-zuschneiden.md) |
+| Near-lossless: Pixel vor dem Packen leicht runden, im verlustfreien Format | offen | – | [Near-lossless und verlustbehaftetes WebP](../messungen/2026-11-14-near-lossless-und-verlustbehaftet.md) |
+| Verlustbehaftetes WebP | verworfen | – | [0004](../entscheidungen/0004-webp-verlustfrei.md), [Near-lossless und verlustbehaftetes WebP](../messungen/2026-11-14-near-lossless-und-verlustbehaftet.md) |
+| Chunkdaten mit einer schnelleren Bibliothek entpacken | offen | [`region.rs`](../../renderer/src/world/region.rs), `decompress` | [0021](../entscheidungen/0021-bitmasken-statt-blockbesuche.md), [Entpacken und Höhen mit zlib-rs und fdeflate](../messungen/2026-11-14-entpacken-und-hoehen.md) |
+| Höhen mit einer schnelleren Bibliothek packen | offen | [`heights.rs`](../../renderer/src/render/heights.rs), `Heights::encode` | [Entpacken und Höhen mit zlib-rs und fdeflate](../messungen/2026-11-14-entpacken-und-hoehen.md) |
 | Einen fertigen Baum nachträglich kompakt packen | da | [`verdichten.rs`](../../renderer/src/cli/verdichten.rs), `verdichte` | [0093](../entscheidungen/0093-nachverdichten.md), [Nachverdichten](../messungen/2026-10-08-nachverdichten.md) |
 | Den Kachelordner vom Echtzeitschutz ausnehmen, nur mit Zustimmung | da | [`cli.rs`](../../renderer/src/cli.rs), `defender_exclusion` | [0022](../entscheidungen/0022-defender-ausnahme-nur-mit-zustimmung.md), [Echtzeitschutz](../messungen/2026-09-26-echtzeitschutz.md) |

@@ -388,9 +388,10 @@ liegen“. Entschieden in
     und derselben Zeit der letzten Änderung auf die Nanosekunde;
   - nur für denselben Kodierstand, `KODIERSTAND` in
     [`renderer/src/cli/pixel.rs`](../../renderer/src/cli/pixel.rs). Er
-    steigt, wenn sich am Kodieren etwas ändert: libwebp oder sein Patch,
-    die Vorgaben in `encode_webp` oder `Packen`. Was gezeichnet wird, zählt
-    nicht, siehe
+    steigt, wenn nach einer Änderung am Kodieren dieselben Pixel andere
+    Bytes ergeben: an libwebp oder seinem Patch, an den Vorgaben in
+    `encode_webp` oder `Packen`. Eine Änderung, die kein Byte ändert, hebt
+    ihn nicht. Was gezeichnet wird, zählt nicht, siehe
     [0098](../entscheidungen/0098-der-zeichenstand-statt-des-builds.md).
 
   Schrieb jemand anders die Datei, kodiert der nächste Lauf sie wie ohne

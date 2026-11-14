@@ -86,7 +86,7 @@ Bilder von anderswo, der Fall tritt dort also nicht ein und hat keinen Test.
 - **Ein Filter je Bild,** `feComponentTransfer` mit `feFuncA` auf
   `.grund .leaflet-tile`: dieselbe Wirkung, aber der Browser rechnet ihn bei
   jedem Bild. Unter Software-Raster kamen beim Ziehen und Zoomen in allen
-  drei Paaren 5–8 % weniger Bilder, und die Bilder über 50 ms stiegen beim
+  drei Paaren 4–15 % weniger Bilder, und die Bilder über 50 ms stiegen beim
   Zoomen von 1–3 auf 7–16, siehe
   [Grundschicht nur deckend](../messungen/2026-11-14-grundschicht-nur-deckend.md).
   Das Zoomen war gerade erst die Beschwerde des Users.

@@ -23,10 +23,11 @@ use heroic_map_renderer::render::stand::{
 };
 use heroic_map_renderer::render::{
     BLEND_DEFAULT, BLEND_MAX, BiomeTable, ChunkCache, Flaeche, Gebiet, Gpu, Kamera, MapInfo,
-    Packen, Projection, ProjectionInfo, Reach, Relief, Reliefschicht, Richtung, ScreenRect,
-    SpriteSet, Survey, TILE, TileId, Verkleinern, corner_tiles, decode_webp, draw_list,
-    encode_webp, gebiet_der_aenderungen, mit_relief, render, render_area, render_area_with,
-    streifenbreite, survey, survey_in, survey_mit_fortschritt, world_box,
+    Packen, Projection, ProjectionInfo, RAGT_HOECHSTENS, Reach, Relief, Reliefschicht, Richtung,
+    SCHRITT_ZUR_SONNE, ScreenRect, SpriteSet, Survey, TILE, TileId, Verkleinern, ZurSonne,
+    corner_tiles, decode_webp, draw_list, encode_webp, gebiet_der_aenderungen, mit_relief, render,
+    render_area, render_area_with, streifenbreite, survey, survey_in, survey_mit_fortschritt,
+    world_box,
 };
 use heroic_map_renderer::world::biomzoom::{obfuscate_seed, zoom};
 use heroic_map_renderer::world::{BlockState, Blockdaten, Generator, REGION, World};
@@ -1130,6 +1131,7 @@ pub fn run() -> Result<()> {
                     args.cinematic.then_some(LOOK),
                     args.relief,
                     args.manifest,
+                    false,
                 )
             });
             // Eine Karte, die versagt hat, hängt womöglich noch: wgpu wartete
@@ -1882,8 +1884,16 @@ fn write_tiles(
     look: Option<Look>,
     relief: Option<Relief>,
     mit_manifest: bool,
+    huelle: bool,
 ) -> Result<()> {
     let beginn = Instant::now();
+    // Wie aufgerufen, für den zweiten Vorlauf mit `huelle`.
+    let aufruf = (world, resume, blend);
+    let zur_sonne = if huelle {
+        ZurSonne::Huelle
+    } else {
+        ZurSonne::Schritte(SCHRITT_ZUR_SONNE)
+    };
     let dir = &wurzel.join(baum_name(projection, look.is_some()));
     let bestand = lies_bestand(dir)?;
     let fest = rechteck(dir, bestand.as_ref(), world.bereich())?;
@@ -1992,7 +2002,7 @@ fn write_tiles(
                 &aenderungen,
                 look.as_ref(),
                 relief,
-                false,
+                zur_sonne,
             );
             // Was Läufe ohne neuen Stand zeichneten, zeichnet es noch einmal.
             let offen = lies_offen(dir, stufen)?;
@@ -2208,7 +2218,7 @@ fn write_tiles(
             &bleiben,
             look.as_ref(),
             relief,
-            false,
+            zur_sonne,
         );
         let weg = gebiet_der_aenderungen(
             projection,
@@ -2217,7 +2227,7 @@ fn write_tiles(
             &fehlen,
             look.as_ref(),
             relief,
-            false,
+            zur_sonne,
         );
         let dazu: Vec<TileId> = bestehend
             .iter()
@@ -2297,6 +2307,39 @@ fn write_tiles(
     melde_unbekannte_daten(&unbekannt);
     melde_fehlende_texturen(assets);
     melde_ueberhang(&sprites);
+
+    // Ragt ein Modell weiter, als der Weg des Schattens deckt, zeichnet das
+    // Update im Rechteck um alle Chunks, deren Strahlen die Änderung lesen,
+    // und liest die Welt dafür noch einmal. Bis hier hat der Lauf nichts
+    // geschrieben.
+    // Siehe docs/benutzung/updates.md, „Wo ein Update zeichnet“.
+    let ragt = sprites.ragt();
+    if matches!(bereich, Bereich::Update) && look.is_some() && !huelle && ragt > RAGT_HOECHSTENS {
+        println!(
+            "Update:     ein Modell ragt {ragt} Würfel weit, mehr als {RAGT_HOECHSTENS}: das Update \
+             zeichnet im Rechteck um die Strahlen zur Sonne und liest die Welt noch einmal"
+        );
+        drop(sprites);
+        let (world, resume, blend) = aufruf;
+        return write_tiles(
+            world,
+            assets,
+            projection,
+            bereich,
+            wurzeln,
+            wurzel,
+            native,
+            prune,
+            resume,
+            gpu,
+            blend,
+            kompakt,
+            look,
+            relief,
+            mit_manifest,
+            true,
+        );
+    }
 
     // Vor map.json, die sie nennt: wer den Baum schon während des Laufs
     // ansieht, findet sie mit der ersten Kachel.

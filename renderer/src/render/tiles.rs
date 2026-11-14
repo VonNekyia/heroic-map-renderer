@@ -486,9 +486,22 @@ fn zur_sonne(projection: Projection, look: &Look) -> [[i32; 2]; 2] {
 /// Siehe docs/benutzung/updates.md, „Wo ein Update zeichnet“.
 pub const RAGT_HOECHSTENS: i32 = 7;
 
-/// Wie viele Blöcke waagrecht ein Schritt entlang des Wegs zur Sonne
-/// vorrückt, siehe [`gebiet_der_aenderungen`].
-const SCHRITT_ZUR_SONNE: f64 = 4.0;
+/// Wie viele Blöcke waagrecht ein Schritt entlang des Wegs zur Sonne im
+/// Betrieb vorrückt, siehe [`ZurSonne::Schritte`].
+pub const SCHRITT_ZUR_SONNE: f64 = 4.0;
+
+/// Wie ein Update mit Cinematic den Weg des Schattens deckt, siehe
+/// [`gebiet_der_aenderungen`].
+#[derive(Clone, Copy, Debug)]
+pub enum ZurSonne {
+    /// In Schritten, die waagrecht so viele Blöcke vorrücken; im Betrieb
+    /// [`SCHRITT_ZUR_SONNE`].
+    Schritte(f64),
+    /// Das Rechteck um jeden Chunk, dessen Strahlen die Änderung lesen
+    /// ([`Reach::mit_sonne`] umgekehrt), für Modelle, die weiter als
+    /// [`RAGT_HOECHSTENS`] ragen.
+    Huelle,
+}
 
 /// Ein Schritt entlang des Wegs zur Sonne für die Strahlen, die durch einen
 /// Chunk laufen: Ihre Empfänger liegen bei Block − t · d für t im Schritt,
@@ -500,10 +513,10 @@ struct Schritt {
     sinkt: i32,
 }
 
-/// Die Schritte von t = 0 bis [`Look::sonne_weite`], je
-/// [`SCHRITT_ZUR_SONNE`] Blöcke waagrecht. Ein Schritt deckt jedes t
-/// zwischen seinem Anfang und dem nächsten.
-fn schritte_zur_sonne(projection: Projection, look: &Look) -> Vec<Schritt> {
+/// Die Schritte von t = 0 bis [`Look::sonne_weite`], je `schritt` Blöcke
+/// waagrecht. Ein Schritt deckt jedes t zwischen seinem Anfang und dem
+/// nächsten.
+fn schritte_zur_sonne(projection: Projection, look: &Look, schritt: f64) -> Vec<Schritt> {
     let d = look.sonne_im_blick(projection.kamera()).map(f64::from);
     let weite = f64::from(look.sonne_weite);
     let waagrecht = d[0].abs().max(d[2].abs());
@@ -514,7 +527,7 @@ fn schritte_zur_sonne(projection: Projection, look: &Look) -> Vec<Schritt> {
             sinkt: 0,
         }];
     }
-    let s = SCHRITT_ZUR_SONNE / waagrecht;
+    let s = schritt / waagrecht;
     let mut schritte = Vec::new();
     let mut t0 = 0.0;
     while t0 < weite {
@@ -546,11 +559,8 @@ fn schritte_zur_sonne(projection: Projection, look: &Look) -> Vec<Schritt> {
 ///
 /// Mit Cinematic dazu der Weg des Schattens: derselbe Kasten, in Schritten
 /// gegen die Richtung zur Sonne verschoben bis [`Look::sonne_weite`], und
-/// mit jedem Schritt so viel niedriger, wie der Strahl darin steigt. Dazu
-/// der Rand des Bloom auf jeder nativen Stufe. Mit `huelle` statt des Wegs
-/// das Rechteck um jeden Chunk, dessen Strahlen ihn lesen
-/// ([`Reach::mit_sonne`] umgekehrt), für Modelle, die weiter als
-/// [`RAGT_HOECHSTENS`] ragen.
+/// mit jedem Schritt so viel niedriger, wie der Strahl darin steigt
+/// ([`ZurSonne`]). Dazu der Rand des Bloom auf jeder nativen Stufe.
 /// Siehe docs/benutzung/updates.md, „Wo ein Update zeichnet“.
 pub fn gebiet_der_aenderungen(
     projection: Projection,
@@ -559,16 +569,16 @@ pub fn gebiet_der_aenderungen(
     aenderungen: &[Aenderung],
     look: Option<&Look>,
     relief: Option<Relief>,
-    huelle: bool,
+    weg: ZurSonne,
 ) -> Gebiet {
     let richtung = projection.richtung();
-    let [mut von, bis] = match look {
-        Some(look) if huelle => zur_sonne(projection, look),
-        _ => [[-1, -1], [1, 1]],
-    };
-    let schritte = match look {
-        Some(look) if !huelle => schritte_zur_sonne(projection, look),
-        _ => Vec::new(),
+    let ([mut von, bis], schritte) = match (look, weg) {
+        (Some(look), ZurSonne::Huelle) => (zur_sonne(projection, look), Vec::new()),
+        (Some(look), ZurSonne::Schritte(schritt)) => (
+            [[-1, -1], [1, 1]],
+            schritte_zur_sonne(projection, look, schritt),
+        ),
+        (None, _) => ([[-1, -1], [1, 1]], Vec::new()),
     };
     if let Some(relief) = relief {
         let n = relief.chunks_nach_suedosten();
@@ -1188,7 +1198,7 @@ mod tests {
                             &[aenderung],
                             None,
                             None,
-                            false,
+                            ZurSonne::Schritte(SCHRITT_ZUR_SONNE),
                         );
                         for x in chunk[0] * 16 - 16..chunk[0] * 16 + 32 {
                             for z in chunk[1] * 16 - 16..chunk[1] * 16 + 32 {
@@ -1224,8 +1234,11 @@ mod tests {
     /// 2 · [`RAGT_HOECHSTENS`] + 1 Blöcke daneben. Geprüft wird der Ring der
     /// Spalten am Rand, genau an der Kante des Kastens; jeder Kasten ist
     /// konvex, das Innere liegt darin. Bei scale 32, damit eine Kachel wenige
-    /// Blöcke deckt. Aus jeder Richtung dreier Kameras, auf der Basis und bei
-    /// drei Stufen. Die Grenze nach unten gilt nicht.
+    /// Blöcke deckt. Aus jeder Richtung dreier Kameras, mit dem Schritt des
+    /// Betriebs auf der Basis und bei drei Stufen, dazu mit Schritten zu 32
+    /// Blöcken auf der Basis: Dort überlappen benachbarte Kästen kaum, und
+    /// erst dort zeigt sich, dass Verbreiterung, letzter Schritt und sinkende
+    /// Kante halten. Die Grenze nach unten gilt nicht.
     /// Siehe docs/benutzung/updates.md, „Wo ein Update zeichnet“.
     #[test]
     fn gebiet_reicht_den_weg_des_schattens() {
@@ -1266,7 +1279,8 @@ mod tests {
                     projection.project_block(e)
                 };
                 let (ex, ey, ez) = (achse(0), achse(1), achse(2));
-                for stufen in [0, 3] {
+                for (schritt, stufen) in [(SCHRITT_ZUR_SONNE, 0), (SCHRITT_ZUR_SONNE, 3), (32.0, 0)]
+                {
                     let gebiet = gebiet_der_aenderungen(
                         projection,
                         stufen,
@@ -1274,7 +1288,7 @@ mod tests {
                         &[aenderung],
                         Some(&LOOK),
                         None,
-                        false,
+                        ZurSonne::Schritte(schritt),
                     );
                     let kacheln: HashSet<TileId> = gebiet.kacheln().iter().copied().collect();
                     let kante = f64::from(TILE << stufen);
@@ -1286,8 +1300,8 @@ mod tests {
                                     y + (ecke >> 1 & 1),
                                     z + (ecke >> 2),
                                 ]);
-                                for schritt in 0..=(2.0 * f64::from(LOOK.sonne_weite)) as i32 {
-                                    let t = f64::from(schritt) / 2.0;
+                                for halb in 0..=(2.0 * f64::from(LOOK.sonne_weite)) as i32 {
+                                    let t = f64::from(halb) / 2.0;
                                     let q = [0, 1, 2].map(|k| f64::from(p[k]) - t * d[k]);
                                     if q[1] < f64::from(dimension) {
                                         break;
@@ -1300,7 +1314,8 @@ mod tests {
                                     };
                                     assert!(
                                         kacheln.contains(&tile),
-                                        "{kamera:?} {name} {stufen} Stufen, Ecke {p:?}, t {t}"
+                                        "{kamera:?} {name}, Schritt {schritt}, {stufen} Stufen, \
+                                         Ecke {p:?}, t {t}"
                                     );
                                 }
                             }
@@ -1330,7 +1345,7 @@ mod tests {
             let projection =
                 Projection::mit_kamera(scale, kamera).aus(Richtung::parse(name, kamera).unwrap());
             for stufen in [0, 1] {
-                let zahl = |huelle| {
+                let zahl = |weg| {
                     gebiet_der_aenderungen(
                         projection,
                         stufen,
@@ -1338,13 +1353,18 @@ mod tests {
                         &[aenderung],
                         Some(&LOOK),
                         None,
-                        huelle,
+                        weg,
                     )
                     .kacheln()
                     .len()
                 };
-                let (weg, huelle) = (zahl(false), zahl(true));
-                eprintln!("{kamera:?} scale {scale}, {stufen} Stufen: {weg} statt {huelle} Kacheln");
+                let (weg, huelle) = (
+                    zahl(ZurSonne::Schritte(SCHRITT_ZUR_SONNE)),
+                    zahl(ZurSonne::Huelle),
+                );
+                eprintln!(
+                    "{kamera:?} scale {scale}, {stufen} Stufen: {weg} statt {huelle} Kacheln"
+                );
                 assert!(weg < huelle, "{kamera:?} {stufen}: {weg} gegen {huelle}");
             }
         }
@@ -1367,9 +1387,17 @@ mod tests {
         let schraeg = Projection::mit_kamera(16, Kamera::parse("2:1").unwrap())
             .aus(Richtung::parse("se", Kamera::parse("2:1").unwrap()).unwrap());
         let gebiet = |projection, unten, look, relief| {
-            gebiet_der_aenderungen(projection, 0, -64, &[aenderung(unten)], look, relief, false)
-                .kacheln()
-                .len()
+            gebiet_der_aenderungen(
+                projection,
+                0,
+                -64,
+                &[aenderung(unten)],
+                look,
+                relief,
+                ZurSonne::Schritte(SCHRITT_ZUR_SONNE),
+            )
+            .kacheln()
+            .len()
         };
         let voll = gebiet(schraeg, None, None, None);
         assert!(gebiet(schraeg, Some(40), None, None) < voll);
@@ -1408,8 +1436,17 @@ mod tests {
         };
         let projection = Projection::mit_kamera(32, Kamera::ObenNord)
             .aus(Richtung::parse("s", Kamera::ObenNord).unwrap());
-        let gebiet =
-            |relief| gebiet_der_aenderungen(projection, 0, -64, &[aenderung], None, relief, false);
+        let gebiet = |relief| {
+            gebiet_der_aenderungen(
+                projection,
+                0,
+                -64,
+                &[aenderung],
+                None,
+                relief,
+                ZurSonne::Schritte(SCHRITT_ZUR_SONNE),
+            )
+        };
         let schatten = gebiet(Some(Relief::Schatten));
         for x in chunk[0] * 16..chunk[0] * 16 + 16 + 32 {
             for z in chunk[1] * 16..chunk[1] * 16 + 16 + 32 {

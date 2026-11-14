@@ -5976,6 +5976,50 @@ fn mit_einem_block(x: i32, y: i32, z: i32) -> &'static str {
     }
 }
 
+/// Die Welt mit einem Block im Chunk (0, 0), dessen Modell um einen Punkt
+/// 24 Blöcke ausserhalb um 22,5° gedreht ist und so rund 10 Würfel weit
+/// ragt, vor und nach den Änderungen.
+fn mit_weitem_modell(x: i32, y: i32, z: i32) -> &'static str {
+    match (x, y, z) {
+        (6, 21, 6) => "minecraft:weit",
+        _ => mit_dach(x, y, z),
+    }
+}
+
+fn mit_weitem_modell_und_aenderungen(x: i32, y: i32, z: i32) -> &'static str {
+    match (x, y, z) {
+        (6, 21, 6) => "minecraft:weit",
+        _ => mit_aenderungen(x, y, z),
+    }
+}
+
+/// Ragt ein Modell weiter als 7 Würfel, zeichnet ein Update mit Cinematic
+/// im Rechteck um die Strahlen zur Sonne statt am Weg des Schattens, liest
+/// die Welt dafür noch einmal und sagt es. Danach gleicht der Baum einem
+/// vollen Lauf.
+/// Siehe docs/benutzung/updates.md, „Wo ein Update zeichnet“.
+#[test]
+fn update_mit_weit_ragendem_modell_nimmt_das_rechteck() {
+    let welt = tempdir();
+    baue_update_welt(welt.path(), mit_weitem_modell, &[], 1);
+    let extra = ["--scale", "16", "--cinematic"];
+    let baum = neuer_baum(&baum_name(&extra));
+    gelungen(&tiles(welt.path(), baum.path(), &extra));
+    baue_update_welt(
+        welt.path(),
+        mit_weitem_modell_und_aenderungen,
+        &UPDATE_CHUNKS,
+        2,
+    );
+    let update = [&extra[..], &["--update"]].concat();
+    let log = String::from_utf8_lossy(&gelungen(&tiles(welt.path(), baum.path(), &update)).stdout)
+        .into_owned();
+    assert!(log.contains("Würfel weit, mehr als 7"), "{log}");
+    let voll = neuer_baum(&baum_name(&extra));
+    gelungen(&tiles(welt.path(), voll.path(), &extra));
+    gleiche_baeume(baum.path(), voll.path(), "weit ragendes Modell");
+}
+
 /// Ein Lauf mit dem Testhaken `HEROIC_ABBRUCH`, siehe
 /// docs/entwicklung/tests.md, „Testhaken“.
 fn update_mit_abbruch(welt: &Path, baum: &Path, extra: &[&str], wann: &str) -> Output {
@@ -7418,7 +7462,10 @@ fn abbrueche_blaehen_das_naechste_update_nicht_auf() {
 /// - nur das Biom von (1, 0) ändert sich: Die Farbe auf einer hohen Säule
 ///   aus Gras in (0, 0) ändert sich mit;
 /// - mit Cinematic ein Turm in (0, 4): sein Schatten bis vier Chunks
-///   weiter, auch aus `nw` und aus `north-45`.
+///   weiter, auch aus `nw` und aus `north-45`;
+/// - mit Cinematic derselbe Turm vor einem Tal, und ein Block, dessen
+///   Schatten erst kurz vor `sonne_weite` den Boden des Tals trifft: Das
+///   Gebiet am Weg des Schattens reicht bis dorthin, auch tief unten.
 #[test]
 fn update_reicht_so_weit_wie_die_aenderung() {
     type Welt = fn(i32, i32, i32) -> &'static str;
@@ -7483,6 +7530,29 @@ fn update_reicht_so_weit_wie_die_aenderung() {
             _ => gelaende(x, y, z),
         }
     }
+    // Hinter dem Turm, wohin sein Schatten fällt, ein Tal mit dem Boden bei
+    // y = 1.
+    fn tal(x: i32, y: i32, z: i32) -> &'static str {
+        match (x, y, z) {
+            (16..64, 1.., ..64) => "minecraft:air",
+            (16..64, _, ..64) => "minecraft:blauwuerfel",
+            _ => gelaende(x, y, z),
+        }
+    }
+    fn turm_vor_dem_tal(x: i32, y: i32, z: i32) -> &'static str {
+        match (x, y, z) {
+            (5, ..120, 69) => "minecraft:einfarbig",
+            _ => tal(x, y, z),
+        }
+    }
+    // Ein Block bei y = 96: Sein Schatten trifft den Boden des Tals rund
+    // 127 Blöcke entlang des Strahls entfernt, kurz vor `sonne_weite`.
+    fn block_vor_der_weite(x: i32, y: i32, z: i32) -> &'static str {
+        match (x, y, z) {
+            (5, 96, 69) => "minecraft:einfarbig",
+            _ => tal(x, y, z),
+        }
+    }
     // Der Schatten fällt nach +x und −z.
     let schatten: Vec<(i32, i32)> = (0..=3).flat_map(|x| (0..=4).map(move |z| (x, z))).collect();
     let daten = common::biomdaten();
@@ -7498,7 +7568,7 @@ fn update_reicht_so_weit_wie_die_aenderung() {
         (i32, i32),
         &'a [&'a str],
     );
-    let faelle: [Fall; 8] = [
+    let faelle: [Fall; 10] = [
         (
             "Licht daneben",
             &UPDATE_CHUNKS,
@@ -7544,6 +7614,22 @@ fn update_reicht_so_weit_wie_die_aenderung() {
             &schatten,
             (gelaende, fertig, ohne_biom),
             (turm, fertig, ohne_biom),
+            (0, 4),
+            &["--scale", "12", "--cinematic"],
+        ),
+        (
+            "Schatten der Sonne ins Tal",
+            &schatten,
+            (tal, fertig, ohne_biom),
+            (turm_vor_dem_tal, fertig, ohne_biom),
+            (0, 4),
+            &["--scale", "12", "--cinematic"],
+        ),
+        (
+            "Schatten kurz vor der Weite",
+            &schatten,
+            (tal, fertig, ohne_biom),
+            (block_vor_der_weite, fertig, ohne_biom),
             (0, 4),
             &["--scale", "12", "--cinematic"],
         ),

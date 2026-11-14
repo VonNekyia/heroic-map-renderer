@@ -1595,10 +1595,23 @@ static int EncodeStreamHook(void* input, void* data2) {
                         !enc->use_predict;
     if (use_near_lossless) {
       if (!AllocateTransformBuffer(enc, width, height)) goto Error;
-      if ((enc->argb_content != kEncoderNearLossless) &&
-          !VP8ApplyNearLossless(picture, config->near_lossless, enc->argb)) {
-        WebPEncodingSetError(picture, VP8_ENC_ERROR_OUT_OF_MEMORY);
-        goto Error;
+      if (enc->argb_content != kEncoderNearLossless) {
+        if (!VP8ApplyNearLossless(picture, config->near_lossless, enc->argb)) {
+          WebPEncodingSetError(picture, VP8_ENC_ERROR_OUT_OF_MEMORY);
+          goto Error;
+        }
+        // heroic-map-renderer: With WEBP_HINT_GRAPH, alpha keeps every bit:
+        // near-lossless rounds only the colors.
+        if (config->image_hint == WEBP_HINT_GRAPH) {
+          int ix, iy;
+          for (iy = 0; iy < height; ++iy) {
+            const uint32_t* const src = picture->argb + iy * picture->argb_stride;
+            uint32_t* const dst = enc->argb + iy * width;
+            for (ix = 0; ix < width; ++ix) {
+              dst[ix] = (dst[ix] & 0x00ffffffu) | (src[ix] & 0xff000000u);
+            }
+          }
+        }
       }
       enc->argb_content = kEncoderNearLossless;
     } else {

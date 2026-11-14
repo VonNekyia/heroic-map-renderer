@@ -791,10 +791,25 @@ pub enum Packen {
     /// method 1 und quality 75, bei Bildern ohne Palette ohne räumliche
     /// Vorhersage: rund die Hälfte der Bytes für ein Mehrfaches der Zeit.
     Kompakt,
+    /// Wie kompakt, dazu near-lossless 60: libwebp rundet die Farbe von
+    /// Pixeln, die nicht glatt sind, Alpha bleibt Bit für Bit. Weiter VP8L.
+    /// Siehe docs/entscheidungen/0143-kacheln-je-baum-und-gebiet.md.
+    Nah60,
+    /// Wie [`Packen::Nah60`] mit near-lossless 40.
+    Nah40,
+    /// Verlustbehaftet: VP8 mit quality 90 und method 4, Alpha verlustfrei.
+    Verlust90,
 }
 
-/// Kodiert ein Bild als verlustfreies WebP mit libwebp, so gepackt wie
-/// `packen` sagt. `exact` behält die Farbe voll durchsichtiger Pixel, sonst
+impl Packen {
+    /// Ob die Pixel nach dem Dekodieren genau die gepackten sind.
+    pub fn verlustfrei(self) -> bool {
+        matches!(self, Packen::Schnell | Packen::Kompakt)
+    }
+}
+
+/// Kodiert ein Bild als WebP mit libwebp, so gepackt wie `packen` sagt,
+/// verlustfrei oder nicht. `exact` behält die Farbe voll durchsichtiger Pixel, sonst
 /// setzt libwebp sie auf 0. Eigene Threads braucht libwebp nicht, die
 /// Kacheln verteilt schon `rendere`.
 pub fn encode_webp(image: &RgbaImage, packen: Packen) -> Result<Vec<u8>> {
@@ -868,20 +883,36 @@ fn kodiere(image: &RgbaImage, packen: Packen) -> Result<Vec<u8>> {
     let mut out = Vec::new();
     bild.writer = Some(anhaengen);
     bild.custom_ptr = (&raw mut out).cast();
-    let stufe = match packen {
-        Packen::Schnell => 0,
-        Packen::Kompakt => 1,
+    let voreinstellung = match packen {
+        Packen::Verlust90 => {
+            config.lossless = 0;
+            config.quality = 90.0;
+            config.method = 4;
+            config.alpha_compression = 1;
+            config.alpha_quality = 100;
+            true
+        }
+        _ => {
+            let stufe = if packen == Packen::Schnell { 0 } else { 1 };
+            // SAFETY: `config` hat libwebp angelegt.
+            let gelungen = unsafe { webp::WebPConfigLosslessPreset(&mut config, stufe) != 0 };
+            // Ab quality 51 sucht libwebp Rückverweise in den letzten 256 statt
+            // 16 Zeilen, in einer Kachel also überall.
+            config.quality = 75.0;
+            if packen != Packen::Schnell {
+                // Mit dem Patch in vendor/libwebp-sys: ohne Palette nur
+                // „subtract green“, ohne räumliche Vorhersage, und Alpha
+                // bleibt unter near-lossless, wie es ist.
+                config.image_hint = webp::WebPImageHint::WEBP_HINT_GRAPH;
+            }
+            config.near_lossless = match packen {
+                Packen::Nah60 => 60,
+                Packen::Nah40 => 40,
+                _ => 100,
+            };
+            gelungen
+        }
     };
-    // SAFETY: `config` hat libwebp angelegt.
-    let voreinstellung = unsafe { webp::WebPConfigLosslessPreset(&mut config, stufe) != 0 };
-    // Ab quality 51 sucht libwebp Rückverweise in den letzten 256 statt
-    // 16 Zeilen, in einer Kachel also überall.
-    config.quality = 75.0;
-    if packen == Packen::Kompakt {
-        // Mit dem Patch in vendor/libwebp-sys: ohne Palette nur „subtract
-        // green“, ohne räumliche Vorhersage.
-        config.image_hint = webp::WebPImageHint::WEBP_HINT_GRAPH;
-    }
     // SAFETY: `config` und `bild` hat libwebp angelegt, `image` hat
     // `4 * width` Bytes je Zeile, und `custom_ptr` zeigt auf `out`, das
     // bis nach `WebPPictureFree` an seinem Platz bleibt.

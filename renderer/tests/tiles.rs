@@ -593,6 +593,69 @@ fn kompakt_bleibt_verlustfrei() {
     }
 }
 
+/// Ein Bild, in dem kaum ein Pixel glatt ist, mit mehr als 256 Farben, mit
+/// Kanälen bei 0 und 255 und Alpha von 0 über halb bis 255.
+fn rauschen() -> RgbaImage {
+    RgbaImage::from_fn(TILE, TILE, |x, y| {
+        let h =
+            (x.wrapping_mul(2_654_435_761) ^ y.wrapping_mul(40_503)).wrapping_mul(2_246_822_519);
+        let k = |s: u32| match (h >> s) & 7 {
+            0 => 0,
+            1 => 255,
+            _ => ((h >> (s + 3)) & 0xff) as u8,
+        };
+        let a = match (h >> 28) & 3 {
+            0 => 0,
+            1 => 100 + ((h >> 20) & 0x7f) as u8,
+            _ => 255,
+        };
+        image::Rgba([k(0), k(8), k(16), a])
+    })
+}
+
+/// Near-lossless 60 und 40 bleiben VP8L und runden nur die Farbe: Alpha
+/// bleibt Bit für Bit, ein Kanal bei 255 bleibt 255 und einer bei 0 bleibt 0,
+/// und kein Kanal weicht weiter ab als 2 und 4 Stufen. Der Mod nimmt den
+/// Rest des Reliefs nur, wo ein Kanal genau 255 ist; die Grundschicht der
+/// Karte zeigt nur Alpha 255.
+/// Siehe docs/entscheidungen/0143-kacheln-je-baum-und-gebiet.md.
+#[test]
+fn nah_verlustfrei_haelt_alpha_und_die_enden() {
+    let bild = rauschen();
+    for (packen, grenze) in [(Packen::Nah60, 2), (Packen::Nah40, 4)] {
+        let daten = encode_webp(&bild, packen).unwrap();
+        assert_eq!(&daten[12..16], b"VP8L", "{packen:?}");
+        let zurueck = decode_webp(&daten, (TILE, TILE)).unwrap();
+        let mut gerundet = 0;
+        for (vorher, nachher) in bild.pixels().zip(zurueck.pixels()) {
+            assert_eq!(vorher[3], nachher[3], "{packen:?}: Alpha");
+            for k in 0..3 {
+                let (v, n) = (vorher[k], nachher[k]);
+                if v == 255 || v == 0 {
+                    assert_eq!(n, v, "{packen:?}: Ende {v}");
+                }
+                assert!(v.abs_diff(n) <= grenze, "{packen:?}: {v} -> {n}");
+                gerundet += usize::from(v != n);
+            }
+        }
+        assert!(gerundet > 0, "{packen:?}: nichts gerundet");
+    }
+}
+
+/// Verlustbehaftet 90 packt als VP8 mit eigenem Alpha, und Alpha bleibt
+/// Bit für Bit.
+/// Siehe docs/entscheidungen/0143-kacheln-je-baum-und-gebiet.md.
+#[test]
+fn verlust_90_haelt_alpha() {
+    let bild = rauschen();
+    let daten = encode_webp(&bild, Packen::Verlust90).unwrap();
+    assert_eq!(&daten[12..16], b"VP8X");
+    let zurueck = decode_webp(&daten, (TILE, TILE)).unwrap();
+    for (vorher, nachher) in bild.pixels().zip(zurueck.pixels()) {
+        assert_eq!(vorher[3], nachher[3], "Alpha");
+    }
+}
+
 /// Zweimal dasselbe rendern muss zweimal dasselbe ergeben — sonst wären
 /// die Kacheln eines parallelen Laufs nicht reproduzierbar.
 #[test]

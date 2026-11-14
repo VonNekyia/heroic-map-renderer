@@ -38,7 +38,8 @@ Abweichung der Pixel und die Summe „wie gewählt“ sind danach gerechnet.
   - **Nichts ist gerendert.** Jede Kachel ist aus der verlustfreien Kachel
     derselben Stufe neu gepackt, auch auf den gröberen Stufen. Was
     geschieht, wenn Eltern aus schon geänderten Kindern entstehen, misst
-    die Seite nicht.
+    [Verlust je Stufe der Pyramide](2026-11-14-verlust-je-stufe-der-pyramide.md)
+    an der Testwelt.
 - **Bezug:** kompakt verlustfrei, wie `kodiere` mit `Packen::Kompakt` in
   [`tiles.rs`](../../renderer/src/render/tiles.rs). Der Baum von oben liegt
   so vor. Der iso-Baum ist ohne `--compact` gerendert; für den Bezug ist er

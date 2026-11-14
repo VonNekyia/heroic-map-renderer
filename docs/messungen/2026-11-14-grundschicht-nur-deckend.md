@@ -27,6 +27,10 @@ diesen Bedingungen aus und sagt nichts über eine echte Grafikkarte.
 - **Reihe 2, Leinwand:** „mit“ ist `48732feb`, die Grundschicht als `Grund`.
   „ohne“ ist derselbe Stand mit `new Kacheln(` statt `new Grund(`, also die
   Grundschicht als `img` wie vor 0141.
+  In `48732feb` liest die Leinwand ihre Pixel einmal zurück und schwellt sie.
+  Der endgültige Stand malt stattdessen zwölfmal mit `destination-in`, siehe
+  0141. Das unterscheidet sich nur im einmaligen Schritt je Kachel; was je
+  Bild gezeichnet wird, ist dasselbe.
 - **Sonst wie** [Grundschicht beim Zeichnen](2026-11-04-grundschicht-zeichnen.md):
   die Testwelt, Baum iso 4:3 aus Südost mit `cinematic`, scale 24; ein
   kleiner Node-Server des Frontends liefert Build und Kacheln von der Platte;

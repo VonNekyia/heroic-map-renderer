@@ -560,23 +560,23 @@ type Leinwand = HTMLCanvasElement & { bild: HTMLImageElement };
 /** Das Bild, das die Anfrage einer Kachel trägt: die Kachel selbst oder das Bild hinter ihrer Leinwand. */
 const quelle = (el: HTMLElement): HTMLImageElement => (el as Partial<Leinwand>).bild ?? (el as HTMLImageElement);
 
+/** So oft malt `nurDeckend` die Leinwand auf sich selbst; 11 bringen Alpha 254 auf 0, einer ist Reserve. */
+const DURCHGAENGE = 12;
+
 /**
  * Malt das geladene Bild auf seine Leinwand und lässt nur Pixel mit Alpha
- * 255 stehen, einmal je Kachel. Wirft das Lesen der Pixel, bleibt das Bild
- * ungeschwellt stehen, nie leer. Siehe docs/entscheidungen/0141-grundschicht-nur-deckend.md.
+ * 255 stehen, einmal je Kachel: Mit `destination-in` auf sich selbst wird
+ * Alpha a je Durchgang zu a² / 255, 255 bleibt. Die Pixel werden nicht
+ * zurückgelesen, denn mit Schutz vor Fingerabdrücken liefert der Browser
+ * dabei Rauschen. Siehe docs/entscheidungen/0141-grundschicht-nur-deckend.md.
  */
 function nurDeckend(leinwand: Leinwand): void {
   const { bild } = leinwand;
   [leinwand.width, leinwand.height] = [bild.naturalWidth, bild.naturalHeight];
   const ctx = leinwand.getContext('2d')!;
   ctx.drawImage(bild, 0, 0);
-  try {
-    const pixel = ctx.getImageData(0, 0, leinwand.width, leinwand.height);
-    for (let i = 3; i < pixel.data.length; i += 4) if (pixel.data[i]! < 255) pixel.data[i] = 0;
-    ctx.putImageData(pixel, 0, 0);
-  } catch {
-    // Fremde Herkunft: Die Pixel sind nicht lesbar, das Bild steht schon da.
-  }
+  ctx.globalCompositeOperation = 'destination-in';
+  for (let i = 0; i < DURCHGAENGE; i++) ctx.drawImage(leinwand, 0, 0);
 }
 
 /**

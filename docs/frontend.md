@@ -198,9 +198,11 @@ laden; statt des Grunds der Karte sieht man dort die Gegend unscharf.
   [Grundschicht beim Zeichnen](messungen/2026-11-04-grundschicht-zeichnen.md).
 - **Nur deckende Pixel:** Die Grundschicht zeigt Leinwände, `Grund` in
   `main.ts`. Einmal nach dem Laden malt `nurDeckend` das Bild darauf und
-  setzt Alpha unter 255 auf 0. Sonst ragten am Rand der Welt ihre halb
-  gedeckten Pixel als Saum unter den feinen Kacheln heraus. Beim Laden endet sie dort bis zu einem groben Pixel innerhalb der
-  Kante; mitten in der Welt bleibt sie unverändert. Siehe
+  dann die Leinwand zwölfmal mit `destination-in` auf sich selbst; so wird
+  jedes Alpha unter 255 zu 0, ohne die Pixel zurückzulesen. Sonst ragten am
+  Rand der Welt halb gedeckte Pixel als Saum unter den feinen Kacheln
+  heraus. Beim Laden endet die Grundschicht dort bis zu einem groben Pixel
+  innerhalb der Kante; mitten in der Welt bleibt sie unverändert. Siehe
   [0141](entscheidungen/0141-grundschicht-nur-deckend.md).
 - **Kein Rand:** Weder die Grundschicht noch die feinen Kacheln laden über
   das Fenster hinaus. Ein Rand der feinen Kacheln ist gemessen und

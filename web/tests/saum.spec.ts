@@ -14,13 +14,20 @@ const FEIN = 3;
 const SEITE = 256 * 2 ** FEIN;
 
 /**
+ * Ein Pixel der feinsten Stufe mitten in der Welt mit Alpha 128: Drei Stufen
+ * gröber hat es Alpha 254, der härteste Fall für die Schwelle.
+ */
+const FAST = { x: 990, y: 980, alpha: 128 };
+
+/**
  * Alpha je Stufe wie `renderer/src/render/pyramid.rs`: auf der feinsten
- * 255 in der Welt und 0 ausserhalb, darüber der Mittelwert von 2 × 2,
- * aufgerundet.
+ * 255 in der Welt und 0 ausserhalb, bei `FAST` 128, darüber der Mittelwert
+ * von 2 × 2, aufgerundet.
  */
 function stufen(drinnen: (x: number, y: number) => boolean): Uint8Array[] {
   const fein = new Uint8Array(SEITE * SEITE);
   for (let y = 0; y < SEITE; y++) for (let x = 0; x < SEITE; x++) fein[y * SEITE + x] = drinnen(x, y) ? 255 : 0;
+  fein[FAST.y * SEITE + FAST.x] = FAST.alpha;
   const alle = [fein];
   for (let s = SEITE / 2; s >= 256; s /= 2) {
     const vorher = alle[0]!;
@@ -43,6 +50,7 @@ function stufen(drinnen: (x: number, y: number) => boolean): Uint8Array[] {
  */
 async function szene(page: Page, drinnen: (x: number, y: number) => boolean, halten = false): Promise<void> {
   const alpha = stufen(drinnen);
+  expect(alpha[0]![(FAST.y >> FEIN) * 256 + (FAST.x >> FEIN)], 'Alpha 254 in der Grundschicht').toBe(254);
   await page.route('**/tiles-saum/map.json', (route) =>
     route.fulfill({ json: { tileSize: 256, scale: 16, minZoom: 0, maxZoom: FEIN, tiles: '{z}/{x}/{y}.png', bounds: [0, 0, SEITE, SEITE] } }),
   );
@@ -136,3 +144,18 @@ for (const [art, drinnen] of RAENDER) {
     expect(zahl.get(WELT.join())!).toBeGreaterThan(10_000);
   });
 }
+
+test('nach 0141 bleibt das Bild am Rand der Welt gleich, auch wenn Zurücklesen Zufall liefert wie mit Schutz vor Fingerabdrücken', async ({ page }) => {
+  await page.addInitScript(() => {
+    CanvasRenderingContext2D.prototype.getImageData = function (_x: number, _y: number, b: number, h: number) {
+      const d = new ImageData(b, h);
+      for (let i = 0; i < d.data.length; i++) d.data[i] = Math.floor(Math.random() * 256);
+      return d;
+    };
+  });
+  await szene(page, RAENDER[0]![1]);
+  await ruhig(page);
+  const mit = await farben(page);
+  await page.locator('.grund').evaluate((e) => void (e.style.visibility = 'hidden'));
+  expect(mit.bild.equals((await farben(page)).bild), 'die Grundschicht zeigt, was das Zurücklesen liefert').toBe(true);
+});

@@ -51,10 +51,24 @@ der groben Pixel, entsteht derselbe Saum als gerade Stufe.
   Unterklasse von `Kacheln`. `createTile` legt eine Leinwand an und lädt das
   Bild dahinter wie `L.TileLayer`; die Leinwand trägt es als `bild`.
 - **Einmal nach dem Laden** malt `nurDeckend` das Bild auf die Leinwand, in
-  seiner eigenen Grösse, meist 256 × 256, und setzt jedes Alpha unter 255
-  auf 0. Erst dann meldet die Kachel sich bei Leaflet fertig. Beim Zeichnen
-  kostet es danach nichts mehr; vergrössert wird die Leinwand wie ein Bild,
-  mit `image-rendering: pixelated` über `.leaflet-tile`.
+  seiner eigenen Grösse, meist 256 × 256. Dann malt es die Leinwand
+  `DURCHGAENGE` mal, 12, mit `globalCompositeOperation = 'destination-in'`
+  auf sich selbst. Erst dann meldet die Kachel sich bei Leaflet fertig. Beim
+  Zeichnen kostet es danach nichts mehr; vergrössert wird die Leinwand wie
+  ein Bild, mit `image-rendering: pixelated` über `.leaflet-tile`.
+- **Warum 12:** `destination-in` behält die Farbe des Ziels und multipliziert
+  Alpha mit dem der Quelle. Mit sich selbst wird Alpha a also je Durchgang zu
+  a² / 255, in 8 Bit gerundet. 255 bleibt 255. Der höchste Wert darunter,
+  254, fällt so: 253, 251, 247, 239, 224, 197, 152, 91, 32, 4, 0. Nach 11
+  Durchgängen ist er 0, der zwölfte ist Reserve gegen anderes Runden. Mit 10
+  bleibt im Test ein Rest, die Gegenprobe ist rot.
+- **Kein Zurücklesen der Pixel:** Mit Schutz vor Fingerabdrücken liefert
+  `getImageData` nicht das Bild, und es wirft dabei nicht. Firefox mit
+  `privacy.resistFingerprinting` gibt Zufallsdaten zurück, Mozilla Support,
+  „Resist Fingerprinting“, und Bugzilla 1663586. Brave und Safari legen
+  Rauschen darauf. Schriebe `putImageData` das zurück, stünden ausserhalb der
+  Welt dauerhaft Zufallsfarben, und in der Welt fielen Pixel weg, deren Alpha
+  von 255 auf 254 kippt. Malen liest nichts zurück.
 - **Abbrechen bleibt, wie es ist:** `Kacheln` nimmt dem Bild hinter der
   Leinwand das `src` und beendet so die Anfrage, `quelle` in `main.ts`.
 - Die feinen Kacheln bleiben `img`.
@@ -75,11 +89,8 @@ haben.
 
 ## Rückfall
 
-Wirft das Lesen der Pixel, bleibt das Bild auf der Leinwand ungeschwellt
-stehen, nie leer: `nurDeckend` malt es zuerst und liest erst danach. Werfen
-kann `getImageData` nur bei einem Bild fremder Herkunft. Unter der
-Content-Security-Policy des Builds, `default-src 'self'`, lädt die Seite keine
-Bilder von anderswo, der Fall tritt dort also nicht ein und hat keinen Test.
+`nurDeckend` liest nichts und kann darum nicht werfen; Malen geht auch auf
+einer Leinwand mit Bildern fremder Herkunft.
 
 ## Verworfene Alternativen
 
@@ -90,6 +101,10 @@ Bilder von anderswo, der Fall tritt dort also nicht ein und hat keinen Test.
   Zoomen von 1–3 auf 7–16, siehe
   [Grundschicht nur deckend](../messungen/2026-11-14-grundschicht-nur-deckend.md).
   Das Zoomen war gerade erst die Beschwerde des Users.
+- **Die Pixel zurücklesen und schwellen,** `getImageData` und
+  `putImageData`, so am Stand `48732feb`: falsch mit Schutz vor
+  Fingerabdrücken, siehe „Entscheidung“.
+- **`ctx.filter`** auf der Leinwand: fehlt in Safari.
 - **Die Grundschicht ausblenden, sobald die feinen Kacheln geladen sind,**
   über `load` und `loading`:
   - Leaflet feuert `load`, bevor `fadeAnimation` die Kacheln ganz
@@ -107,17 +122,26 @@ Bilder von anderswo, der Fall tritt dort also nicht ein und hat keinen Test.
 
 ## Folgen
 
-- Je Kachel der Grundschicht einmal Malen, Lesen und Schreiben von meist
-  256 × 256 Pixeln und eine Leinwand von 256 KiB.
+- Je Kachel der Grundschicht einmal 13 Malvorgänge von meist 256 × 256
+  Pixeln und eine Leinwand von 256 KiB.
+- **Gemessen** ist das Zeichnen je Bild an `48732feb`, der Leinwand mit
+  Zurücklesen, siehe
+  [Grundschicht nur deckend](../messungen/2026-11-14-grundschicht-nur-deckend.md).
+  Der endgültige Stand unterscheidet sich nur im einmaligen Schritt je
+  Kachel; was je Bild gezeichnet wird, ist dasselbe.
 - **Tests:** `web/tests/saum.spec.ts` baut eine Welt in einer Farbe, deren
   Rand nicht auf dem Raster der groben Pixel liegt, schräg wie im iso und
   gerade wie in 2D, mit Alpha wie `pyramid.rs`.
-  - Nach dem Laden ist der Ausschnitt mit Grundschicht pixelgleich dem ohne.
+  - Ein Pixel mitten in der Welt hat fein Alpha 128 und in der Grundschicht
+    254, der härteste Fall.
+  - Nach dem Laden ist der Ausschnitt mit Grundschicht pixelgleich dem ohne,
+    auch wenn `getImageData` Zufall liefert.
   - Beim Laden zeigt er nur die Farbe der Welt, unverändert, und den Grund
     der Karte, keine Mischung.
   - `smoke.spec.ts`: Zoomen bricht auch laufende Kacheln der Grundschicht ab.
-  - Gegenproben: ohne Schwelle, Schwelle bei 0, Leinwand nicht gezeigt,
-    Abbruch an der Leinwand statt am Bild.
+  - Gegenproben: 10 statt 12 Durchgänge, ohne `destination-in`, mit
+    Zurücklesen, Leinwand nicht gezeigt, Abbruch an der Leinwand statt am
+    Bild.
 - **Nicht belegt:**
   - Wie die Leinwände auf einer echten Grafikkarte beim Zoomen laufen. Das
     zeigt erst der Spiegel.

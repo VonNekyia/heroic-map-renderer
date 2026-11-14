@@ -1,20 +1,20 @@
 ---
 title: "0141: Die Grundschicht zeigt nur deckende Pixel"
-description: Warum die Grundschicht der Webkarte über einen Filter nur Pixel zeigt, die voll decken, statt nach dem Laden der feinen Kacheln ausgeblendet zu werden; der Saum am Rand der Welt, was der Besucher beim Laden sieht, der Rückfall ohne Filter, und was verworfen ist.
+description: Warum die Grundschicht der Webkarte ihre Kacheln einmal nach dem Laden auf eine Leinwand malt und dort nur Pixel stehen lässt, die voll decken, statt nach dem Laden der feinen Kacheln ausgeblendet zu werden oder einen Filter je Bild zu rechnen; der Saum am Rand der Welt, was der Besucher beim Laden sieht, der Rückfall, und was verworfen ist.
 status: gilt
-date: 2026-11-13
+date: 2026-11-14
 issues: []
 code:
-  - web/index.html
-  - web/src/style.css
+  - web/src/main.ts
 ---
 
 # 0141: Die Grundschicht zeigt nur deckende Pixel
 
-Die [Grundschicht](../frontend.md) zeigt nur noch Pixel mit Alpha 255. Ein
-halb gedecktes Pixel ragte am Rand der Welt als gezackter Saum unter den
-feinen Kacheln heraus. Die Regeln im Einzelnen stehen in
-[Frontend](../frontend.md), „Grundschicht“.
+Die [Grundschicht](../frontend.md) zeigt nur noch Pixel mit Alpha 255: Jede
+ihrer Kacheln kommt einmal nach dem Laden auf eine Leinwand, und dort wird
+jedes Alpha unter 255 zu 0. Ein halb gedecktes Pixel ragte am Rand der Welt
+als gezackter Saum unter den feinen Kacheln heraus. Die Regeln im Einzelnen
+stehen in [Frontend](../frontend.md), „Grundschicht“.
 
 ## Anlass
 
@@ -32,10 +32,13 @@ unter der feinsten:
 
 ## Ursache
 
-`renderer/src/render/pyramid.rs` mittelt Alpha je 2 × 2 und rundet auf. Ein
-Pixel der Grundschicht, drei Stufen gröber, deckt 8 × 8 Pixel der feinen
-Kacheln und hat nur dann Alpha 255, wenn alle 64 darunter voll decken. Jedes
-Pixel, das über den Rand der Welt reicht, ist also halb durchsichtig. Wo die
+`renderer/src/render/pyramid.rs` mittelt Alpha je 2 × 2 und rundet auf,
+`alpha.div_ceil(4)`. Ein Pixel der Grundschicht, drei Stufen gröber, deckt
+8 × 8 Pixel der feinen Kacheln. Wo die feinste Stufe nur Alpha 0 oder 255
+hat, hat es nur dann Alpha 255, wenn alle 64 darunter voll decken. Mit Werten
+dazwischen genügt fast voll: Je 2 × 2 ergibt schon eine Summe ab 1017 wieder
+255, etwa 255, 255, 255 und 252. Am Rand der Welt grenzen Alpha 255 und 0
+aneinander, jedes Pixel, das über ihn reicht, ist also halb durchsichtig. Wo die
 feine Kachel durchsichtig ist, scheint es durch, gemischt mit dem Grund der
 Karte. Das ist der Saum, und darum hat er einen anderen Ton.
 
@@ -44,17 +47,17 @@ der groben Pixel, entsteht derselbe Saum als gerade Stufe.
 
 ## Entscheidung
 
-- **Ein Filter auf jeder Kachel der Grundschicht:** `feComponentTransfer`
-  mit `feFuncA type="linear" slope="255" intercept="-254"`. Alpha 255 bleibt
-  255, alles darunter wird 0.
-- **`color-interpolation-filters="sRGB"`:** Sonst rechnet der Browser die
-  Farben über `linearRGB` hin und zurück, und mitten in der Welt weichen sie
-  um eine Stufe ab.
-- **Wo:** Der Filter steht als Element in `web/index.html`, die Regel
-  `.grund .leaflet-tile { filter: url(#nur-deckend) }` in
-  `web/src/style.css`. Keine Ereignisse, kein Zeitgeber, kein Eingriff in
-  Leaflet. Die Content-Security-Policy bleibt, wie sie ist: Der Filter ist
-  kein `<style>`.
+- **Die Grundschicht zeigt Leinwände,** `Grund` in `web/src/main.ts`, eine
+  Unterklasse von `Kacheln`. `createTile` legt eine Leinwand an und lädt das
+  Bild dahinter wie `L.TileLayer`; die Leinwand trägt es als `bild`.
+- **Einmal nach dem Laden** malt `nurDeckend` das Bild auf die Leinwand, in
+  seiner eigenen Grösse, meist 256 × 256, und setzt jedes Alpha unter 255
+  auf 0. Erst dann meldet die Kachel sich bei Leaflet fertig. Beim Zeichnen
+  kostet es danach nichts mehr; vergrössert wird die Leinwand wie ein Bild,
+  mit `image-rendering: pixelated` über `.leaflet-tile`.
+- **Abbrechen bleibt, wie es ist:** `Kacheln` nimmt dem Bild hinter der
+  Leinwand das `src` und beendet so die Anfrage, `quelle` in `main.ts`.
+- Die feinen Kacheln bleiben `img`.
 
 ## Was der Besucher sieht
 
@@ -66,21 +69,27 @@ der groben Pixel, entsteht derselbe Saum als gerade Stufe.
 
 Wo die feinen Kacheln selbst halb durchsichtig sind, etwa Glas vor dem
 Himmel, scheint nur noch ein voll deckendes Pixel der Grundschicht durch.
-Das liegt näher am Bild ohne Grundschicht als bisher.
+Das liegt näher am Bild ohne Grundschicht als bisher, ist aber nicht
+pixelgleich: Wegen des Aufrundens kann dort ein grobes Pixel Alpha 255
+haben.
 
 ## Rückfall
 
-Kann ein Browser den Filter nicht, gilt die Regel nicht, und die Grundschicht
-zeigt alles wie vor 0141, nie eine leere Schicht:
-
-- Ein Wert von `filter`, den der Browser nicht versteht, verwirft er beim
-  Lesen der Regel, CSS Syntax.
-- Das Element mit `id="nur-deckend"` steht fest in `index.html`, vor dem
-  Skript. Ein Verweis ins Leere kann also nur durch einen Fehler im Code
-  entstehen, und den fängt der Test.
+Wirft das Lesen der Pixel, bleibt das Bild auf der Leinwand ungeschwellt
+stehen, nie leer: `nurDeckend` malt es zuerst und liest erst danach. Werfen
+kann `getImageData` nur bei einem Bild fremder Herkunft. Unter der
+Content-Security-Policy des Builds, `default-src 'self'`, lädt die Seite keine
+Bilder von anderswo, der Fall tritt dort also nicht ein und hat keinen Test.
 
 ## Verworfene Alternativen
 
+- **Ein Filter je Bild,** `feComponentTransfer` mit `feFuncA` auf
+  `.grund .leaflet-tile`: dieselbe Wirkung, aber der Browser rechnet ihn bei
+  jedem Bild. Unter Software-Raster kamen beim Ziehen und Zoomen in allen
+  drei Paaren 5–8 % weniger Bilder, und die Bilder über 50 ms stiegen beim
+  Zoomen von 1–3 auf 7–16, siehe
+  [Grundschicht nur deckend](../messungen/2026-11-14-grundschicht-nur-deckend.md).
+  Das Zoomen war gerade erst die Beschwerde des Users.
 - **Die Grundschicht ausblenden, sobald die feinen Kacheln geladen sind,**
   über `load` und `loading`:
   - Leaflet feuert `load`, bevor `fadeAnimation` die Kacheln ganz
@@ -90,20 +99,26 @@ zeigt alles wie vor 0141, nie eine leere Schicht:
     beim Ziehen für diese Zeit schwarz, obwohl die grobe Kachel meist schon
     geladen ist.
   - Ohne Verzögerung blitzt der Saum bei jedem Schritt am Rand auf.
+- **Den Filter nur in Ruhe:** Dann blitzte der Saum genau beim Ziehen und
+  Zoomen auf.
 - **Randpixel der Pyramide im Renderer wegnehmen:** Das hiesse einen neuen
   Zeichenstand, und in Welten mit Leere fielen kleine Inseln aus allen
   groben Stufen, nicht nur aus der Grundschicht.
 
 ## Folgen
 
-- Je Kachel der Grundschicht ein Filter beim Zeichnen.
+- Je Kachel der Grundschicht einmal Malen, Lesen und Schreiben von meist
+  256 × 256 Pixeln und eine Leinwand von 256 KiB.
 - **Tests:** `web/tests/saum.spec.ts` baut eine Welt in einer Farbe, deren
   Rand nicht auf dem Raster der groben Pixel liegt, schräg wie im iso und
   gerade wie in 2D, mit Alpha wie `pyramid.rs`.
   - Nach dem Laden ist der Ausschnitt mit Grundschicht pixelgleich dem ohne.
   - Beim Laden zeigt er nur die Farbe der Welt, unverändert, und den Grund
     der Karte, keine Mischung.
-  - Gegenproben: Filter weg, `intercept` 0, ohne `sRGB`.
-- **Nicht belegt:** ob die Schicht mit Filter auf einer echten Grafikkarte
-  in der Zoom-Animation als Ebene läuft oder je Bild neu gezeichnet wird. Das
-  zeigt erst der Spiegel.
+  - `smoke.spec.ts`: Zoomen bricht auch laufende Kacheln der Grundschicht ab.
+  - Gegenproben: ohne Schwelle, Schwelle bei 0, Leinwand nicht gezeigt,
+    Abbruch an der Leinwand statt am Bild.
+- **Nicht belegt:**
+  - Wie die Leinwände auf einer echten Grafikkarte beim Zoomen laufen. Das
+    zeigt erst der Spiegel.
+  - Firefox und WebKit: Alle Projekte von Playwright laufen in Chromium.

@@ -89,13 +89,13 @@ async function farben(page: Page): Promise<{ bild: Buffer; zahl: Map<string, num
 /** Bis alle Kacheln geladen und eingeblendet sind und kein Zoom läuft. */
 async function ruhig(page: Page): Promise<void> {
   await expect(page.locator('.kacheln img.leaflet-tile-loaded').first()).toBeVisible();
-  await expect(page.locator('.grund img.leaflet-tile-loaded').first()).toBeVisible();
+  await expect(page.locator('.grund .leaflet-tile-loaded').first()).toBeVisible();
   await expect
     .poll(() =>
       page.evaluate(
         () =>
           !document.querySelector('.leaflet-zoom-anim') &&
-          [...document.querySelectorAll<HTMLImageElement>('.leaflet-tile')].every((i) => i.complete && getComputedStyle(i).opacity === '1'),
+          [...document.querySelectorAll('.leaflet-tile')].every((i) => i.classList.contains('leaflet-tile-loaded') && getComputedStyle(i).opacity === '1'),
       ),
     )
     .toBe(true);
@@ -121,7 +121,7 @@ for (const [art, drinnen] of RAENDER) {
 
   test(`nach 0141 zeigt die Grundschicht beim Laden mitten in der Welt ihre Farbe und am Rand keinen Saum, ${art}`, async ({ page }) => {
     await szene(page, drinnen, true);
-    await expect(page.locator('.grund img.leaflet-tile-loaded').first()).toBeVisible();
+    await expect(page.locator('.grund .leaflet-tile-loaded').first()).toBeVisible();
     await expect(page.locator('.kacheln img.leaflet-tile-loaded')).toHaveCount(0);
     await expect
       .poll(() =>

@@ -235,7 +235,30 @@ test('Zoomen bricht laufende Kacheln ab, ohne die CSP zu verletzen; eine abgebro
 
 /** Die Stufen der geladenen Kacheln einer Ebene, `.grund` oder `.kacheln`. */
 const stufenIn = (page: Page, ebene: string) =>
-  page.locator(`${ebene} img.leaflet-tile-loaded`).evaluateAll((l) => [...new Set(l.map((i) => Number(/\/tiles-demo\/(\d+)\//.exec((i as HTMLImageElement).src)![1])))].sort());
+  page
+    .locator(`${ebene} .leaflet-tile-loaded`)
+    // Die Grundschicht zeigt Leinwände; die Adresse steht am Bild dahinter.
+    .evaluateAll((l) => [...new Set(l.map((i) => Number(/\/tiles-demo\/(\d+)\//.exec(((i as { bild?: HTMLImageElement }).bild ?? (i as HTMLImageElement)).src)![1])))].sort());
+
+test('Zoomen bricht auch laufende Kacheln der Grundschicht ab, hinter ihrer Leinwand', async ({ page }) => {
+  // Zwei Stufen über der feinsten lädt nur die Grundschicht Stufe 1; sie hängt, bis der Test sie freigibt.
+  const haengend: (() => void)[] = [];
+  await page.route('**/tiles-demo/1/*/*.webp', async (route) => {
+    await new Promise<void>((weiter) => haengend.push(weiter));
+    await route.fulfill({ response: await route.fetch() }).catch(() => undefined);
+  });
+  const abgebrochen: string[] = [];
+  page.on('requestfailed', (r) => abgebrochen.push(r.url()));
+  await page.goto(`${DEMO}&at=20,0,-20&zoom=2`);
+  await expect.poll(() => haengend.length).toBeGreaterThan(0);
+  // Eine Stufe hinaus nimmt die Grundschicht Stufe 0.
+  await page.locator('.leaflet-control-zoom-out').click();
+  await expect.poll(() => stufenIn(page, '.grund')).toEqual([0]);
+  for (const weiter of haengend) weiter();
+  await expect.poll(() => abgebrochen.filter((u) => u.includes('/tiles-demo/1/')).length).toBeGreaterThan(0);
+  await page.waitForTimeout(300);
+  expect(await stufenIn(page, '.grund')).toEqual([0]);
+});
 
 test('die Grundschicht liegt unter den Kacheln, gröber, und steht da, solange die feinen noch laden', async ({ page }) => {
   // Kacheln der Stufe 2 hängen, bis der Test sie freigibt.
@@ -246,11 +269,11 @@ test('die Grundschicht liegt unter den Kacheln, gröber, und steht da, solange d
   });
   await page.goto(`${DEMO}&at=20,0,-20&zoom=0`);
   // Die feinen fehlen noch; die Grundschicht der Stufe 0 steht schon da.
-  await expect(page.locator('.grund img.leaflet-tile-loaded').first()).toBeVisible();
+  await expect(page.locator('.grund .leaflet-tile-loaded').first()).toBeVisible();
   expect(await stufenIn(page, '.grund')).toEqual([0]);
   await expect(page.locator('.kacheln img.leaflet-tile-loaded')).toHaveCount(0);
   const rechtecke = (ebene: string) =>
-    page.locator(`${ebene} img.leaflet-tile-loaded`).evaluateAll((l) => l.map((i) => i.getBoundingClientRect()).map((r) => [r.left, r.top, r.right, r.bottom]));
+    page.locator(`${ebene} .leaflet-tile-loaded`).evaluateAll((l) => l.map((i) => i.getBoundingClientRect()).map((r) => [r.left, r.top, r.right, r.bottom]));
   const grund = await rechtecke('.grund');
   for (const weiter of haengend) weiter();
   await expect(page.locator('.kacheln img.leaflet-tile-loaded').first()).toBeVisible();
@@ -312,9 +335,9 @@ test('die Grundschicht liegt drei Stufen gröber und lädt nur das Fenster', asy
   await page.goto(`${DEMO}&at=${bx},0,${bz}&zoom=2`);
   await expect(page.locator('.kacheln img.leaflet-tile-loaded')).toHaveCount(1);
   // Die Grundschicht drei Stufen darunter: Stufe 1, eine Kachel über 2048 px, die das Fenster deckt; sonst keine.
-  await expect(page.locator('.grund img.leaflet-tile-loaded')).toHaveCount(1);
+  await expect(page.locator('.grund .leaflet-tile-loaded')).toHaveCount(1);
   await page.waitForTimeout(300);
-  await expect(page.locator('.grund img.leaflet-tile')).toHaveCount(1);
+  await expect(page.locator('.grund .leaflet-tile')).toHaveCount(1);
   expect(await stufenIn(page, '.grund')).toEqual([1]);
 });
 

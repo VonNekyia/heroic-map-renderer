@@ -25,12 +25,6 @@
     <h1 class="unsichtbar">%TITEL%</h1>
     <noscript><p>%BESCHREIBUNG% Die Karte braucht JavaScript.</p></noscript>
     <div id="map"></div>
-    <!-- Die Grundschicht zeigt nur Pixel, die voll decken. Siehe docs/frontend.md, „Grundschicht“. -->
-    <svg class="filter" width="0" height="0" aria-hidden="true">
-      <filter id="nur-deckend" color-interpolation-filters="sRGB">
-        <feComponentTransfer><feFuncA type="linear" slope="255" intercept="-254" /></feComponentTransfer>
-      </filter>
-    </svg>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

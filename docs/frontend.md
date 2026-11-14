@@ -196,10 +196,10 @@ laden; statt des Grunds der Karte sieht man dort die Gegend unscharf.
   Zeichnen zeigen Kacheln von 2048 px gegenüber `scale(8)` unter
   Software-Raster keinen Unterschied über die Streuung, siehe
   [Grundschicht beim Zeichnen](messungen/2026-11-04-grundschicht-zeichnen.md).
-- **Nur deckende Pixel:** Ein Filter in `index.html`, `#nur-deckend`, setzt
-  auf jeder Kachel der Grundschicht Alpha unter 255 auf 0. Sonst ragten am
-  Rand der Welt ihre halb gedeckten Pixel als Saum unter den feinen Kacheln
-  heraus. Beim Laden endet sie dort bis zu einem groben Pixel innerhalb der
+- **Nur deckende Pixel:** Die Grundschicht zeigt Leinwände, `Grund` in
+  `main.ts`. Einmal nach dem Laden malt `nurDeckend` das Bild darauf und
+  setzt Alpha unter 255 auf 0. Sonst ragten am Rand der Welt ihre halb
+  gedeckten Pixel als Saum unter den feinen Kacheln heraus. Beim Laden endet sie dort bis zu einem groben Pixel innerhalb der
   Kante; mitten in der Welt bleibt sie unverändert. Siehe
   [0141](entscheidungen/0141-grundschicht-nur-deckend.md).
 - **Kein Rand:** Weder die Grundschicht noch die feinen Kacheln laden über

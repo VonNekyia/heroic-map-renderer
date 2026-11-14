@@ -542,7 +542,7 @@ const istDreiD = ({ camera }: Baum): boolean => /^\d+:\d+$/.test(camera);
 /** Was Leaflet an `L.TileLayer` intern nutzt; die Typen von Leaflet nennen es nicht. */
 interface KachelInnen {
   _map?: L.Map;
-  _tiles: Record<string, { el: HTMLImageElement; coords: L.Coords }>;
+  _tiles: Record<string, { el: HTMLElement; coords: L.Coords }>;
   _tileZoom?: number;
   fire(art: string, daten: object): void;
 }
@@ -554,6 +554,31 @@ interface KachelInnen {
  */
 const GRUND = { stufen: 3 };
 
+/** Eine Kachel der Grundschicht: eine Leinwand, dahinter das Bild, das die Anfrage trägt. */
+type Leinwand = HTMLCanvasElement & { bild: HTMLImageElement };
+
+/** Das Bild, das die Anfrage einer Kachel trägt: die Kachel selbst oder das Bild hinter ihrer Leinwand. */
+const quelle = (el: HTMLElement): HTMLImageElement => (el as Partial<Leinwand>).bild ?? (el as HTMLImageElement);
+
+/**
+ * Malt das geladene Bild auf seine Leinwand und lässt nur Pixel mit Alpha
+ * 255 stehen, einmal je Kachel. Wirft das Lesen der Pixel, bleibt das Bild
+ * ungeschwellt stehen, nie leer. Siehe docs/entscheidungen/0141-grundschicht-nur-deckend.md.
+ */
+function nurDeckend(leinwand: Leinwand): void {
+  const { bild } = leinwand;
+  [leinwand.width, leinwand.height] = [bild.naturalWidth, bild.naturalHeight];
+  const ctx = leinwand.getContext('2d')!;
+  ctx.drawImage(bild, 0, 0);
+  try {
+    const pixel = ctx.getImageData(0, 0, leinwand.width, leinwand.height);
+    for (let i = 3; i < pixel.data.length; i += 4) if (pixel.data[i]! < 255) pixel.data[i] = 0;
+    ctx.putImageData(pixel, 0, 0);
+  } catch {
+    // Fremde Herkunft: Die Pixel sind nicht lesbar, das Bild steht schon da.
+  }
+}
+
 /**
  * Kacheln wie `L.TileLayer`, nur bricht eine Kachel ab, indem sie ihr `src`
  * verliert. Leaflet setzt dafür ein GIF als `data:`, und das verletzt
@@ -562,33 +587,51 @@ const GRUND = { stufen: 3 };
  * Methoden folgen Leaflet 1.9.4. Siehe
  * docs/frontend.md, „Ausliefern“.
  */
-const Kacheln = L.TileLayer.extend({
+const KachelKlasse = L.TileLayer.extend({
   // Bricht die Kacheln ab, die noch für eine andere Stufe laden.
   _abortLoading(this: KachelInnen) {
     for (const [schluessel, kachel] of Object.entries(this._tiles)) {
       if (kachel.coords.z === this._tileZoom) continue;
-      const el = kachel.el;
+      const el = quelle(kachel.el);
       el.onload = el.onerror = null;
       if (el.complete) continue;
       el.removeAttribute('src');
-      el.remove();
+      kachel.el.remove();
       delete this._tiles[schluessel];
-      this.fire('tileabort', { tile: el, coords: kachel.coords });
+      this.fire('tileabort', { tile: kachel.el, coords: kachel.coords });
     }
   },
   _removeTile(this: KachelInnen, schluessel: string) {
     const kachel = this._tiles[schluessel];
     if (!kachel) return;
     // Bricht eine laufende Anfrage ab.
-    kachel.el.removeAttribute('src');
+    quelle(kachel.el).removeAttribute('src');
     (L.GridLayer.prototype as unknown as { _removeTile(this: KachelInnen, s: string): void })._removeTile.call(this, schluessel);
   },
-  _tileReady(this: KachelInnen, coords: L.Coords, fehler: Error | undefined, el: HTMLImageElement | undefined) {
+  _tileReady(this: KachelInnen, coords: L.Coords, fehler: Error | undefined, el: HTMLElement | undefined) {
     // Eine abgebrochene Kachel zählt nicht als fertig.
-    if (!this._map || (el && !el.hasAttribute('src'))) return;
+    if (!this._map || (el && !quelle(el).hasAttribute('src'))) return;
     (L.GridLayer.prototype as unknown as { _tileReady(this: KachelInnen, ...a: unknown[]): void })._tileReady.call(this, coords, fehler, el);
   },
-}) as unknown as new (url: string, options: L.TileLayerOptions) => L.TileLayer;
+});
+type KachelBau = new (url: string, options: L.TileLayerOptions) => L.TileLayer;
+const Kacheln = KachelKlasse as unknown as KachelBau;
+
+/**
+ * Die Grundschicht: Kacheln als Leinwand, auf der nur Pixel stehen, die voll
+ * decken. `createTile` folgt Leaflet 1.9.4: Das Bild meldet sich über
+ * `fertig`. Siehe docs/frontend.md, „Grundschicht“.
+ */
+const Grund = KachelKlasse.extend({
+  createTile(this: L.TileLayer, coords: L.Coords, fertig: L.DoneCallback) {
+    const leinwand = document.createElement('canvas') as Leinwand;
+    leinwand.bild = L.TileLayer.prototype.createTile.call(this, coords, (fehler) => {
+      if (!fehler) nurDeckend(leinwand);
+      fertig(fehler, leinwand);
+    }) as HTMLImageElement;
+    return leinwand;
+  },
+}) as unknown as KachelBau;
 
 /** Der Name eines Baums im Umschalter, etwa „2:1 aus Südost“. */
 function anzeigename({ camera, direction, look }: Baum): string {
@@ -763,7 +806,7 @@ async function start(): Promise<void> {
     noWrap: true,
   };
   // Erst die Grundschicht, darunter; sie zeigt, was fehlt, bis die feinen Kacheln da sind.
-  new Kacheln(`${base}/${info.tiles}`, {
+  new Grund(`${base}/${info.tiles}`, {
     ...kachelOptionen,
     tileSize: info.tileSize * 2 ** GRUND.stufen,
     zoomOffset: -GRUND.stufen,

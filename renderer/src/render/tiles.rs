@@ -876,7 +876,9 @@ fn kodiere(image: &RgbaImage, packen: Packen) -> Result<Vec<u8>> {
     let voreinstellung = unsafe { webp::WebPConfigLosslessPreset(&mut config, stufe) != 0 };
     // Ab quality 51 sucht libwebp Rückverweise in den letzten 256 statt
     // 16 Zeilen, in einer Kachel also überall.
-    config.quality = 75.0;
+    // Probe, nicht mergen: 'q' in HEROIC_PROBE packt mit quality 51.
+    let probe_q = std::env::var("HEROIC_PROBE").is_ok_and(|v| v.contains('q'));
+    config.quality = if probe_q { 51.0 } else { 75.0 };
     if packen == Packen::Kompakt {
         // Mit dem Patch in vendor/libwebp-sys: ohne Palette nur „subtract
         // green“, ohne räumliche Vorhersage.

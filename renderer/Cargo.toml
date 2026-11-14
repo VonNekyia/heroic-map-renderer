@@ -42,7 +42,12 @@ rfd = { version = "0.17", default-features = false }  # Ordnerdialog des Assiste
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"                         # Priorität für --low-priority; steckt schon über wgpu im Baum
 
+[features]
+# Probe, nicht mergen: flate2 mit zlib-rs statt miniz_oxide.
+probe-zlib-rs = ["flate2/zlib-rs"]
+
 [dev-dependencies]
+fdeflate = "0.3"                    # Probe, nicht mergen; steckt schon über png im Baum
 image = { version = "0.25", default-features = false, features = ["png", "webp"] }  # WebP unabhängig von libwebp prüfen
 tempfile = "3"
 rcgen = { version = "0.13", default-features = false, features = ["crypto", "pem", "ring"] }  # Zertifikate für die Tests von HTTPS

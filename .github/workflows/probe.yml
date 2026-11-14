@@ -23,8 +23,14 @@ jobs:
           workspaces: renderer
       - name: Bauen
         run: |
-          cargo test --release --test probe_leiter --test probe_entpacken --no-run
+          cargo test --release --test probe_leiter --test probe_entpacken --test probe_verlust --no-run
           cargo test --release --features probe-zlib-rs --test probe_entpacken --no-run
+      - name: Verlust messen
+        run: |
+          for runde in 1 2 3; do
+            cargo test --release --test probe_verlust -- --ignored --nocapture > aus.txt 2>&1 || { tail -40 aus.txt; exit 1; }
+            grep '^PROBE5' aus.txt
+          done
       - name: Entpacken messen
         run: |
           for runde in 1 2 3; do

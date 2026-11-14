@@ -146,6 +146,21 @@ Sekunden nach der Liste liegt: die stammt von einer Uhr, die vorging, und
 neben ihr wäre keine andere frisch. Warum zwei Minuten:
 [0019](../entscheidungen/0019-resume-behaelt-die-basiskacheln.md).
 
+Eine durchsichtige Basiskachel behält das Fortsetzen nie:
+
+- **Eine leer gewordene Kachel** überschreibt ein Lauf durchsichtig und
+  entfernt sie erst am Ende, siehe [Kacheln exportieren](kacheln.md), „Wann
+  entfernt wird“. Steht sie nach einem Abbruch noch da, rendert das
+  Fortsetzen sie neu; bleibt sie leer, verschwindet sie am Ende des Laufs.
+- **Erkannt** wird sie an der Länge im Verzeichnis, ohne die Datei zu
+  öffnen. Eine gerenderte Basiskachel ist nie ganz durchsichtig; eine
+  andere mit derselben Länge rendert das Fortsetzen nur unnötig neu.
+- **Ebenso den Rest der Schicht** des Reliefs: Einen verblassten Rest unter
+  einer Kachel, die bleibt, entfernt der Lauf am Ende.
+- Getestet: `resume_behaelt_keine_durchsichtigen_kacheln` in
+  `renderer/tests/cli.rs`, als Update, als voller Lauf und mit Relief, je
+  über zwei Abbrüche.
+
 Eine Basiskachel, die der abgebrochene Lauf liegen liess, weil sie schon
 dieselben Bytes hatte, trägt ihre alte Zeit, siehe
 [Kacheln exportieren](kacheln.md), „Gleiche Bytes bleiben liegen“. An der

@@ -274,10 +274,11 @@ Um jeden geänderten Chunk ein Gebiet, `gebiet_der_aenderungen` in
   fertig, fällt er weg oder wechselt er sein Biom, ändern sich an einem
   Nachbarn Licht und Farbe bis zu dessen höchstem Block (`mit_nachbarn` in
   `renderer/src/render/stand.rs`).
-- **Mit Cinematic** dazu jeder Chunk, dessen Strahlen zur Sonne den
-  geänderten lesen, wie im Vorlauf umgekehrt, siehe
-  [Cinematic](../renderer/cinematic.md), „Der Vorlauf“, und der Rand des
-  Bloom auf jeder nativen Stufe.
+- **Mit Cinematic** dazu der Weg des Schattens: derselbe Kasten, Chunk und
+  16 Blöcke daneben, gegen die Richtung zur Sonne verschoben bis
+  `sonne_weite`, dazu der Rand des Bloom auf jeder nativen Stufe. Weiter als
+  16 Blöcke liest Cinematic nur den Strahl zur Sonne, siehe „Der Weg des
+  Schattens“.
 - **Mit `--relief`** dazu die Chunks bis 2 nach Südosten: So weit fällt
   der Schatten einer Spalte, siehe [Relief von oben](../renderer/relief.md),
   „Schatten“. Das gilt auch für `slope`, dessen Gefälle nur einen Block
@@ -294,7 +295,8 @@ in einem Chunk: Licht im Chunk daneben, Schatten im Himmelslicht weit
 darunter, Licht über dem höchsten Block, einen Chunk, der fertig wird,
 und einen, der nur sein Biom wechselt, je neben einem hohen Nachbarn, und
 mit Cinematic den Schatten eines Turms bis vier Chunks weit, aus `se`,
-`nw` und `north-45`. Mit Relief prüfen
+`nw` und `north-45`, in ein Tal und den eines Blocks, der erst kurz vor
+`sonne_weite` auf den Boden fällt. Mit Relief prüfen
 `gebiet_mit_schatten_reicht_32_bloecke_nach_suedosten` das Gebiet und
 `relief_update_reicht_so_weit_wie_der_schatten` in
 `renderer/tests/cli.rs` ein Update gegen einen vollen Lauf, mit dem
@@ -307,6 +309,55 @@ berührt. Kacheln, in die ein Chunk früher reichte, der noch da ist, zeichnet
 der Lauf neu; leer verschwinden sie. Kacheln eines Chunks, der ganz fehlt,
 bleiben ohne `--prune` stehen, siehe [Kacheln exportieren](kacheln.md),
 „Leer gewordene Kacheln“ (`update_laesst_kacheln_fehlender_chunks_stehen`).
+
+## Der Weg des Schattens
+
+Mit Cinematic fällt der Schatten eines geänderten Blocks auf Block − t · d,
+mit `d` zur Sonne (`Look::sonne_im_blick`) und `t` bis `sonne_weite`: ein
+schräger Streifen, kein Rechteck. Das Gebiet folgt ihm
+(`schritte_zur_sonne` in `renderer/src/render/tiles.rs`):
+
+- **Schritte:** Der Kasten rückt je Schritt waagrecht 4 Blöcke gegen die
+  Sonne vor, bis `sonne_weite`. Jeder Schritt ist zur Seite von −d so breit
+  wie sein Weg, er deckt also jedes t bis zum nächsten.
+- **Oberkante:** Sie sinkt je Schritt um das, was der Strahl bis zu dessen
+  Anfang steigt, `oben + 17 − t · dy`. Ein Block unter dem Strahl liegt
+  nie höher. Die Unterkante bleibt die Dimension: Mit Cinematic gilt die
+  Grenze nach unten nicht, siehe „Die Grenze nach unten“.
+- **Rand:** 16 Blöcke wie ohne Cinematic. Nötig sind 2 · R + 1, mit R, wie
+  weit ein Modell aus seinem Würfel ragt (`SpriteSet::ragt`): der Start des
+  Strahls im ragenden Modell, das Ragen um jede Zelle, die er kreuzt, und
+  die Lava daneben (±1). Das trägt bis R = 7 (`RAGT_HOECHSTENS`); Vanilla
+  26.3 hat R = 1.
+- **Ragt ein Modell weiter,** zeichnet das Update im Rechteck um alle
+  Chunks, deren Strahlen die Änderung lesen, wie vor diesem Umbau, und
+  liest die Welt dafür noch einmal. Es sagt es:
+
+  ```
+  Update:     ein Modell ragt <R> Würfel weit, mehr als 7: das Update zeichnet im Rechteck um die Strahlen zur Sonne und liest die Welt noch einmal
+  ```
+
+  Das Spiel begrenzt das nicht: `CuboidModelElement$Deserializer` prüft in
+  26.3 nur `from` und `to` auf −16 bis 32, Drehpunkt und Winkel einer
+  Drehung nicht, siehe [Cinematic](../renderer/cinematic.md), „Wie weit
+  ein Modell ragt“.
+- **Was Cinematic weiter als 16 Blöcke liest:** nur der Strahl zur Sonne
+  (`ChunkCache::gang` in
+  [`renderer/src/render/metatile/strahl.rs`](../../renderer/src/render/metatile/strahl.rs)).
+  `horizont`, `frei_bits` und `saeule` lesen bis etwa doppelt so weit,
+  aber nur für einen frühen Ausstieg, der das Ergebnis nicht ändert. Der
+  Bloom und die Tiefe unter Wasser hängen am Bild, nicht an der Welt.
+  Licht, weiche Beleuchtung, Himmel und Biome bleiben unter 16 Blöcken.
+- **Der Vorlauf** liest die Chunks, deren Strahlen aus dem Gebiet laufen
+  (`Reach::mit_sonne`). Er schrumpft mit dem Gebiet.
+
+Bei 4:3, scale 24 und einem Chunk mit dem höchsten Block bei 90 sind es 141
+statt vorher 320 Basiskacheln, mit einer nativen Stufe 41 statt 99; von
+oben bei scale 8 15 statt 35 (`weg_des_schattens_kleiner_als_die_huelle`).
+`gebiet_reicht_den_weg_des_schattens` prüft je Ecke jedes Blocks am Rand
+des Kastens, über alle Höhen, dass die Kachel von Block − t · d für jedes t
+bis `sonne_weite` im Gebiet liegt. `update_mit_weit_ragendem_modell_nimmt_das_rechteck`
+prüft den Rückfall.
 
 ## Die Grenze nach unten
 

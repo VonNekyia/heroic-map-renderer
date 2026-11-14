@@ -1281,6 +1281,17 @@ impl SpriteSet {
         self.sonne_reich
     }
 
+    /// Wie viele Würfel weit irgendein Modell der Tabelle aus seinem ragt,
+    /// auf der weitesten Achse, siehe [`SpriteSet::sonne_reich`].
+    pub fn ragt(&self) -> i32 {
+        self.sonne_reich
+            .iter()
+            .flatten()
+            .map(|c| c.abs())
+            .max()
+            .unwrap_or(0)
+    }
+
     /// Hält ein Block, den `blocks.txt` nicht kennt, das Licht ganz auf? Wenn sein
     /// Sprite den ganzen Umriss deckt, und zwar im Raster in 2:1 beim scale
     /// der Basis: Eine andere Kamera nimmt die Antwort von dort, eine native
@@ -3535,6 +3546,40 @@ mod tests {
         );
         assert!(flaechen > 0 && !ragen.is_empty(), "nichts geprüft");
         assert!(geschnitten.is_empty(), "geschnitten: {geschnitten:#?}");
+    }
+
+    /// Wie weit ein Modell von Vanilla aus seinem Würfel ragt
+    /// ([`SpriteSet::ragt`]), über alle Zustände aus `blocks.txt` mit
+    /// Cinematic: höchstens 2, weit unter [`crate::render::RAGT_HOECHSTENS`].
+    /// Braucht die Asset-Wurzeln in `ASSETS` wie
+    /// [`vanilla_ohne_leeren_rand`], deshalb `#[ignore]`:
+    ///
+    /// ```bash
+    /// ASSETS="$PWD/vanilla-assets:$PWD/assets" cargo test --release --manifest-path renderer/Cargo.toml --lib vanilla_ragt_hoechstens_zwei_wuerfel -- --ignored --nocapture
+    /// ```
+    ///
+    /// Siehe docs/renderer/cinematic.md, „Wie weit ein Modell ragt“.
+    #[test]
+    #[ignore]
+    fn vanilla_ragt_hoechstens_zwei_wuerfel() {
+        let wurzeln = std::env::var_os("ASSETS").expect("ASSETS auf die Asset-Wurzeln setzen");
+        let mut assets = Assets::open(std::env::split_paths(&wurzeln).collect()).unwrap();
+        let zustaende = vanilla_zustaende();
+        let sprites = SpriteSet::build_mit_licht(
+            &mut assets,
+            &zustaende,
+            Projection::new(16),
+            None,
+            Some(crate::render::look::LOOK),
+        )
+        .unwrap();
+        println!(
+            "{} Zustände: Würfel {:?}, ragt {}",
+            zustaende.len(),
+            sprites.sonne_reich(),
+            sprites.ragt()
+        );
+        assert!(sprites.ragt() <= 2, "ragt {}", sprites.ragt());
     }
 
     /// Alle Zustände aus `blocks.txt`, wie ein Zählwerk, das letzte Merkmal

@@ -911,7 +911,7 @@ extern int VP8LBackwardReferencesTraceBackwards(
 static int GetBackwardReferences(int width, int height,
                                  const uint32_t* const argb, int quality,
                                  int lz77_types_to_try, int cache_bits_max,
-                                 int do_no_cache,
+                                 int do_no_cache, int cache_fixed,
                                  const VP8LHashChain* const hash_chain,
                                  VP8LBackwardRefs* const refs,
                                  int* const cache_bits_best) {
@@ -961,7 +961,9 @@ static int GetBackwardReferences(int width, int height,
 
       if (i == 0) {
         // Try with a color cache.
-        if (!CalculateBestCacheSize(argb, quality, refs_tmp, &cache_bits)) {
+        // heroic-map-renderer: With cache_fixed, keep cache_bits_max.
+        if (!cache_fixed &&
+            !CalculateBestCacheSize(argb, quality, refs_tmp, &cache_bits)) {
           goto Error;
         }
         if (cache_bits > 0) {
@@ -1039,9 +1041,9 @@ static int GetBackwardReferences(int width, int height,
 int VP8LGetBackwardReferences(
     int width, int height, const uint32_t* const argb, int quality,
     int low_effort, int lz77_types_to_try, int cache_bits_max, int do_no_cache,
-    const VP8LHashChain* const hash_chain, VP8LBackwardRefs* const refs,
-    int* const cache_bits_best, const WebPPicture* const pic, int percent_range,
-    int* const percent) {
+    int cache_fixed, const VP8LHashChain* const hash_chain,
+    VP8LBackwardRefs* const refs, int* const cache_bits_best,
+    const WebPPicture* const pic, int percent_range, int* const percent) {
   if (low_effort) {
     VP8LBackwardRefs* refs_best;
     *cache_bits_best = cache_bits_max;
@@ -1054,8 +1056,8 @@ int VP8LGetBackwardReferences(
     BackwardRefsSwap(refs_best, &refs[0]);
   } else {
     if (!GetBackwardReferences(width, height, argb, quality, lz77_types_to_try,
-                               cache_bits_max, do_no_cache, hash_chain, refs,
-                               cache_bits_best)) {
+                               cache_bits_max, do_no_cache, cache_fixed,
+                               hash_chain, refs, cache_bits_best)) {
       return WebPEncodingSetError(pic, VP8_ENC_ERROR_OUT_OF_MEMORY);
     }
   }

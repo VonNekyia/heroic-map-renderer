@@ -11,6 +11,7 @@ code:
   - web/src/pruefen.ts
   - web/src/schrift.ts
   - web/src/hoehen.ts
+  - web/src/png.ts
   - web/src/pick.ts
   - web/src/skin-api.ts
   - web/src/skin-modul.d.ts
@@ -213,6 +214,24 @@ laden; statt des Grunds der Karte sieht man dort die Gegend unscharf.
   verworfen: Über HTTP/1.1 hält Chromium die Anfragen selbst zurück, und
   eine eigene kostet Bytes oder Verbindungen; siehe
   [Warteschlange der Kacheln](versuche/warteschlange-der-kacheln.md).
+
+## Leinwände
+
+Die Karte liest keine Leinwand zurück, nie `getImageData` auf einer
+sichtbaren Leinwand und `putImageData` mit dem Gelesenen. Mit Schutz vor
+Fingerabdrücken liefert der Browser dabei Zufall oder Rauschen, ohne zu
+werfen; Grund und Quellen in
+[0141](entscheidungen/0141-grundschicht-nur-deckend.md), „Kein
+Zurücklesen“. Schreiben selbst gerechneter Pixel ist unbedenklich.
+
+- **Grundschicht:** malt sich zwölfmal mit `destination-in` auf sich selbst,
+  siehe „Grundschicht“.
+- **Feld der Nadel:** `lesePng` in [`png.ts`](../web/src/png.ts) liest die
+  Pixel des Felds aus dem PNG, nur RGBA mit 8 Bit ohne Interlace, ohne
+  Prüfsummen; was anders ist oder nicht zu `SCHILDE` passt, wirft mit dem
+  Dateinamen. Darauf rechnet `zeichneNadel` das Feld mal `color` wie in
+  [Ebenen](benutzung/ebenen.md), „Nadel“, und schreibt es mit
+  `putImageData`. Die drei Felder nutzen die Zeilenfilter 0, 1, 2 und 4.
 
 ## Koordinaten
 

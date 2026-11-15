@@ -52,8 +52,12 @@ enum Art {
     /// Nur zusammenlegen, ohne Obergrenze für die Farben und ohne Rückfall:
     /// Kacheln mit mehr als 256 Farben packen ohne Palette.
     ZusammenRein(u8),
-    /// Dasselbe Ergebnis wie `ZusammenRein`, schneller gesucht.
-    ZusammenSchnell(u8),
+    /// Wie `ZusammenRein`, schneller gesucht, und es schont glatte Farben:
+    /// Eine glatte Farbe geht höchstens das erste weit, jede andere
+    /// höchstens das zweite. Glatt ist eine Farbe, wenn mindestens die
+    /// Hälfte ihrer Kanten zu anderen Farben höchstens das dritte misst.
+    /// Mit gleichem ersten und zweiten ist es `ZusammenRein`.
+    Schonend(u8, u8, u8),
     /// Erst das Gitter mit dem ersten d, dann auf dessen Werten zusammenlegen
     /// mit dem zweiten; zusammen höchstens die Summe daneben. Passt es nicht
     /// in 256 Farben, das Gitter mit der Summe.
@@ -207,62 +211,109 @@ impl Hasher for Streuer {
 
 type Tabelle<V> = HashMap<u32, V, BuildHasherDefault<Streuer>>;
 
-/// Wie `zusammenlegen` ohne Obergrenze, mit demselben Ergebnis: zählt und
-/// ersetzt über eine Tabelle mit schnellem Hash, überspringt Läufe gleicher
-/// Pixel und sucht den Vertreter nur unter denen, deren Rot passen kann.
-fn zusammenlegen_schnell(image: &RgbaImage, d: u8) -> RgbaImage {
-    // Als Zahl geordnet wie R, G, B, A.
-    let mut zahl: Tabelle<u32> = Tabelle::default();
-    let (mut letzte, mut lauf) = (u32::from_be_bytes(image.get_pixel(0, 0).0), 0u32);
+/// Die Kachel als Nummern: je Pixel die Nummer seiner Farbe, dazu je Farbe
+/// der Wert und die Zahl ihrer Pixel.
+struct Farben {
+    nummer: Vec<u32>,
+    farbe: Vec<[u8; 4]>,
+    zahl: Vec<u32>,
+}
+
+fn zaehle(image: &RgbaImage) -> Farben {
+    let mut tabelle: Tabelle<u32> = Tabelle::default();
+    let (mut farbe, mut zahl) = (Vec::<[u8; 4]>::new(), Vec::<u32>::new());
+    let mut nummer = Vec::with_capacity(image.as_raw().len() / 4);
+    // Läufe gleicher Pixel sparen das Nachschlagen.
+    let mut letzte: Option<([u8; 4], u32)> = None;
     for p in image.pixels() {
-        let farbe = u32::from_be_bytes(p.0);
-        if farbe != letzte {
-            *zahl.entry(letzte).or_default() += lauf;
-            (letzte, lauf) = (farbe, 0);
-        }
-        lauf += 1;
-    }
-    *zahl.entry(letzte).or_default() += lauf;
-    let mut farben: Vec<(u32, u32)> = zahl.into_iter().collect();
-    farben.sort_unstable_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
-    // Je Rot die Vertreter mit ihrer Nummer, in der Reihenfolge, in der sie entstanden.
-    let mut nach_rot: [Vec<(u32, [u8; 4])>; 256] = std::array::from_fn(|_| Vec::new());
-    let mut ziel: Tabelle<[u8; 4]> = Tabelle::with_capacity_and_hasher(farben.len(), BuildHasherDefault::default());
-    for (nummer, (schluessel, _)) in farben.iter().enumerate() {
-        let farbe = schluessel.to_be_bytes();
-        // Der früheste passende Vertreter: Jede Liste ist nach Nummer
-        // geordnet, hinter dem bisher besten steht in ihr kein früherer.
-        let mut bester: Option<(u32, [u8; 4])> = None;
-        if farbe[3] > 0 {
-            for rot in farbe[0].saturating_sub(d)..=farbe[0].saturating_add(d) {
-                let grenze = bester.map_or(u32::MAX, |(nr, _)| nr);
-                let fund = nach_rot[usize::from(rot)].iter().take_while(|(nr, _)| *nr < grenze).find(|(_, v)| passt(&farbe, v, d));
-                if let Some(fund) = fund {
-                    bester = Some(*fund);
+        let nr = match letzte {
+            Some((wert, nr)) if wert == p.0 => nr,
+            _ => {
+                let neu = farbe.len() as u32;
+                let nr = *tabelle.entry(u32::from_be_bytes(p.0)).or_insert(neu);
+                if nr == neu {
+                    farbe.push(p.0);
+                    zahl.push(0);
                 }
-            }
-        }
-        let v = match bester {
-            Some((_, v)) => v,
-            None => {
-                // Durchsichtige Pixel bleiben, wie sie sind, und stehen für nichts.
-                if farbe[3] > 0 {
-                    nach_rot[usize::from(farbe[0])].push((nummer as u32, farbe));
-                }
-                farbe
+                letzte = Some((p.0, nr));
+                nr
             }
         };
-        ziel.insert(*schluessel, v);
+        zahl[nr as usize] += 1;
+        nummer.push(nr);
+    }
+    Farben { nummer, farbe, zahl }
+}
+
+/// Welche Farben glatt sind: Von ihren Kanten zu anderen sichtbaren Farben
+/// geht mindestens die Hälfte zu einer mit demselben Alpha, die je Kanal
+/// höchstens `t` daneben liegt.
+fn glatte_farben(f: &Farben, breite: usize, t: u8) -> Vec<bool> {
+    let mut kanten = vec![0u32; f.farbe.len()];
+    let mut weich = vec![0u32; f.farbe.len()];
+    let mut paar = |a: u32, b: u32| {
+        let (fa, fb) = (f.farbe[a as usize], f.farbe[b as usize]);
+        if a == b || fa[3] == 0 || fb[3] == 0 {
+            return;
+        }
+        let nah = fa[3] == fb[3] && (0..3).all(|k| fa[k].abs_diff(fb[k]) <= t);
+        for nr in [a, b] {
+            kanten[nr as usize] += 1;
+            weich[nr as usize] += u32::from(nah);
+        }
+    };
+    for (i, &nr) in f.nummer.iter().enumerate() {
+        if (i + 1) % breite != 0 {
+            paar(nr, f.nummer[i + 1]);
+        }
+        if i + breite < f.nummer.len() {
+            paar(nr, f.nummer[i + breite]);
+        }
+    }
+    kanten.iter().zip(&weich).map(|(k, w)| *k > 0 && 2 * *w >= *k).collect()
+}
+
+/// Zusammenlegen ohne Rückfall wie `zusammenlegen`, schneller gesucht: Die
+/// Vertreter stehen je Rotwert in einer Liste, und ersetzt wird über die
+/// Nummern der Farben. Eine glatte Farbe geht höchstens `g` weit, jede
+/// andere höchstens `d`; mit `g == d` ist es genau `zusammenlegen`.
+fn zusammenlegen_schonend(image: &RgbaImage, g: u8, d: u8, t: u8) -> RgbaImage {
+    let f = zaehle(image);
+    let glatt = if g == d { vec![false; f.farbe.len()] } else { glatte_farben(&f, image.width() as usize, t) };
+    // Die häufigste zuerst, bei gleicher Zahl nach R, G, B, A.
+    let mut folge: Vec<u32> = (0..f.farbe.len() as u32).collect();
+    folge.sort_unstable_by(|&a, &b| {
+        let (a, b) = (a as usize, b as usize);
+        f.zahl[b].cmp(&f.zahl[a]).then(f.farbe[a].cmp(&f.farbe[b]))
+    });
+    // Je Rot die Vertreter mit ihrem Rang, in der Reihenfolge, in der sie entstanden.
+    let mut nach_rot: [Vec<(u32, [u8; 4])>; 256] = std::array::from_fn(|_| Vec::new());
+    let mut ziel = f.farbe.clone();
+    for (rang, &nr) in folge.iter().enumerate() {
+        let farbe = f.farbe[nr as usize];
+        // Durchsichtige Pixel bleiben, wie sie sind, und stehen für nichts.
+        if farbe[3] == 0 {
+            continue;
+        }
+        let weit = if glatt[nr as usize] { g } else { d };
+        // Der früheste passende Vertreter: Jede Liste ist nach Rang
+        // geordnet, hinter dem bisher besten steht in ihr kein früherer.
+        let mut bester: Option<(u32, [u8; 4])> = None;
+        for rot in farbe[0].saturating_sub(weit)..=farbe[0].saturating_add(weit) {
+            let grenze = bester.map_or(u32::MAX, |(r, _)| r);
+            let fund = nach_rot[usize::from(rot)].iter().take_while(|(r, _)| *r < grenze).find(|(_, v)| passt(&farbe, v, weit));
+            if let Some(fund) = fund {
+                bester = Some(*fund);
+            }
+        }
+        match bester {
+            Some((_, v)) => ziel[nr as usize] = v,
+            None => nach_rot[usize::from(farbe[0])].push((rang as u32, farbe)),
+        }
     }
     let mut out = image.clone();
-    let mut letzte = ([0; 4], [0; 4]);
-    let mut gilt = false;
-    for p in out.pixels_mut() {
-        if !gilt || p.0 != letzte.0 {
-            letzte = (p.0, ziel[&u32::from_be_bytes(p.0)]);
-            gilt = true;
-        }
-        p.0 = letzte.1;
+    for (p, &nr) in out.pixels_mut().zip(&f.nummer) {
+        p.0 = ziel[nr as usize];
     }
     out
 }
@@ -402,7 +453,7 @@ fn packe(image: &RgbaImage, art: Art) -> Gepackt {
             Some(gitter(image, d))
         }),
         Art::ZusammenRein(d) => zusammenlegen(image, d, usize::MAX, true),
-        Art::ZusammenSchnell(d) => Some(zusammenlegen_schnell(image, d)),
+        Art::Schonend(g, d, t) => Some(zusammenlegen_schonend(image, g, d, t)),
         Art::GitterZusammen(fein, d) => zusammenlegen(&gitter(image, fein), d, 256, true).or_else(|| Some(gitter(image, fein + d))),
         Art::Nachbar(d) => Some(nachbar(image, d, None)),
         Art::NachbarGitter(d, fein) => Some(nachbar(image, d, Some(fein))),
@@ -454,6 +505,20 @@ struct Zahl {
     neu255: u64,
     /// Kleinste PSNR einer Kachel; `None`, solange keine abweicht.
     schlechteste: Option<f64>,
+    /// Sichtbare Pixel, deren Farbe im Original glatt ist (Kanten bis 4),
+    /// ihre Quadrate und ihre grösste Abweichung.
+    glatt_sichtbar: u64,
+    glatt_quadrate: u64,
+    glatt_max: u8,
+    /// Weiche Kanten: Nachbarn mit demselben Alpha, im Original 1 bis 4
+    /// auseinander. Wie viele danach über 4 auseinander liegen, wie viele
+    /// gleich sind, die Summe der Stufen vorher und nachher, die grösste.
+    weiche_paare: u64,
+    hart: u64,
+    flach: u64,
+    stufen_vorher: u64,
+    stufen_nachher: u64,
+    stufe_max: u8,
 }
 
 impl Zahl {
@@ -495,6 +560,39 @@ impl Zahl {
             let wert = psnr(quadrate, sichtbar);
             self.schlechteste = Some(self.schlechteste.map_or(wert, |s| s.min(wert)));
         }
+        let breite = original.width() as usize;
+        let f = zaehle(original);
+        let glatt = glatte_farben(&f, breite, 4);
+        let vorbild: Vec<[u8; 4]> = original.pixels().map(|p| p.0).collect();
+        let bild: Vec<[u8; 4]> = zurueck.pixels().map(|p| p.0).collect();
+        let stufe = |a: [u8; 4], b: [u8; 4]| (0..3).map(|k| a[k].abs_diff(b[k])).max().unwrap();
+        for i in 0..vorbild.len() {
+            if vorbild[i][3] == 0 {
+                continue;
+            }
+            if glatt[f.nummer[i] as usize] {
+                self.glatt_sichtbar += 1;
+                for k in 0..3 {
+                    let d = vorbild[i][k].abs_diff(bild[i][k]);
+                    self.glatt_quadrate += u64::from(d) * u64::from(d);
+                    self.glatt_max = self.glatt_max.max(d);
+                }
+            }
+            // Der rechte und der untere Nachbar.
+            for j in [((i + 1) % breite != 0).then_some(i + 1), (i + breite < vorbild.len()).then_some(i + breite)].into_iter().flatten() {
+                let vorher = stufe(vorbild[i], vorbild[j]);
+                if vorbild[j][3] != vorbild[i][3] || vorher == 0 || vorher > 4 {
+                    continue;
+                }
+                let nachher = stufe(bild[i], bild[j]);
+                self.weiche_paare += 1;
+                self.hart += u64::from(nachher > 4);
+                self.flach += u64::from(nachher == 0);
+                self.stufen_vorher += u64::from(vorher);
+                self.stufen_nachher += u64::from(nachher);
+                self.stufe_max = self.stufe_max.max(nachher);
+            }
+        }
         zurueck
     }
 
@@ -503,7 +601,8 @@ impl Zahl {
         println!(
             "{kopf} kacheln={} bytes={} ms_packen={:.2} ms_vorstufe={:.2} ms_dekodieren={:.2} palette={} rueckfall={} \
              sichtbar={} geaendert={} quadrate={} max_r={r} max_g={g} max_b={b} max_a={a} alpha_anders={} weg255={} \
-             neu255={} psnr={:.2} psnr_schlechteste_kachel={:.2}",
+             neu255={} psnr={:.2} psnr_schlechteste_kachel={:.2} glatt_sichtbar={} glatt_quadrate={} glatt_max={} \
+             weiche_paare={} hart={} flach={} stufen_vorher={} stufen_nachher={} stufe_max={}",
             self.kacheln,
             self.bytes,
             1000.0 * self.packen,
@@ -519,23 +618,32 @@ impl Zahl {
             self.neu255,
             psnr(self.quadrate, self.sichtbar),
             self.schlechteste.unwrap_or(f64::INFINITY),
+            self.glatt_sichtbar,
+            self.glatt_quadrate,
+            self.glatt_max,
+            self.weiche_paare,
+            self.hart,
+            self.flach,
+            self.stufen_vorher,
+            self.stufen_nachher,
+            self.stufe_max,
         );
     }
 }
 
 const VARIANTEN: [(&str, Art); 12] = [
     ("heute", Art::Heute),
-    ("nl60a", Art::NahAlpha(60)),
-    ("nl40a", Art::NahAlpha(40)),
-    ("gitter2", Art::Gitter(2)),
-    ("gitter3", Art::Gitter(3)),
-    ("gitter4", Art::Gitter(4)),
-    ("immer2", Art::ZusammenImmer(2)),
-    ("immer3", Art::ZusammenImmer(3)),
-    ("immer4", Art::ZusammenImmer(4)),
-    ("rein2", Art::ZusammenRein(2)),
-    ("rein3", Art::ZusammenRein(3)),
-    ("rein4", Art::ZusammenRein(4)),
+    ("rein1", Art::Schonend(1, 1, 0)),
+    ("rein2", Art::Schonend(2, 2, 0)),
+    ("rein3", Art::Schonend(3, 3, 0)),
+    ("rein4", Art::Schonend(4, 4, 0)),
+    ("schon0-4-t4", Art::Schonend(0, 4, 4)),
+    ("schon1-4-t4", Art::Schonend(1, 4, 4)),
+    ("schon2-4-t4", Art::Schonend(2, 4, 4)),
+    ("schon0-4-t2", Art::Schonend(0, 4, 2)),
+    ("schon1-4-t2", Art::Schonend(1, 4, 2)),
+    ("schon0-4-t8", Art::Schonend(0, 4, 8)),
+    ("schon1-4-t8", Art::Schonend(1, 4, 8)),
 ];
 
 fn lies(pfad: &Path) -> RgbaImage {
@@ -592,24 +700,16 @@ fn eltern(kinder: &Stufe, art: Verkleinern, tiefe: u32) -> Stufe {
 /// `HEROIC_PROBE` für die Kopie von libwebp: „cra“ ist Farb-Cache fest, ohne
 /// RLE, ohne Analyse der Entropie. Die Eltern entstehen aus den dekodierten
 /// Kindern.
-const LAEUFE: [(&str, Art, Art, &str); 17] = [
+const LAEUFE: [(&str, Art, Art, &str); 9] = [
     ("heute", Art::Heute, Art::Heute, ""),
     ("heute-s4", Art::Heute, Art::Heute, "cra"),
-    ("immer2", Art::ZusammenImmer(2), Art::ZusammenImmer(2), ""),
-    ("immer2-s4", Art::ZusammenImmer(2), Art::ZusammenImmer(2), "cra"),
-    ("immer4", Art::ZusammenImmer(4), Art::ZusammenImmer(4), ""),
-    ("immer4-s4", Art::ZusammenImmer(4), Art::ZusammenImmer(4), "cra"),
-    ("rein2", Art::ZusammenRein(2), Art::ZusammenRein(2), ""),
-    ("rein2-s4", Art::ZusammenRein(2), Art::ZusammenRein(2), "cra"),
-    ("rein3-s4", Art::ZusammenRein(3), Art::ZusammenRein(3), "cra"),
-    ("rein4", Art::ZusammenRein(4), Art::ZusammenRein(4), ""),
-    ("rein4-s4", Art::ZusammenRein(4), Art::ZusammenRein(4), "cra"),
-    ("schnell2", Art::ZusammenSchnell(2), Art::ZusammenSchnell(2), ""),
-    ("schnell2-s4", Art::ZusammenSchnell(2), Art::ZusammenSchnell(2), "cra"),
-    ("schnell3", Art::ZusammenSchnell(3), Art::ZusammenSchnell(3), ""),
-    ("schnell3-s4", Art::ZusammenSchnell(3), Art::ZusammenSchnell(3), "cra"),
-    ("schnell4", Art::ZusammenSchnell(4), Art::ZusammenSchnell(4), ""),
-    ("schnell4-s4", Art::ZusammenSchnell(4), Art::ZusammenSchnell(4), "cra"),
+    ("rein2-s4", Art::Schonend(2, 2, 0), Art::Schonend(2, 2, 0), "cra"),
+    ("rein4-s4", Art::Schonend(4, 4, 0), Art::Schonend(4, 4, 0), "cra"),
+    ("schon0-4-t4-s4", Art::Schonend(0, 4, 4), Art::Schonend(0, 4, 4), "cra"),
+    ("schon1-4-t4-s4", Art::Schonend(1, 4, 4), Art::Schonend(1, 4, 4), "cra"),
+    ("schon2-4-t4-s4", Art::Schonend(2, 4, 4), Art::Schonend(2, 4, 4), "cra"),
+    ("schon1-4-t2-s4", Art::Schonend(1, 4, 2), Art::Schonend(1, 4, 2), "cra"),
+    ("schon1-4-t4", Art::Schonend(1, 4, 4), Art::Schonend(1, 4, 4), ""),
 ];
 
 #[test]
@@ -634,10 +734,11 @@ fn probe_farben_pyramide() {
             for tiefe in 1..=fein {
                 bezug.push(eltern(&bezug[tiefe as usize - 1], verkleinern, tiefe));
             }
-            // Die schnelle Suche legt genau so zusammen wie die einfache.
+            // Mit derselben Grenze für alle Farben legt die schnelle Suche
+            // genau so zusammen wie die einfache.
             for bild in bezug.iter().flat_map(|stufe| stufe.values()) {
                 for d in [1, 2, 3, 4, 8] {
-                    assert!(zusammenlegen(bild, d, usize::MAX, true).unwrap() == zusammenlegen_schnell(bild, d), "{baum}-{gruppe} d={d}");
+                    assert!(zusammenlegen(bild, d, usize::MAX, true).unwrap() == zusammenlegen_schonend(bild, d, d, 0), "{baum}-{gruppe} d={d}");
                 }
             }
             for (lauf, basis, oben, schalter) in LAEUFE {

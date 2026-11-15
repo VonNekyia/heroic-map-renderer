@@ -272,9 +272,15 @@ static int ClampBits(int width, int height, int bits, int min_bits,
   return bits;
 }
 
+// Probe, nicht mergen: Buchstaben in HEROIC_PROBE schalten Varianten.
+static int Probe(char c) {
+  const char* const p = getenv("HEROIC_PROBE");
+  return p != NULL && strchr(p, c) != NULL;
+}
+
 static int GetHistoBits(int method, int use_palette, int width, int height) {
   // Make tile size a function of encoding method (Range: 0 to 6).
-  const int histo_bits = (use_palette ? 9 : 7) - method;
+  const int histo_bits = (use_palette ? 9 : 7) - method + Probe('h');
   return ClampBits(width, height, histo_bits, MIN_HUFFMAN_BITS,
                    MAX_HUFFMAN_BITS, MAX_HUFF_IMAGE_SIZE);
 }
@@ -338,7 +344,8 @@ static int EncoderAnalyze(VP8LEncoder* const enc,
 
   if (low_effort) {
     // AnalyzeEntropy is somewhat slow.
-    crunch_configs[0].entropy_idx = use_palette ? kPalette : kSpatialSubGreen;
+    crunch_configs[0].entropy_idx =
+        use_palette ? kPalette : Probe('l') ? kSubGreen : kSpatialSubGreen;
     crunch_configs[0].palette_sorting_type =
         use_palette ? kSortedDefault : kUnusedPalette;
     n_lz77s = 1;
@@ -347,9 +354,12 @@ static int EncoderAnalyze(VP8LEncoder* const enc,
     EntropyIx min_entropy_ix;
     // Try out multiple LZ77 on images with few colors.
     n_lz77s = (enc->palette_size > 0 && enc->palette_size <= 16) ? 2 : 1;
-    if (!AnalyzeEntropy(pic->argb, width, height, pic->argb_stride, use_palette,
-                        enc->palette_size, transform_bits, &min_entropy_ix,
-                        red_and_blue_always_zero)) {
+    if (Probe('a') && config->image_hint == WEBP_HINT_GRAPH && !use_palette) {
+      min_entropy_ix = kSubGreen;
+      *red_and_blue_always_zero = 0;
+    } else if (!AnalyzeEntropy(pic->argb, width, height, pic->argb_stride,
+                               use_palette, enc->palette_size, transform_bits,
+                               &min_entropy_ix, red_and_blue_always_zero)) {
       return 0;
     }
     if (method == 6 && config->quality == 100) {
@@ -417,7 +427,8 @@ static int EncoderAnalyze(VP8LEncoder* const enc,
     for (j = 0; j < n_lz77s; ++j) {
       assert(j < CRUNCH_SUBCONFIGS_MAX);
       crunch_configs[i].sub_configs[j].lz77 =
-          (j == 0) ? kLZ77Standard | kLZ77RLE : kLZ77Box;
+          (j != 0) ? kLZ77Box
+                   : Probe('r') ? kLZ77Standard : kLZ77Standard | kLZ77RLE;
       crunch_configs[i].sub_configs[j].do_no_cache = do_no_cache;
     }
     crunch_configs[i].sub_configs_size = n_lz77s;

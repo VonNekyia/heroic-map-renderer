@@ -48,6 +48,10 @@ enum Art {
     /// Wie `ZusammenGitter` mit 256 Farben, legt aber auch in Kacheln
     /// zusammen, die schon in die Palette passen.
     ZusammenImmer(u8),
+    /// Erst das Gitter mit dem ersten d, dann auf dessen Werten zusammenlegen
+    /// mit dem zweiten; zusammen höchstens die Summe daneben. Passt es nicht
+    /// in 256 Farben, das Gitter mit der Summe.
+    GitterZusammen(u8, u8),
     /// Jedes Pixel übernimmt den linken oder oberen Nachbarn der Ausgabe,
     /// wenn der höchstens d je Kanal neben seinem Original liegt.
     Nachbar(u8),
@@ -264,6 +268,8 @@ struct Gepackt {
     palette: bool,
     /// Die Vorstufe passte nicht, near-lossless sprang ein.
     rueckfall: bool,
+    /// Das Bild, das verlustfrei gepackt wurde; so muss die Kachel dekodieren.
+    vorbild: Option<RgbaImage>,
 }
 
 fn packe(image: &RgbaImage, art: Art) -> Gepackt {
@@ -272,7 +278,8 @@ fn packe(image: &RgbaImage, art: Art) -> Gepackt {
     let einfach = |nah: c_int, vp8: Option<f32>| {
         let daten = kodiere(image, nah, vp8);
         let sekunden = beginn.elapsed().as_secs_f64();
-        Gepackt { daten, sekunden, vorstufe: 0.0, palette: vp8.is_none() && passt_in_palette(image), rueckfall: false }
+        let vorbild = (vp8.is_none() && nah == 100).then(|| image.clone());
+        Gepackt { daten, sekunden, vorstufe: 0.0, palette: vp8.is_none() && passt_in_palette(image), rueckfall: false, vorbild }
     };
     let vorstufe = match art {
         Art::Heute => return einfach(100, None),
@@ -286,7 +293,8 @@ fn packe(image: &RgbaImage, art: Art) -> Gepackt {
                 ziel[3] = quelle[3];
             }
             let daten = kodiere(&gerundet, 100, None);
-            return Gepackt { daten, sekunden, vorstufe: 0.0, palette: passt_in_palette(&gerundet), rueckfall: false };
+            let palette = passt_in_palette(&gerundet);
+            return Gepackt { daten, sekunden, vorstufe: 0.0, palette, rueckfall: false, vorbild: Some(gerundet) };
         }
         Art::Gitter(d) => Some(gitter(image, d)),
         Art::GitterPalette(bis) => {
@@ -299,6 +307,7 @@ fn packe(image: &RgbaImage, art: Art) -> Gepackt {
         Art::Zusammen(d, hoechstens) => zusammenlegen(image, d, hoechstens, false),
         Art::ZusammenGitter(d, hoechstens) => zusammenlegen(image, d, hoechstens, false).or_else(|| Some(gitter(image, d))),
         Art::ZusammenImmer(d) => zusammenlegen(image, d, 256, true).or_else(|| Some(gitter(image, d))),
+        Art::GitterZusammen(fein, d) => zusammenlegen(&gitter(image, fein), d, 256, true).or_else(|| Some(gitter(image, fein + d))),
         Art::Nachbar(d) => Some(nachbar(image, d, None)),
         Art::NachbarGitter(d, fein) => Some(nachbar(image, d, Some(fein))),
         Art::Median(hoechstens) => Some(median_schnitt(image, hoechstens)),
@@ -308,7 +317,8 @@ fn packe(image: &RgbaImage, art: Art) -> Gepackt {
         Some(bild) => {
             let daten = kodiere(&bild, 100, None);
             let sekunden = beginn.elapsed().as_secs_f64();
-            Gepackt { daten, sekunden, vorstufe: dauer, palette: passt_in_palette(&bild), rueckfall: false }
+            let palette = passt_in_palette(&bild);
+            Gepackt { daten, sekunden, vorstufe: dauer, palette, rueckfall: false, vorbild: Some(bild) }
         }
         None => {
             let Art::Zusammen(d, _) = art else { unreachable!() };
@@ -358,6 +368,8 @@ impl Zahl {
         let beginn = Instant::now();
         let zurueck = decode_webp(&gepackt.daten, bild.dimensions()).unwrap();
         self.dekodieren += beginn.elapsed().as_secs_f64();
+        // Verlustfrei gepackt kommt genau das Vorbild zurück, auch mit den Schaltern.
+        assert!(gepackt.vorbild.is_none_or(|vorbild| vorbild == zurueck), "libwebp dekodiert nicht, was gepackt wurde");
         self.kacheln += 1;
         self.bytes += gepackt.daten.len();
         self.packen += gepackt.sekunden;
@@ -443,6 +455,7 @@ fn lies(pfad: &Path) -> RgbaImage {
 #[ignore = "Probe für die CI, siehe .github/workflows/probe.yml"]
 fn probe_farben() {
     let wurzel = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/probe-kacheln2");
+    unsafe { std::env::set_var("HEROIC_PROBE", "") };
     let mut gruppen: Vec<_> = std::fs::read_dir(&wurzel).unwrap().map(|e| e.unwrap().path()).collect();
     gruppen.sort();
     for gruppe in gruppen {
@@ -484,22 +497,28 @@ fn eltern(kinder: &Stufe, art: Verkleinern, tiefe: u32) -> Stufe {
     teile.into_iter().map(|(id, teile)| (id, merge(id, &teile, art, tiefe))).collect()
 }
 
-/// Name, Packung der Basis und Packung der Eltern; die Eltern entstehen aus
-/// den dekodierten Kindern.
-const LAEUFE: [(&str, Art, Art); 13] = [
-    ("heute", Art::Heute, Art::Heute),
-    ("nl60a", Art::NahAlpha(60), Art::NahAlpha(60)),
-    ("nl40a", Art::NahAlpha(40), Art::NahAlpha(40)),
-    ("q90", Art::Vp8(90.0), Art::Vp8(90.0)),
-    ("gitter2", Art::Gitter(2), Art::Gitter(2)),
-    ("gitter4", Art::Gitter(4), Art::Gitter(4)),
-    ("zusammen4-256g", Art::ZusammenGitter(4, 256), Art::ZusammenGitter(4, 256)),
-    ("immer1", Art::ZusammenImmer(1), Art::ZusammenImmer(1)),
-    ("immer2", Art::ZusammenImmer(2), Art::ZusammenImmer(2)),
-    ("immer3", Art::ZusammenImmer(3), Art::ZusammenImmer(3)),
-    ("immer4", Art::ZusammenImmer(4), Art::ZusammenImmer(4)),
-    ("immer6", Art::ZusammenImmer(6), Art::ZusammenImmer(6)),
-    ("immer8", Art::ZusammenImmer(8), Art::ZusammenImmer(8)),
+/// Name, Packung der Basis, Packung der Eltern und die Schalter in
+/// `HEROIC_PROBE` für die Kopie von libwebp: „cra“ ist Farb-Cache fest, ohne
+/// RLE, ohne Analyse der Entropie. Die Eltern entstehen aus den dekodierten
+/// Kindern.
+const LAEUFE: [(&str, Art, Art, &str); 17] = [
+    ("heute", Art::Heute, Art::Heute, ""),
+    ("heute-s4", Art::Heute, Art::Heute, "cra"),
+    ("nl40a", Art::NahAlpha(40), Art::NahAlpha(40), ""),
+    ("nl40a-s4", Art::NahAlpha(40), Art::NahAlpha(40), "cra"),
+    ("q90", Art::Vp8(90.0), Art::Vp8(90.0), ""),
+    ("gitter4", Art::Gitter(4), Art::Gitter(4), ""),
+    ("gitter4-s4", Art::Gitter(4), Art::Gitter(4), "cra"),
+    ("immer2", Art::ZusammenImmer(2), Art::ZusammenImmer(2), ""),
+    ("immer2-s4", Art::ZusammenImmer(2), Art::ZusammenImmer(2), "cra"),
+    ("immer4", Art::ZusammenImmer(4), Art::ZusammenImmer(4), ""),
+    ("immer4-s4", Art::ZusammenImmer(4), Art::ZusammenImmer(4), "cra"),
+    ("immer8", Art::ZusammenImmer(8), Art::ZusammenImmer(8), ""),
+    ("immer8-s4", Art::ZusammenImmer(8), Art::ZusammenImmer(8), "cra"),
+    ("gitter1+zusammen3", Art::GitterZusammen(1, 3), Art::GitterZusammen(1, 3), ""),
+    ("gitter2+zusammen5", Art::GitterZusammen(2, 5), Art::GitterZusammen(2, 5), ""),
+    ("immer4-gitter4", Art::ZusammenImmer(4), Art::Gitter(4), ""),
+    ("immer2-gitter2", Art::ZusammenImmer(2), Art::Gitter(2), ""),
 ];
 
 #[test]
@@ -524,7 +543,9 @@ fn probe_farben_pyramide() {
             for tiefe in 1..=fein {
                 bezug.push(eltern(&bezug[tiefe as usize - 1], verkleinern, tiefe));
             }
-            for (lauf, basis, oben) in LAEUFE {
+            for (lauf, basis, oben, schalter) in LAEUFE {
+                // Der Test läuft allein in seinem Prozess; niemand liest die Umgebung daneben.
+                unsafe { std::env::set_var("HEROIC_PROBE", schalter) };
                 let mut sicht = Stufe::new();
                 for tiefe in 0..=fein {
                     let stufe = &bezug[tiefe as usize];

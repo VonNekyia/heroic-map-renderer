@@ -48,8 +48,10 @@ enum Art {
     /// Jedes Pixel übernimmt den linken oder oberen Nachbarn der Ausgabe,
     /// wenn der höchstens d je Kanal neben seinem Original liegt.
     Nachbar(u8),
-    /// Wie `Nachbar`; ohne passenden Nachbarn die Mitte der Gitterzelle.
-    NachbarGitter(u8),
+    /// Wie `Nachbar` mit d; ohne passenden Nachbarn die Mitte der Zelle im
+    /// Gitter mit dem zweiten, kleineren d. Mit demselben d wäre es genau
+    /// das Gitter.
+    NachbarGitter(u8, u8),
     /// Median-Schnitt über die deckenden Pixel auf so viele Farben, ohne
     /// Grenze für die Abweichung und ohne Rücksicht auf 255.
     Median(usize),
@@ -169,7 +171,7 @@ fn zusammenlegen(image: &RgbaImage, d: u8, hoechstens: usize) -> Option<RgbaImag
     Some(out)
 }
 
-fn nachbar(image: &RgbaImage, d: u8, mit_gitter: bool) -> RgbaImage {
+fn nachbar(image: &RgbaImage, d: u8, fein: Option<u8>) -> RgbaImage {
     let mut out = image.clone();
     for y in 0..image.height() {
         for x in 0..image.width() {
@@ -180,11 +182,12 @@ fn nachbar(image: &RgbaImage, d: u8, mit_gitter: bool) -> RgbaImage {
             let links = (x > 0).then(|| out.get_pixel(x - 1, y).0);
             let oben = (y > 0).then(|| out.get_pixel(x, y - 1).0);
             let neu = [links, oben].into_iter().flatten().find(|n| passt(&original, n, d)).unwrap_or_else(|| {
-                if mit_gitter {
-                    let [r, g, b, a] = original;
-                    [gitter_wert(r, d), gitter_wert(g, d), gitter_wert(b, d), a]
-                } else {
-                    original
+                match fein {
+                    Some(f) => {
+                        let [r, g, b, a] = original;
+                        [gitter_wert(r, f), gitter_wert(g, f), gitter_wert(b, f), a]
+                    }
+                    None => original,
                 }
             });
             out.put_pixel(x, y, Rgba(neu));
@@ -292,8 +295,8 @@ fn packe(image: &RgbaImage, art: Art) -> Gepackt {
         }
         Art::Zusammen(d, hoechstens) => zusammenlegen(image, d, hoechstens),
         Art::ZusammenGitter(d, hoechstens) => zusammenlegen(image, d, hoechstens).or_else(|| Some(gitter(image, d))),
-        Art::Nachbar(d) => Some(nachbar(image, d, false)),
-        Art::NachbarGitter(d) => Some(nachbar(image, d, true)),
+        Art::Nachbar(d) => Some(nachbar(image, d, None)),
+        Art::NachbarGitter(d, fein) => Some(nachbar(image, d, Some(fein))),
         Art::Median(hoechstens) => Some(median_schnitt(image, hoechstens)),
     };
     let dauer = beginn.elapsed().as_secs_f64();
@@ -412,7 +415,6 @@ const VARIANTEN: [(&str, Art); 27] = [
     ("heute", Art::Heute),
     ("nl60", Art::Nah(60)),
     ("nl40", Art::Nah(40)),
-    ("nl20", Art::Nah(20)),
     ("nl60a", Art::NahAlpha(60)),
     ("nl40a", Art::NahAlpha(40)),
     ("q95", Art::Vp8(95.0)),
@@ -424,17 +426,18 @@ const VARIANTEN: [(&str, Art); 27] = [
     ("gitter5", Art::Gitter(5)),
     ("gitter6", Art::Gitter(6)),
     ("gitter8", Art::Gitter(8)),
-    ("gitterpalette4", Art::GitterPalette(4)),
-    ("zusammen2-256", Art::Zusammen(2, 256)),
-    ("zusammen4-256", Art::Zusammen(4, 256)),
-    ("zusammen4-64", Art::Zusammen(4, 64)),
-    ("zusammen8-256", Art::Zusammen(8, 256)),
+    ("zusammen1-256g", Art::ZusammenGitter(1, 256)),
     ("zusammen2-256g", Art::ZusammenGitter(2, 256)),
+    ("zusammen3-256g", Art::ZusammenGitter(3, 256)),
     ("zusammen4-256g", Art::ZusammenGitter(4, 256)),
+    ("zusammen6-256g", Art::ZusammenGitter(6, 256)),
     ("zusammen8-256g", Art::ZusammenGitter(8, 256)),
-    ("nachbar4", Art::Nachbar(4)),
-    ("nachbargitter4", Art::NachbarGitter(4)),
-    ("median256", Art::Median(256)),
+    ("zusammen4-256", Art::Zusammen(4, 256)),
+    ("nachbar2-gitter1", Art::NachbarGitter(2, 1)),
+    ("nachbar3-gitter1", Art::NachbarGitter(3, 1)),
+    ("nachbar4-gitter1", Art::NachbarGitter(4, 1)),
+    ("nachbar4-gitter2", Art::NachbarGitter(4, 2)),
+    ("nachbar8-gitter4", Art::NachbarGitter(8, 4)),
     ("median64", Art::Median(64)),
 ];
 
@@ -499,12 +502,12 @@ const LAEUFE: [(&str, Art, Art); 15] = [
     ("gitter2", Art::Gitter(2), Art::Gitter(2)),
     ("gitter3", Art::Gitter(3), Art::Gitter(3)),
     ("gitter4", Art::Gitter(4), Art::Gitter(4)),
-    ("gitter8", Art::Gitter(8), Art::Gitter(8)),
-    ("zusammen4-256", Art::Zusammen(4, 256), Art::Zusammen(4, 256)),
+    ("zusammen2-256g", Art::ZusammenGitter(2, 256), Art::ZusammenGitter(2, 256)),
+    ("zusammen3-256g", Art::ZusammenGitter(3, 256), Art::ZusammenGitter(3, 256)),
     ("zusammen4-256g", Art::ZusammenGitter(4, 256), Art::ZusammenGitter(4, 256)),
+    ("zusammen8-256g", Art::ZusammenGitter(8, 256), Art::ZusammenGitter(8, 256)),
+    ("nachbar4-gitter2", Art::NachbarGitter(4, 2), Art::NachbarGitter(4, 2)),
     ("gitter4-gitter2", Art::Gitter(4), Art::Gitter(2)),
-    ("gitter4-zusammen4", Art::Gitter(4), Art::Zusammen(4, 256)),
-    ("gitter4-nl40a", Art::Gitter(4), Art::NahAlpha(40)),
 ];
 
 #[test]

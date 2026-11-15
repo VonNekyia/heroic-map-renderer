@@ -180,6 +180,18 @@ Ansicht breitet nicht aus, siehe [Die einfarbige Ansicht](einfarbig.md),
   nicht fertig ist, lässt kein Licht herein. In der Höhe reicht es wie im
   Spiel eine Section unter und über die Sections mit Blöcken
   (`LevelLightEngine.getMinLightSection`).
+  - **Gesiebt:** Eine Zelle der Stufe l, deren Spalte f Schritte von der
+    Mitte liegt (`FERN`, in x und z addiert), bringt dort höchstens l − f
+    an. Mit l ≤ f kommt sie nicht in den Eimer der Stufe l. Ein Schritt zur
+    Seite ändert f um höchstens 1 und kostet eine Stufe; so bleibt jede
+    Kette bis zur Mitte, und das Licht der Mitte ist dasselbe wie ungesiebt
+    (`sieben_aendert_die_mitte_nicht` in
+    [`renderer/src/render/licht.rs`](../../renderer/src/render/licht.rs)).
+    Ausserhalb der Mitte ist die Stufe danach nur eine untere Schranke;
+    dort liest sie niemand. In einem vollen Lauf von oben über die Testwelt
+    braucht `breite_aus` so 49,8 % weniger eigene Zeit und der Lauf 6,4 %
+    weniger CPU-Zeit, gemessen in
+    [2026-11-15, Licht gesiebt](../messungen/2026-11-15-licht-gesiebt.md).
 
 Welche Blöcke wie stark dämpfen und mit welchen Flächen sie Kanten
 schliessen, steht in `renderer/src/assets/licht.txt`, siehe

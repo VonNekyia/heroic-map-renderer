@@ -15,6 +15,38 @@ pub const RAND: i32 = 14;
 /// Kantenlänge des Fensters in Spalten.
 const BREITE: usize = 16 + 2 * RAND as usize;
 
+/// Je Spalte des Fensters die Schritte bis zur nächsten Spalte der Mitte,
+/// in x und z addiert. Eine Zelle der Stufe l bringt in der Mitte höchstens
+/// l − `FERN` an; mit l ≤ `FERN` nichts.
+/// Siehe docs/renderer/wasser-und-licht.md, „Licht ausbreiten“.
+const FERN: [u8; BREITE * BREITE] = {
+    let mut fern = [0; BREITE * BREITE];
+    let mut s = 0;
+    while s < BREITE * BREITE {
+        fern[s] = abstand(s % BREITE) + abstand(s / BREITE);
+        s += 1;
+    }
+    fern
+};
+
+/// Die Schritte von `v` im Fenster bis zur Mitte, `RAND..RAND + 16`.
+const fn abstand(v: usize) -> u8 {
+    let rand = RAND as usize;
+    if v < rand {
+        (rand - v) as u8
+    } else if v >= rand + 16 {
+        (v + 1 - rand - 16) as u8
+    } else {
+        0
+    }
+}
+
+/// Ob eine Zelle der Stufe `l` in dieser Spalte die Mitte noch erreicht.
+/// Ohne `SIEBEN` immer, wie vor dem Sieben; das braucht nur der Test.
+fn erreicht<const SIEBEN: bool>(spalte: usize, l: u8) -> bool {
+    !SIEBEN || l > FERN[spalte]
+}
+
 /// Die Richtungen wie `Direction.values()`, in dieser Reihenfolge stehen
 /// auch die Flächen in [`Lichtweg`](crate::assets::blockstate::Lichtweg).
 pub const UNTEN: usize = 0;
@@ -225,6 +257,17 @@ impl Ausbreitung {
     /// stehen aufsteigend. `himmel`: Die Dimension hat Himmelslicht
     /// (`has_skylight`).
     pub fn chunk(&mut self, chunks: &[Option<&[Eingabe]>; 9], himmel: bool) -> ChunkLicht {
+        self.chunk_mit::<true>(chunks, himmel)
+    }
+
+    /// [`Ausbreitung::chunk`]; mit `SIEBEN` kommt in den Eimer der Stufe l
+    /// nur eine Zelle, deren Spalte `l > FERN` hat. Ausserhalb der Mitte ist
+    /// `stufe` dann nur eine untere Schranke; dort liest sie niemand.
+    fn chunk_mit<const SIEBEN: bool>(
+        &mut self,
+        chunks: &[Option<&[Eingabe]>; 9],
+        himmel: bool,
+    ) -> ChunkLicht {
         // Das Band: alle Sections der Chunks, dazu eine darunter und eine
         // darüber.
         let ys = chunks
@@ -246,11 +289,11 @@ impl Ausbreitung {
         self.baue(chunks, unten, sections);
         let mut werte = vec![0u8; 256 * self.hoehe];
         if himmel {
-            self.himmel();
+            self.himmel::<SIEBEN>();
             self.lies(&mut werte, 4);
         }
         if !self.quellen.is_empty() {
-            self.block();
+            self.block::<SIEBEN>();
             self.lies(&mut werte, 0);
         }
         licht.sections = verdichte(&werte);
@@ -421,8 +464,9 @@ impl Ausbreitung {
     /// Das Himmelslicht: jede Spalte über ihrer tiefsten Quelle 15, von dort
     /// ausgebreitet. In den Eimer der Stufe 15 kommen nur Quellen, neben
     /// denen eine Zelle keine Quelle ist, und die unterste für den Weg nach
-    /// unten.
-    fn himmel(&mut self) {
+    /// unten. Jede Spalte bekommt ihre 15, auch eine, aus der nichts die
+    /// Mitte erreicht: Sonst legten ihre Nachbarn die Zellen wieder ab.
+    fn himmel<const SIEBEN: bool>(&mut self) {
         let (h, spalten) = (self.hoehe, BREITE * BREITE);
         self.leere();
         let mut tief = std::mem::take(&mut self.tief);
@@ -444,24 +488,26 @@ impl Ausbreitung {
                     hoch = hoch.max(self.tief[nz * BREITE + nx] as usize);
                 }
             }
-            self.eimer[15].extend((t..hoch.min(h)).map(|y| (s * h + y) as u32));
+            if erreicht::<SIEBEN>(s, 15) {
+                self.eimer[15].extend((t..hoch.min(h)).map(|y| (s * h + y) as u32));
+            }
         }
-        self.breite_aus();
+        self.breite_aus::<SIEBEN>();
     }
 
     /// Das Blocklicht: jede Quelle mit ihrer Stufe, auch in einem dichten
     /// Block, von dort ausgebreitet.
-    fn block(&mut self) {
+    fn block<const SIEBEN: bool>(&mut self) {
         self.leere();
         for k in 0..self.quellen.len() {
             let (zelle, l) = self.quellen[k];
             let i = zelle as usize;
-            if self.stufe[i] < l {
+            if self.stufe[i] < l && erreicht::<SIEBEN>(i / self.hoehe, l) {
                 self.stufe[i] = l;
                 self.eimer[l as usize].push(zelle);
             }
         }
-        self.breite_aus();
+        self.breite_aus::<SIEBEN>();
     }
 
     fn leere(&mut self) {
@@ -477,7 +523,7 @@ impl Ausbreitung {
     /// sind (`propagateIncrease`: Ein Schritt kostet `max(1, Dämpfung)`,
     /// und die ist 0, 1 oder 15). Eine Zelle kommt mit ihrer endgültigen
     /// Stufe in den Eimer; ein veralteter Eintrag wird übersprungen.
-    fn breite_aus(&mut self) {
+    fn breite_aus<const SIEBEN: bool>(&mut self) {
         let (h, worte) = (self.hoehe, self.worte);
         for l in (2..=15u8).rev() {
             let eimer = std::mem::take(&mut self.eimer[l as usize]);
@@ -512,7 +558,7 @@ impl Ausbreitung {
                         continue;
                     }
                     self.stufe[j] = l - 1;
-                    if l > 2 {
+                    if l > 2 && erreicht::<SIEBEN>(ns, l - 1) {
                         self.eimer[l as usize - 1].push(j as u32);
                     }
                 }
@@ -621,6 +667,116 @@ mod tests {
         );
         // Draussen bleibt es 15.
         assert_eq!(himmel(&spalten, 7, 2), 15);
+    }
+
+    /// Die Spalten der Mitte haben `FERN` 0, die Ecken des Fensters 28, ein
+    /// Schritt zur Seite ändert es um höchstens 1.
+    #[test]
+    fn fern_bis_zur_mitte() {
+        let r = RAND as usize;
+        let fern = |x: usize, z: usize| FERN[z * BREITE + x];
+        assert_eq!(
+            [fern(r, r), fern(r + 15, r + 15), fern(r + 16, r)],
+            [0, 0, 1]
+        );
+        assert_eq!(
+            [fern(r - 1, r + 3), fern(0, 0), fern(BREITE - 1, 0)],
+            [1, 28, 28]
+        );
+        for z in 0..BREITE {
+            for x in 1..BREITE {
+                assert!(fern(x, z).abs_diff(fern(x - 1, z)) <= 1, "({x}, {z})");
+                assert!(fern(z, x).abs_diff(fern(z, x - 1)) <= 1, "({z}, {x})");
+            }
+        }
+    }
+
+    /// Gesiebt gibt die Ausbreitung in der Mitte dasselbe Licht wie ohne
+    /// Sieben, Himmel und Block, an zufälligen Fenstern: dichte, dämpfende
+    /// und leuchtende Zellen, Flächen und fehlende Nachbarn.
+    #[test]
+    fn sieben_aendert_die_mitte_nicht() {
+        type Section = (
+            i8,
+            Box<[u16; 256]>,
+            Box<[u16; 256]>,
+            Vec<(u16, [u8; 6])>,
+            Vec<(u16, u8)>,
+        );
+        // xorshift: reproduzierbar ohne weitere Abhängigkeit.
+        let mut zustand = 0x9e37_79b9_7f4a_7c15_u64;
+        let mut zufall = move |n: u64| {
+            zustand ^= zustand << 13;
+            zustand ^= zustand >> 7;
+            zustand ^= zustand << 17;
+            zustand % n
+        };
+        let mut gemischt = [false; 2];
+        for fenster in 0..40 {
+            let chunks: Vec<Option<Vec<Section>>> = (0..9)
+                .map(|_| {
+                    (zufall(8) != 0).then(|| {
+                        (0..1 + zufall(3) as i8)
+                            .map(|y| {
+                                let mut bits = |promille: u64| -> u16 {
+                                    (0..16)
+                                        .fold(0, |w, b| w | u16::from(zufall(1000) < promille) << b)
+                                };
+                                let dicht: Box<[u16; 256]> =
+                                    Box::new(std::array::from_fn(|_| bits(80)));
+                                let daempft: Box<[u16; 256]> =
+                                    Box::new(std::array::from_fn(|c| dicht[c] | bits(60)));
+                                let mut formen = Vec::new();
+                                let mut quellen = Vec::new();
+                                for i in 0..4096u16 {
+                                    if zufall(100) == 0 {
+                                        formen.push((i, std::array::from_fn(|_| zufall(37) as u8)));
+                                    }
+                                    if zufall(400) == 0 {
+                                        quellen.push((i, 1 + zufall(15) as u8));
+                                    }
+                                }
+                                (y, dicht, daempft, formen, quellen)
+                            })
+                            .collect()
+                    })
+                })
+                .collect();
+            let eingaben: Vec<Option<Vec<Eingabe>>> = chunks
+                .iter()
+                .map(|chunk| {
+                    chunk.as_ref().map(|sections| {
+                        sections
+                            .iter()
+                            .map(|(y, dicht, daempft, formen, quellen)| Eingabe {
+                                y: *y,
+                                dicht,
+                                daempft,
+                                formen,
+                                quellen,
+                            })
+                            .collect()
+                    })
+                })
+                .collect();
+            let fenster9: [Option<&[Eingabe]>; 9] = std::array::from_fn(|c| eingaben[c].as_deref());
+            let himmel = fenster % 2 == 0;
+            let mut ausbreitung = Ausbreitung::default();
+            let gesiebt = ausbreitung.chunk_mit::<true>(&fenster9, himmel);
+            let ohne = ausbreitung.chunk_mit::<false>(&fenster9, himmel);
+            for y in -32..64 {
+                for z in 0..16 {
+                    for x in 0..16 {
+                        let (a, b) = (gesiebt.at(x, y, z), ohne.at(x, y, z));
+                        assert_eq!(a, b, "Fenster {fenster}, ({x}, {y}, {z})");
+                        // Licht zwischen 1 und 14 kommt aus der Ausbreitung.
+                        gemischt[0] |= (1..15).contains(&(a >> 4));
+                        gemischt[1] |= (1..15).contains(&(a & 15));
+                    }
+                }
+            }
+        }
+        assert_eq!(gemischt, [true, true], "kein ausgebreitetes Licht");
     }
 
     /// Blocklicht bleibt bei der Quelle: Ihre Zelle hat ihre Stufe, die

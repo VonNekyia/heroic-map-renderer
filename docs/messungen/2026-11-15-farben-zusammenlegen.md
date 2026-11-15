@@ -1,8 +1,8 @@
 ---
 title: Farben zusammenlegen vor dem Packen
-description: Eine eigene Vorstufe, die ähnliche Farben einer Kachel zusammenlegt, bevor libwebp verlustfrei packt, gegen near-lossless und verlustbehaftet, an 563 Kacheln der Testwelt in der CI und an einer Stichprobe der grossen Welt; mit höchstens 4 Stufen Abweichung je Kanal 25 bis 30 % kleiner als near-lossless 40, an der grossen Welt 35 %; nicht gebaut.
+description: Eine eigene Vorstufe, die ähnliche Farben einer Kachel zusammenlegt, bevor libwebp verlustfrei packt, gegen near-lossless und verlustbehaftet, an 563 Kacheln der Testwelt in der CI und an einer Stichprobe der grossen Welt; mit höchstens 4 Stufen Abweichung je Kanal 25 bis 30 % kleiner als near-lossless 40, an der grossen Welt 35 %; ohne den Rückfall aufs Gitter an der grossen Welt 0,7 bis 2,1 % kleiner, an der Testwelt 0,7 bis 2,4 dB mehr PSNR; nicht gebaut.
 date: 2026-11-15
-commits: [cfe87ecf]
+commits: [cfe87ecf, 72432d32]
 code:
   - renderer/src/render/tiles.rs
   - renderer/src/render/pyramid.rs
@@ -14,8 +14,9 @@ Legt eine Vorstufe ähnliche Farben einer Kachel zusammen, bevor libwebp sie
 kompakt verlustfrei packt, werden die Kacheln bei höchstens 4 Stufen
 Abweichung je Kanal 25 bis 30 % kleiner als mit near-lossless 40, an einer
 Stichprobe der grossen Welt 35 %. Das Format bleibt das verlustfreie, Alpha
-bleibt Bit für Bit, und ein Kanal mit 255 bleibt 255. Gebaut ist nichts;
-welche Stufe gilt, entscheidet der Maintainer.
+bleibt Bit für Bit, und ein Kanal mit 255 bleibt 255. Ohne den Rückfall
+aufs Gitter ist es an der grossen Welt noch 0,7 bis 2,1 % kleiner. Gebaut
+ist nichts; welche Stufe gilt, entscheidet der Maintainer.
 
 ## Aufbau
 
@@ -41,6 +42,9 @@ welche Stufe gilt, entscheidet der Maintainer.
     daneben liegt und 255 genau dort hat, wo sie selbst 255 hat. Sonst
     bleibt sie. Bleiben mehr als 256 Farben, bekommt die Kachel
     stattdessen das Gitter d.
+  - **Zusammenlegen d ohne Rückfall:** dasselbe Zusammenlegen ohne Grenze
+    für die Zahl der Farben und ohne das Gitter. Bleiben mehr als 256
+    Farben, packt libwebp die Kachel ohne Palette.
 - **Vergleich:**
   - near-lossless 60 und 40 von libwebp, mit festem Alpha, und
     verlustbehaftet 95 und 90, wie in
@@ -62,30 +66,36 @@ welche Stufe gilt, entscheidet der Maintainer.
   lokal mit einem kleinen Programm auf der Kopie von libwebp, mit
   derselben Vorstufe; an den Kacheln der Testwelt gibt es auf das Byte die
   Summen des Tests. Gemessen sind dort nur Bytes und die grösste
-  Abweichung.
+  Abweichung, für das Zusammenlegen mit Rückfall dazu die Zahl der
+  Rückfälle.
 - **Zeit:** Vorstufe und Packen zusammen, ein Thread, je Kachel gestoppt;
   bei near-lossless mit festem Alpha zählt das Packen mit near-lossless.
 - **Messcode:** der Tag `versuch/farben-vorstufe`, `cfe87ecf`, Test
   `probe_farben`. Gemessen an Ständen eines Probezweigs mit den Kacheln;
   nicht gemergt. Die Liste der Packungen wechselte je Lauf, der Tag trägt
   die des fünften; die Kopie von libwebp liest dort die Schalter des
-  Zuschnitts aus der Umgebung.
+  Zuschnitts aus der Umgebung. Der sechste Lauf: der Tag
+  `versuch/farben-rein`, `72432d32`.
 - **Rechner:** die CI, `ubuntu-latest`, Release-Build, ein geteilter
   Rechner.
 
 ## Ablauf
 
-Am 15.11.2026, fünf Läufe des Workflows an den Ständen `4b669a0e`,
-`7e04b9ac`, `b290d5b5`, `b64c2c2e` und `f594858a`. Die Zahlen sind die
-Ausgabe des Tests im Log.
+Am 15.11.2026, sechs Läufe des Workflows an den Ständen `4b669a0e`,
+`7e04b9ac`, `b290d5b5`, `b64c2c2e`, `f594858a` und `7c405eae`. Die Zahlen
+sind die Ausgabe des Tests im Log.
 
 - Die Leiter und die Pyramide stammen aus dem vierten Lauf, die
   ausgeschiedenen Vorstufen aus dem zweiten und dritten, der Zuschnitt und
-  das Zusammenlegen auf Gitterwerten aus dem fünften.
+  das Zusammenlegen auf Gitterwerten aus dem fünften, das Zusammenlegen
+  ohne Rückfall und die Zahl der Rückfälle aus dem sechsten.
 - Bytes und Abweichungen jeder Packung, die in mehreren Läufen stand, sind
   in allen gleich.
-- Jeder Lauf führt den Test dreimal aus. Für die Zeiten der Median der
-  drei; gegen kompakt im selben Durchgang liegen die drei höchstens 0,9
+- Der sechste Lauf führt den Test einmal aus; seine Zeiten sind ein
+  Anhalt, kein Median.
+- Jeder der ersten fünf Läufe führt den Test dreimal aus. Für die Zeiten
+  der Median der drei; gegen kompakt im selben Durchgang liegen die drei
+  höchstens 0,9
   Prozentpunkte auseinander, im fünften Lauf von oben und im iso mit
   Cinematic höchstens 1,2, im iso ohne Cinematic bis 3,3.
 - Die grosse Welt: lokal, vier Threads mit niedrigster Priorität; die
@@ -318,6 +328,79 @@ in dB und grösste Abweichung als „PSNR / grösste“.
   37,3 dB in Stufe 4; mit Zusammenlegen auf allen Stufen sind es dort
   38,8 dB.
 
+### Zusammenlegen ohne Rückfall
+
+Aus dem sechsten Lauf, beide Zeilen je Grenze aus demselben Durchgang.
+„Aufs Gitter gefallen“ zählt die Kacheln, die mehr als 256 Farben
+behalten und darum das Gitter bekommen. „Packen“ ist ein Durchgang gegen
+kompakt verlustfrei, nur als Anhalt.
+
+Von oben, 182 Kacheln:
+
+| Packung | Bytes | grösste Abweichung | geänderte Pixel | PSNR, dB | schlechteste Kachel, dB | mit Palette | aufs Gitter gefallen | Packen | davon Vorstufe, ms |
+|---|---|---|---|---|---|---|---|---|---|
+| Zusammenlegen 2 | 57,0 % | 2 | 92,3 % | 45,6 | 44,1 | 53 | 132 | +20 % | 1,26 |
+| Zusammenlegen 2 ohne Rückfall | 56,1 % | 2 | 72,5 % | 48,0 | 46,5 | 50 | – | +39 % | 2,48 |
+| Zusammenlegen 3 | 48,3 % | 3 | 90,8 % | 43,1 | 41,8 | 88 | 105 | +24 % | 1,42 |
+| Zusammenlegen 3 ohne Rückfall | 47,9 % | 3 | 78,7 % | 44,9 | 43,5 | 77 | – | +34 % | 2,11 |
+| Zusammenlegen 4 | 42,4 % | 4 | 88,8 % | 41,7 | 39,6 | 124 | 61 | +27 % | 1,59 |
+| Zusammenlegen 4 ohne Rückfall | 41,8 % | 4 | 82,4 % | 42,9 | 41,2 | 121 | – | +31 % | 1,94 |
+
+Iso mit Cinematic, 227 Kacheln:
+
+| Packung | Bytes | grösste Abweichung | geänderte Pixel | PSNR, dB | schlechteste Kachel, dB | mit Palette | aufs Gitter gefallen | Packen | davon Vorstufe, ms |
+|---|---|---|---|---|---|---|---|---|---|
+| Zusammenlegen 2 | 47,4 % | 2 | 90,0 % | 46,2 | 44,7 | 115 | 127 | +21 % | 1,37 |
+| Zusammenlegen 2 ohne Rückfall | 47,2 % | 2 | 79,3 % | 47,8 | 46,7 | 100 | – | +33 % | 2,15 |
+| Zusammenlegen 3 | 40,1 % | 3 | 88,0 % | 44,2 | 41,7 | 159 | 68 | +27 % | 1,53 |
+| Zusammenlegen 3 ohne Rückfall | 40,2 % | 3 | 84,4 % | 45,0 | 43,8 | 159 | – | +33 % | 1,89 |
+| Zusammenlegen 4 | 35,2 % | 4 | 89,3 % | 42,1 | 39,2 | 187 | 49 | +30 % | 1,58 |
+| Zusammenlegen 4 ohne Rückfall | 35,4 % | 4 | 87,5 % | 42,8 | 41,4 | 178 | – | +33 % | 1,78 |
+
+Iso ohne Cinematic, 154 Kacheln:
+
+| Packung | Bytes | grösste Abweichung | geänderte Pixel | PSNR, dB | schlechteste Kachel, dB | mit Palette | aufs Gitter gefallen | Packen | davon Vorstufe, ms |
+|---|---|---|---|---|---|---|---|---|---|
+| Zusammenlegen 2 | 51,8 % | 2 | 88,0 % | 46,1 | 43,5 | 64 | 93 | +22 % | 1,47 |
+| Zusammenlegen 2 ohne Rückfall | 52,0 % | 2 | 74,8 % | 47,9 | 46,3 | 61 | – | +45 % | 3,32 |
+| Zusammenlegen 3 | 43,6 % | 3 | 85,2 % | 43,9 | 42,0 | 99 | 58 | +29 % | 1,67 |
+| Zusammenlegen 3 ohne Rückfall | 44,3 % | 3 | 80,5 % | 44,9 | 43,5 | 96 | – | +40 % | 2,57 |
+| Zusammenlegen 4 | 38,2 % | 4 | 86,1 % | 42,0 | 39,8 | 124 | 39 | +33 % | 1,79 |
+| Zusammenlegen 4 ohne Rückfall | 38,9 % | 4 | 84,2 % | 42,7 | 41,1 | 115 | – | +39 % | 2,26 |
+
+Grosse Welt, dieselbe Stichprobe wie in „Grosse Welt“, Bytes in Prozent
+von kompakt verlustfrei; die grösste Abweichung ist in jeder Zeile d:
+
+| Packung | iso mit Cinematic | aufs Gitter gefallen | von oben | aufs Gitter gefallen |
+|---|---|---|---|---|
+| Zusammenlegen 2 | 54,0 % | 1 443 von 3 415 | 62,2 % | 925 von 2 132 |
+| Zusammenlegen 2 ohne Rückfall | 53,6 % | – | 61,0 % | – |
+| Zusammenlegen 3 | 46,1 % | 1 211 | 53,7 % | 690 |
+| Zusammenlegen 3 ohne Rückfall | 45,5 % | – | 52,5 % | – |
+| Zusammenlegen 4 | 41,6 % | 906 | 45,7 % | 448 |
+| Zusammenlegen 4 ohne Rückfall | 41,0 % | – | 44,9 % | – |
+
+- **Bytes:** Ohne Rückfall liegt die Testwelt zwischen 1,5 % kleiner und
+  1,9 % grösser als mit Rückfall: von oben 0,7 bis 1,5 % kleiner, im iso
+  mit Cinematic −0,3 bis +0,3 %, im iso ohne 0,5 bis 1,9 % grösser. An der
+  grossen Welt ist es überall kleiner, im iso um 0,7 bis 1,4 %, von oben
+  um 1,8 bis 2,1 %.
+- **Abweichung:** Ohne Rückfall sind es an der Testwelt 0,7 bis 2,4 dB
+  mehr PSNR, die schlechteste Kachel ist 1,3 bis 2,8 dB besser, und es
+  ändern sich weniger Pixel, bei 2 sind es 72 bis 79 % statt 88 bis 92 %.
+  Die grösste Abweichung bleibt d, Alpha und 255 bleiben stehen.
+- **Rückfälle:** An der Testwelt fallen bei 2 je Baum 56 bis 73 % der
+  Kacheln aufs Gitter, bei 4 noch 22 bis 34 %; an der grossen Welt 42 und
+  43 % bei 2, 27 und 21 % bei 4.
+- **Palette:** Ohne Rückfall packen gleich viele oder bis zu 15 Kacheln
+  weniger mit Palette: Ein Teil der Kacheln, die aufs Gitter fallen, kommt
+  dort auf höchstens 256 Farben.
+- **Zeit:** In dem einen Durchgang packt es ohne Rückfall 31 bis 45 %
+  langsamer als kompakt verlustfrei, mit Rückfall 20 bis 33 %; die Vorstufe
+  braucht 1,8 bis 3,3 ms statt 1,3 bis 1,8 ms je Kachel.
+- **Nicht gemessen:** die Pyramide ohne Rückfall und die Zeit mit dem
+  Zuschnitt von libwebp.
+
 ### Ausgeschieden
 
 Bytes, grösste Abweichung und PSNR für von oben, iso mit und iso ohne
@@ -373,6 +456,13 @@ Angesehen, nicht gemessen:
   höchstens 256 Farben, an der grossen Welt gut ein Drittel. Nach
   Zusammenlegen 4 packen 124 von 182, 187 von 227 und 124 von 154 Kacheln
   mit Palette.
+- **Der Rückfall aufs Gitter lohnt nicht.** Ohne ihn sind die Kacheln
+  an der grossen Welt 0,7 bis 2,1 % kleiner, an der Testwelt zwischen
+  1,5 % kleiner und 1,9 % grösser, dort bei 0,7 bis 2,4 dB mehr PSNR;
+  die grösste Abweichung bleibt dieselbe. Mit Rückfall fallen an der grossen Welt
+  21 bis 43 % der Kacheln aufs Gitter. Offen sind die Pyramide ohne
+  Rückfall und die Zeit mit dem Zuschnitt von libwebp; in einem Durchgang
+  braucht die Vorstufe ohne Rückfall 0,2 bis 1,9 ms mehr je Kachel.
 - **Die grösste Abweichung gilt an der Basis.** In der Pyramide wächst sie
   bis etwa zum Dreifachen der Grenze, im iso wie bei near-lossless. Die
   PSNR bleibt nach ein bis zwei Stufen stehen.

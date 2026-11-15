@@ -279,7 +279,19 @@ Oberfläche hell, in ihrem eigenen Blocklicht.
   (`lichtweg` in `metatile.rs`). Ihr Modell kennt der Renderer aber nur für
   Zustände, die der Vorlauf gesehen hat, also im Ausschnitt: Ausserhalb
   eines `--size`, im Rand der Ausbreitung, lässt ein solcher Block das
-  Licht immer durch. Ob das Modell den Umriss deckt, entscheidet sein
+  Licht immer durch.
+  - **In einem Update** ebenso: Sein Vorlauf liest nur die Chunks seines
+    Gebiets mit der Reserve `BLEED_BLOCKS`, das Licht aber 14 Blöcke weit
+    in die Nachbarn (`RAND` in
+    [`renderer/src/render/licht.rs`](../../renderer/src/render/licht.rs)).
+    Steht ein deckender Zustand nur in diesem Ring, lässt er im Update
+    Licht durch, im vollen Lauf nicht. Flächen unter oder hinter ihm
+    zeichnet das Update heller, bis ein voller Lauf sie neu zeichnet. Offene
+    Oberflächen trifft es nicht, sie haben Himmelslicht 15; Blöcke aus
+    `blocks.txt` auch nicht, ihr Weg kommt aus `licht.txt`. Kein Test deckt
+    den Fall (#414).
+
+  Ob das Modell den Umriss deckt, entscheidet sein
   Sprite im Raster der Basis (`SpriteSet::deckt_fuer_licht`). Die nativen
   Stufen nehmen die Antwort von dort, sonst hätte dieselbe Welt auf jeder
   Stufe anderes Licht: Ein Block mit 15/16 Höhe deckt bei scale 32 seinen

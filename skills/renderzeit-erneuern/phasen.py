@@ -39,7 +39,7 @@ _RUST = [
                                     r"render::rasterizer::(rastern|Canvas|ProjectedQuad|Raster|render|zuschneiden|deckung|sample)|render::banner|^image::|^png::|fdeflate|serde_json|"
                                     r"cli::(schaetzung|datenpakete|banner|client)|^ebenen::"),
     ("Sammeln und Deckung", r"world::biomzoom|world::chunk::(Chunk|Section)::(slot|block|biome|section_index|contains_column)|world::palette::(Paletted|PackedIndices)::(get|at|index)|"
-                            r"metatile::von_vorn|metatile::Deckung|metatile::(wort|columns_at|u_window|v_window|origin_of|block_origin|anchor_of|ao_seiten|kino_kanaele|hellstes|rand)\b|"
+                            r"metatile::von_vorn|metatile::Deckung|metatile::(wort|columns_at|u_window|v_window|origin_of|block_origin|anchor_of|ao_seiten|kino_kanaele|hellstes|rand|ecken_aus|ao_masken|zellen_bit|spalten_bit)\b|"
                             r"ChunkCache::(candidates|sorted_candidates|expose|edge|sprite_at|tints_at|laubfarbe|biome_of|noise_biome|licht_fuer|ecken_at|lichter_um|licht_at|slot|next_tile|"
                             r"leuchtet_im_band|himmel_at|block_at|zelle|umgebung|in_die_welt|family_at)|"
                             r"metatile::impl\$\d+::(umgebung|ecken_at|tints_at|lichter_um|licht_fuer|sprite_at|candidates|sorted_candidates|expose|edge|laubfarbe|biome_of|noise_biome|slot|"

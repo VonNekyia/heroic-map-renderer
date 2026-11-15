@@ -213,7 +213,10 @@ Plätze, die das Sprite zeigt, aus den Nachbarn, ihr Licht aus den Zellen
 um den Block, nach denen diese Plätze fragen (`lichter_um`): für die
 Oberseite allein aus 10 der 27, für drei Seiten auf dem Rand aus 20. Welche
 das sind, hält `ao_masken` je Menge von Plätzen fest; ein Test prüft, dass
-`ecken_aus` nichts ausserhalb liest. Ob ein Block abdunkelt, ob er die
+`ecken_aus` nichts ausserhalb liest. In einem vollen Lauf von oben über die
+Testwelt braucht `ChunkCache::zelle` so 56 % weniger eigene Zeit und der
+Lauf 2,8 % weniger CPU-Zeit, gemessen in
+[2026-11-15, Ecken nach Masken](../messungen/2026-11-15-ecken-nach-masken.md). Ob ein Block abdunkelt, ob er die
 Sicht nimmt, liegt dafür wie „deckend“ als eigene Ebene in den
 Bitmasken der Sections (`DARK`, `VIEW`), auch für Blöcke ohne Sprite. Die
 Sicht nimmt in 26.3 genau ein Block, der `isSolidRender` ist, siehe „Die

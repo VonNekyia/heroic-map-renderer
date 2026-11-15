@@ -1,8 +1,8 @@
 ---
 title: Farben zusammenlegen vor dem Packen
-description: Eine eigene Vorstufe, die ähnliche Farben einer Kachel zusammenlegt, bevor libwebp verlustfrei packt, gegen near-lossless und verlustbehaftet, an 563 Kacheln der Testwelt in der CI und an einer Stichprobe der grossen Welt; mit höchstens 4 Stufen Abweichung je Kanal 25 bis 30 % kleiner als near-lossless 40, an der grossen Welt 35 %; ohne den Rückfall aufs Gitter an der grossen Welt 0,7 bis 2,1 % kleiner, an der Testwelt 0,7 bis 2,4 dB mehr PSNR, mit der Vorstufe des Tests aber langsamer; nicht gebaut.
+description: Eine eigene Vorstufe, die ähnliche Farben einer Kachel zusammenlegt, bevor libwebp verlustfrei packt, gegen near-lossless und verlustbehaftet, an 563 Kacheln der Testwelt in der CI und an einer Stichprobe der grossen Welt; mit höchstens 4 Stufen Abweichung je Kanal 25 bis 30 % kleiner als near-lossless 40, an der grossen Welt 35 %; ohne den Rückfall aufs Gitter an der grossen Welt 0,7 bis 2,1 % kleiner, an der Testwelt 0,7 bis 2,4 dB mehr PSNR und mit schnellerer Suche samt dem Zuschnitt von libwebp so schnell wie kompakt heute; nicht gebaut.
 date: 2026-11-15
-commits: [cfe87ecf, 72432d32, 79817b39]
+commits: [cfe87ecf, 72432d32, 79817b39, 9b378406]
 code:
   - renderer/src/render/tiles.rs
   - renderer/src/render/pyramid.rs
@@ -76,21 +76,23 @@ ist nichts; welche Stufe gilt, entscheidet der Maintainer.
   die des fünften; die Kopie von libwebp liest dort die Schalter des
   Zuschnitts aus der Umgebung. Der sechste Lauf: der Tag
   `versuch/farben-rein`, `72432d32`; der siebte: der Tag
-  `versuch/farben-rein-pyramide`, `79817b39`.
+  `versuch/farben-rein-pyramide`, `79817b39`; der achte: der Tag
+  `versuch/farben-rein-schnell`, `9b378406`.
 - **Rechner:** die CI, `ubuntu-latest`, Release-Build, ein geteilter
   Rechner.
 
 ## Ablauf
 
-Am 15.11.2026, sieben Läufe des Workflows an den Ständen `4b669a0e`,
-`7e04b9ac`, `b290d5b5`, `b64c2c2e`, `f594858a`, `7c405eae` und `6236d3d9`.
-Die Zahlen sind die Ausgabe des Tests im Log.
+Am 15.11.2026, acht Läufe des Workflows an den Ständen `4b669a0e`,
+`7e04b9ac`, `b290d5b5`, `b64c2c2e`, `f594858a`, `7c405eae`, `6236d3d9` und
+`affd6203`. Die Zahlen sind die Ausgabe des Tests im Log.
 
 - Die Leiter und die Pyramide stammen aus dem vierten Lauf, die
   ausgeschiedenen Vorstufen aus dem zweiten und dritten, der Zuschnitt und
   das Zusammenlegen auf Gitterwerten aus dem fünften, das Zusammenlegen
   ohne Rückfall und die Zahl der Rückfälle aus dem sechsten, seine
-  Pyramide und seine Zeit mit dem Zuschnitt aus dem siebten.
+  Pyramide und seine Zeit mit dem Zuschnitt aus dem siebten, die
+  schnellere Suche aus dem achten.
 - Bytes und Abweichungen jeder Packung, die in mehreren Läufen stand, sind
   in allen gleich.
 - Der sechste Lauf führt den Test einmal aus; seine Zeiten sind ein
@@ -98,7 +100,8 @@ Die Zahlen sind die Ausgabe des Tests im Log.
 - Jeder andere Lauf führt den Test dreimal aus. Für die Zeiten der
   Median der drei; gegen kompakt im selben Durchgang liegen die drei
   höchstens 0,9 Prozentpunkte auseinander, im fünften Lauf von oben und
-  im iso mit Cinematic höchstens 1,2, im iso ohne Cinematic bis 3,3.
+  im iso mit Cinematic höchstens 1,2, im iso ohne Cinematic bis 3,3, im
+  achten bis 3,8.
 - Die grosse Welt: lokal, vier Threads mit niedrigster Priorität; die
   Zeiten dort zählen nicht.
 - Das Aussehen ist keine Messung: Die Ausschnitte unten hat der Researcher
@@ -513,6 +516,58 @@ Durchgang liegen die drei höchstens 0,9 Prozentpunkte auseinander.
   Rückfall 0,4 bis 1,7 %.
 - Die Pixel sind mit und ohne Zuschnitt auf jeder Stufe gleich.
 
+### Ohne Rückfall mit schnellerer Suche
+
+Aus dem achten Lauf. Die Vorstufe legt genau so zusammen wie bisher,
+sucht aber schneller:
+
+- Sie zählt und ersetzt die Farben über eine Tabelle mit einem Hash aus
+  einer Multiplikation, wie ihn `Streuer` in
+  [`metatile.rs`](../../renderer/src/render/metatile.rs) hat.
+- Sie überspringt Läufe gleicher Pixel.
+- Die Vertreter stehen je Rotwert in einer Liste. Gesucht wird nur in den
+  Listen, deren Rot höchstens d daneben liegt; der früheste Treffer
+  gewinnt wie bisher.
+
+Der Test vergleicht auf jeder Kachel jeder Stufe bei 1, 2, 3, 4 und 8 das
+Ergebnis mit dem der einfachen Suche: Es ist Pixel für Pixel gleich. Bytes
+und Abweichungen jeder Zeile sind die des siebten Laufs.
+
+Zeit über alle Stufen wie im Abschnitt davor, Median aus drei Durchgängen
+auf der CI. Dieser Lauf streut mehr: Gegen kompakt im selben Durchgang
+liegen die drei bis 2,8 Prozentpunkte auseinander, die Zeilen mit der
+einfachen Suche ohne Rückfall bis 3,8. Verglichen wird nur innerhalb des
+Laufs.
+
+| Packung | von oben: Packen, ms | gegen heute | mit Dekodieren | iso mit Cinematic: Packen, ms | gegen heute | mit Dekodieren | iso ohne Cinematic: Packen, ms | gegen heute | mit Dekodieren |
+|---|---|---|---|---|---|---|---|---|---|
+| kompakt heute | 6,85 | – | +7,7 % | 7,03 | – | +8,5 % | 6,98 | – | +8,7 % |
+| kompakt mit Zuschnitt | 4,75 | −30,6 % | −22,9 % | 4,56 | −35,2 % | −26,9 % | 4,66 | −33,3 % | −24,6 % |
+| Zusammenlegen 2 mit Zuschnitt | 6,91 | +1,0 % | +6,9 % | 7,31 | +4,0 % | +9,4 % | 7,09 | +1,5 % | +7,6 % |
+| Zusammenlegen 4 mit Zuschnitt | 7,63 | +11,2 % | +16,1 % | 8,15 | +15,8 % | +20,0 % | 8,15 | +16,8 % | +21,6 % |
+| 2 ohne Rückfall mit Zuschnitt | 8,24 | +19,9 % | +25,5 % | 8,20 | +16,6 % | +21,9 % | 9,12 | +30,6 % | +36,5 % |
+| 3 ohne Rückfall mit Zuschnitt | 8,04 | +17,4 % | +22,6 % | 8,30 | +18,1 % | +22,7 % | 8,73 | +24,8 % | +30,0 % |
+| 4 ohne Rückfall mit Zuschnitt | 7,99 | +16,1 % | +20,8 % | 8,34 | +18,3 % | +22,4 % | 8,65 | +23,9 % | +28,7 % |
+| 2 ohne Rückfall, schnelle Suche | 8,16 | +18,8 % | +24,6 % | 8,38 | +19,0 % | +24,4 % | 8,73 | +25,0 % | +31,2 % |
+| 2 ohne Rückfall, schnelle Suche, mit Zuschnitt | 6,32 | −7,7 % | −1,9 % | 6,45 | −8,4 % | −3,2 % | 6,74 | −3,9 % | +2,1 % |
+| 3 ohne Rückfall, schnelle Suche | 8,09 | +17,9 % | +23,2 % | 8,50 | +20,9 % | +25,6 % | 8,85 | +26,8 % | +32,4 % |
+| 3 ohne Rückfall, schnelle Suche, mit Zuschnitt | 6,42 | −6,7 % | −1,5 % | 6,74 | −4,1 % | +0,4 % | 6,93 | −0,8 % | +4,4 % |
+| 4 ohne Rückfall, schnelle Suche | 8,00 | +16,2 % | +21,1 % | 8,47 | +20,4 % | +24,7 % | 8,87 | +27,1 % | +32,3 % |
+| 4 ohne Rückfall, schnelle Suche, mit Zuschnitt | 6,41 | −6,5 % | −1,7 % | 6,87 | −2,4 % | +1,8 % | 7,08 | +1,4 % | +6,1 % |
+
+- **Mit Zuschnitt** packt es ohne Rückfall mit der schnelleren Suche
+  zwischen 8,4 % schneller und 1,4 % langsamer als kompakt heute, samt dem
+  Dekodieren der Kinder zwischen 3,2 % schneller und 6,1 % langsamer.
+- **Ohne Zuschnitt** sind es 16 bis 27 % langsamer.
+- **Gegen die Fassung mit Rückfall** und der einfachen Suche, je mit
+  Zuschnitt: bei 2 um 5,4 bis 12,4 Prozentpunkte schneller, bei 4 um 15,4
+  bis 18,2.
+- **Vorstufe:** 0,57 bis 1,12 ms je Kachel statt 2,05 bis 3,51 ms; mit
+  Rückfall und der einfachen Suche 1,43 bis 1,97 ms.
+- **Nicht gemessen:** die Fassung mit Rückfall mit der schnelleren Suche.
+- **Aufwand:** im Test 56 Zeilen für die Vorstufe, dazu 19 für den Hash,
+  den der Renderer schon hat.
+
 ### Ausgeschieden
 
 Bytes, grösste Abweichung und PSNR für von oben, iso mit und iso ohne
@@ -568,8 +623,9 @@ Angesehen, nicht gemessen:
   höchstens 256 Farben, an der grossen Welt gut ein Drittel. Nach
   Zusammenlegen 4 packen 124 von 182, 187 von 227 und 124 von 154 Kacheln
   mit Palette.
-- **Ohne den Rückfall aufs Gitter: gleich gross und genauer, mit der
-  Vorstufe des Tests langsamer.**
+- **Ohne den Rückfall aufs Gitter: gleich gross und genauer, mit
+  schnellerer Suche und dem Zuschnitt von libwebp so schnell wie kompakt
+  heute.**
   - Die Kacheln sind an der grossen Welt 0,7 bis 2,1 % kleiner, an der
     Testwelt zwischen 1,5 % kleiner und 1,9 % grösser, dort bei 0,7 bis
     2,4 dB mehr PSNR; die grösste Abweichung bleibt dieselbe. Mit Rückfall
@@ -580,7 +636,12 @@ Angesehen, nicht gemessen:
     Mit dem Zuschnitt von libwebp packt es ohne Rückfall 11 bis 25 %
     langsamer als kompakt heute, mit Rückfall zwischen 3 % schneller und
     12 % langsamer. Der Unterschied liegt in der Vorstufe, 1,7 bis 3,0 ms
-    je Kachel gegen 1,2 bis 1,6 ms; sie ist im Test nicht optimiert.
+    je Kachel gegen 1,2 bis 1,6 ms: Sie sucht den Vertreter unter allen
+    bisherigen.
+  - Mit der schnelleren Suche, Pixel für Pixel gleich, packt es ohne
+    Rückfall mit dem Zuschnitt zwischen 8,4 % schneller und 1,4 %
+    langsamer als kompakt heute; die Vorstufe braucht 0,6 bis 1,1 ms je
+    Kachel. Die Fassung mit Rückfall ist damit nicht gemessen.
 - **Die grösste Abweichung gilt an der Basis.** In der Pyramide wächst sie
   bis etwa zum Dreifachen der Grenze, im iso wie bei near-lossless. Die
   PSNR bleibt nach ein bis zwei Stufen stehen.

@@ -487,7 +487,12 @@ liegen“. Entschieden in
   [2026-10-24, Pyramide nur über neuen Kindern](../messungen/2026-10-24-pyramide-nur-ueber-neuen.md).
 - **Ein anderer Kodierstand** kodiert jede Kachel neu, die ein Lauf
   ablegt. Ein Block eines alten Builds, bis v0.5.0 mit dem Fingerabdruck
-  der ausführbaren Datei im Kopf, gilt als Kodierstand 1.
+  der ausführbaren Datei im Kopf, gilt als Kodierstand 1. Das erste Update
+  danach kodiert also jede Kachel seines Gebiets und baut die Pyramide über
+  allen. In einem kompakten Baum bekommt eine Kachel mit anderen Bytes ein
+  neues ETag; in einem schnellen sind die Bytes gleich, und die Kachel
+  bleibt liegen. Kodierstand 2 kam mit
+  [0142](../entscheidungen/0142-kompakt-ohne-suche-rle-und-analyse.md).
 - **Die Ausgabe** nennt am Ende, wie viele Kacheln der Lauf nicht kodiert
   hat:
 

@@ -62,13 +62,16 @@ Mit `WEBP_HINT_GRAPH`, also nur beim kompakten Packen:
 - **Zeit des kompakten Packens:** −31,1 % von oben und −34,9 % im iso, an
   409 Kacheln der Testwelt, jede Stufe auf der davor, ebenda. Hochgerechnet
   rund 8 % der CPU-Zeit eines vollen Laufs von oben und rund 10 % im iso.
+  Am ganzen Baum von oben mit Relief gemessen: Kodieren −26,7 %, CPU-Zeit
+  −5,2 %, an der Wanduhr rund −8 %, siehe
+  [2026-11-15, libwebp zugeschnitten am Baum](../messungen/2026-11-15-libwebp-zugeschnitten-am-baum.md).
 - **Platz:**
   - An den 409 Kacheln ohne Relief +0,03 %. Fast leere Kacheln wachsen dort
     bis 9 %, je Kachel 50 bis 110 Byte; die schlechteste von 1216 auf
     1326 Byte.
   - Am ganzen Baum von oben mit Relief +0,156 %: die Basis +0,081 %, das
     Relief +1,29 %, die Pyramide −0,018 %. Gleiche Pixel, siehe
-    [2026-11-15, libwebp zugeschnitten, Bytes am Baum](../messungen/2026-11-15-libwebp-zugeschnitten-am-baum.md).
+    [2026-11-15, libwebp zugeschnitten am Baum](../messungen/2026-11-15-libwebp-zugeschnitten-am-baum.md).
 - **Bilder mit Palette** bekommen den festen Cache und keine RLE; die Analyse
   bleibt bei ihnen.
 - **Einmal neu kodieren:** Wegen des neuen Kodierstands kodiert jeder Lauf

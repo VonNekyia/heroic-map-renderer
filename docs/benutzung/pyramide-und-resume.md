@@ -127,6 +127,11 @@ gröberen Stufen löschen, und `--pyramid` baut sie ganz neu. Bei einem Baum
 mit nativen Stufen sind die danach verkleinert, bis ein Export sie wieder
 rendert.
 
+Die Schicht des Reliefs, `relief/` und `relief/rest/`, fasst `--pyramid`
+nicht an, weder ihre Stufen noch mit `--manifest` ihre Manifeste (#410).
+Was nach dem Kopieren eines Baums mit Relief zu tun ist, steht in
+[Plugin](../plugin.md), „Manifest“.
+
 ## Fortsetzen: `--resume`
 
 `--resume` setzt einen abgebrochenen Lauf fort, und nur den: vorhandene

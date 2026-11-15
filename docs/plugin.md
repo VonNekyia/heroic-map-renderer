@@ -37,7 +37,13 @@ dem Plugin-Programmierer ab.
     `--manifest`, siehe [Kacheln exportieren](benutzung/kacheln.md),
     „Nachverdichten“. Das Plugin reiht den Aufruf wie seine Läufe ein, also
     nie neben einem anderen Lauf auf demselben Baum, wie
-    [0093](entscheidungen/0093-nachverdichten.md) verlangt. Es gibt keinen
+    [0093](entscheidungen/0093-nachverdichten.md) verlangt. Liegt im Baum
+    `stand-neu.bin` oder `gebiet-offen.bin`, etwa nach einem Abbruch oder
+    einem Ausschnitt, packt der Aufruf wie sonst und endet mit 0, legt aber
+    keine Hashes ab, siehe [0093](entscheidungen/0093-nachverdichten.md);
+    davor steht eine Zeile `Hashes:     keine neuen, solange … liegt`.
+    Das nächste Update baut die Eltern und legt die Hashes ab. Für das
+    Plugin ändert sich am Ausgang nichts. Es gibt keinen
     Fortschritt als JSON; das Plugin zeigt die letzte Zeile.
   - **Die Packung eines Baums,** das Feld `compact` in `map.json`, liest
     das Plugin für seinen Status: `true` heisst kompakt, sonst schnell.
@@ -553,12 +559,16 @@ Ein Beispiel aus dem Testvektor, entpackt:
   sein als ihre Zeile; der Mod speichert deshalb das ETag aus der Antwort
   (#154).
 - **`manifest-offen-<pid>-<ns>`** liegt daneben, je Lauf, solange er
-  schreibt, auch ohne `--manifest`. Das Plugin braucht es nicht.
+  schreibt, auch ohne `--manifest`, offen und gesperrt. Das Plugin braucht
+  es nicht; siehe [0083](entscheidungen/0083-manifest-je-baum.md).
 - **Nach dem Kopieren** eines Baums ohne genaue Zeiten einmal
   `--pyramid --manifest` aufrufen oder `manifest` löschen. Sonst stimmt jedes
   ETag nicht mehr, das kein Update anfasst, und der Mod lädt bei jedem
   Abgleich alles, siehe
-  [0083](entscheidungen/0083-manifest-je-baum.md), „Folgen“.
+  [0083](entscheidungen/0083-manifest-je-baum.md), „Folgen“. Mit Relief
+  dazu `relief/manifest` und `relief/rest/manifest` löschen: `--pyramid`
+  fasst die Schicht nicht an, ein Update ohne Änderung mit `--manifest`
+  schreibt fehlende neu.
 
 ### Was das Plugin daraus nimmt
 

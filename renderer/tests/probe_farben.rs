@@ -14,6 +14,7 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::ffi::c_int;
+use std::hash::{BuildHasherDefault, Hasher};
 use std::path::Path;
 use std::time::Instant;
 
@@ -51,6 +52,8 @@ enum Art {
     /// Nur zusammenlegen, ohne Obergrenze für die Farben und ohne Rückfall:
     /// Kacheln mit mehr als 256 Farben packen ohne Palette.
     ZusammenRein(u8),
+    /// Dasselbe Ergebnis wie `ZusammenRein`, schneller gesucht.
+    ZusammenSchnell(u8),
     /// Erst das Gitter mit dem ersten d, dann auf dessen Werten zusammenlegen
     /// mit dem zweiten; zusammen höchstens die Summe daneben. Passt es nicht
     /// in 256 Farben, das Gitter mit der Summe.
@@ -179,6 +182,89 @@ fn zusammenlegen(image: &RgbaImage, d: u8, hoechstens: usize, immer: bool) -> Op
         p.0 = ziel[&p.0];
     }
     Some(out)
+}
+
+/// Hasht eine Farbe mit einer Multiplikation, wie `Streuer` in
+/// render/metatile.rs.
+#[derive(Default)]
+struct Streuer(u64);
+
+impl Hasher for Streuer {
+    fn write(&mut self, bytes: &[u8]) {
+        for &b in bytes {
+            self.write_u32(u32::from(b));
+        }
+    }
+
+    fn write_u32(&mut self, n: u32) {
+        self.0 = (self.0.rotate_left(5) ^ u64::from(n)).wrapping_mul(0xf135_7aea_2e62_a9c5);
+    }
+
+    fn finish(&self) -> u64 {
+        self.0.rotate_left(26)
+    }
+}
+
+type Tabelle<V> = HashMap<u32, V, BuildHasherDefault<Streuer>>;
+
+/// Wie `zusammenlegen` ohne Obergrenze, mit demselben Ergebnis: zählt und
+/// ersetzt über eine Tabelle mit schnellem Hash, überspringt Läufe gleicher
+/// Pixel und sucht den Vertreter nur unter denen, deren Rot passen kann.
+fn zusammenlegen_schnell(image: &RgbaImage, d: u8) -> RgbaImage {
+    // Als Zahl geordnet wie R, G, B, A.
+    let mut zahl: Tabelle<u32> = Tabelle::default();
+    let (mut letzte, mut lauf) = (u32::from_be_bytes(image.get_pixel(0, 0).0), 0u32);
+    for p in image.pixels() {
+        let farbe = u32::from_be_bytes(p.0);
+        if farbe != letzte {
+            *zahl.entry(letzte).or_default() += lauf;
+            (letzte, lauf) = (farbe, 0);
+        }
+        lauf += 1;
+    }
+    *zahl.entry(letzte).or_default() += lauf;
+    let mut farben: Vec<(u32, u32)> = zahl.into_iter().collect();
+    farben.sort_unstable_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+    // Je Rot die Vertreter mit ihrer Nummer, in der Reihenfolge, in der sie entstanden.
+    let mut nach_rot: [Vec<(u32, [u8; 4])>; 256] = std::array::from_fn(|_| Vec::new());
+    let mut ziel: Tabelle<[u8; 4]> = Tabelle::with_capacity_and_hasher(farben.len(), BuildHasherDefault::default());
+    for (nummer, (schluessel, _)) in farben.iter().enumerate() {
+        let farbe = schluessel.to_be_bytes();
+        // Der früheste passende Vertreter: Jede Liste ist nach Nummer
+        // geordnet, hinter dem bisher besten steht in ihr kein früherer.
+        let mut bester: Option<(u32, [u8; 4])> = None;
+        if farbe[3] > 0 {
+            for rot in farbe[0].saturating_sub(d)..=farbe[0].saturating_add(d) {
+                let grenze = bester.map_or(u32::MAX, |(nr, _)| nr);
+                let fund = nach_rot[usize::from(rot)].iter().take_while(|(nr, _)| *nr < grenze).find(|(_, v)| passt(&farbe, v, d));
+                if let Some(fund) = fund {
+                    bester = Some(*fund);
+                }
+            }
+        }
+        let v = match bester {
+            Some((_, v)) => v,
+            None => {
+                // Durchsichtige Pixel bleiben, wie sie sind, und stehen für nichts.
+                if farbe[3] > 0 {
+                    nach_rot[usize::from(farbe[0])].push((nummer as u32, farbe));
+                }
+                farbe
+            }
+        };
+        ziel.insert(*schluessel, v);
+    }
+    let mut out = image.clone();
+    let mut letzte = ([0; 4], [0; 4]);
+    let mut gilt = false;
+    for p in out.pixels_mut() {
+        if !gilt || p.0 != letzte.0 {
+            letzte = (p.0, ziel[&u32::from_be_bytes(p.0)]);
+            gilt = true;
+        }
+        p.0 = letzte.1;
+    }
+    out
 }
 
 fn nachbar(image: &RgbaImage, d: u8, fein: Option<u8>) -> RgbaImage {
@@ -316,6 +402,7 @@ fn packe(image: &RgbaImage, art: Art) -> Gepackt {
             Some(gitter(image, d))
         }),
         Art::ZusammenRein(d) => zusammenlegen(image, d, usize::MAX, true),
+        Art::ZusammenSchnell(d) => Some(zusammenlegen_schnell(image, d)),
         Art::GitterZusammen(fein, d) => zusammenlegen(&gitter(image, fein), d, 256, true).or_else(|| Some(gitter(image, fein + d))),
         Art::Nachbar(d) => Some(nachbar(image, d, None)),
         Art::NachbarGitter(d, fein) => Some(nachbar(image, d, Some(fein))),
@@ -510,19 +597,19 @@ const LAEUFE: [(&str, Art, Art, &str); 17] = [
     ("heute-s4", Art::Heute, Art::Heute, "cra"),
     ("immer2", Art::ZusammenImmer(2), Art::ZusammenImmer(2), ""),
     ("immer2-s4", Art::ZusammenImmer(2), Art::ZusammenImmer(2), "cra"),
-    ("immer3", Art::ZusammenImmer(3), Art::ZusammenImmer(3), ""),
-    ("immer3-s4", Art::ZusammenImmer(3), Art::ZusammenImmer(3), "cra"),
     ("immer4", Art::ZusammenImmer(4), Art::ZusammenImmer(4), ""),
     ("immer4-s4", Art::ZusammenImmer(4), Art::ZusammenImmer(4), "cra"),
     ("rein2", Art::ZusammenRein(2), Art::ZusammenRein(2), ""),
     ("rein2-s4", Art::ZusammenRein(2), Art::ZusammenRein(2), "cra"),
-    ("rein3", Art::ZusammenRein(3), Art::ZusammenRein(3), ""),
     ("rein3-s4", Art::ZusammenRein(3), Art::ZusammenRein(3), "cra"),
     ("rein4", Art::ZusammenRein(4), Art::ZusammenRein(4), ""),
     ("rein4-s4", Art::ZusammenRein(4), Art::ZusammenRein(4), "cra"),
-    ("rein2-gitter2", Art::ZusammenRein(2), Art::Gitter(2), ""),
-    ("rein3-gitter3", Art::ZusammenRein(3), Art::Gitter(3), ""),
-    ("rein4-gitter4", Art::ZusammenRein(4), Art::Gitter(4), ""),
+    ("schnell2", Art::ZusammenSchnell(2), Art::ZusammenSchnell(2), ""),
+    ("schnell2-s4", Art::ZusammenSchnell(2), Art::ZusammenSchnell(2), "cra"),
+    ("schnell3", Art::ZusammenSchnell(3), Art::ZusammenSchnell(3), ""),
+    ("schnell3-s4", Art::ZusammenSchnell(3), Art::ZusammenSchnell(3), "cra"),
+    ("schnell4", Art::ZusammenSchnell(4), Art::ZusammenSchnell(4), ""),
+    ("schnell4-s4", Art::ZusammenSchnell(4), Art::ZusammenSchnell(4), "cra"),
 ];
 
 #[test]
@@ -546,6 +633,12 @@ fn probe_farben_pyramide() {
             ];
             for tiefe in 1..=fein {
                 bezug.push(eltern(&bezug[tiefe as usize - 1], verkleinern, tiefe));
+            }
+            // Die schnelle Suche legt genau so zusammen wie die einfache.
+            for bild in bezug.iter().flat_map(|stufe| stufe.values()) {
+                for d in [1, 2, 3, 4, 8] {
+                    assert!(zusammenlegen(bild, d, usize::MAX, true).unwrap() == zusammenlegen_schnell(bild, d), "{baum}-{gruppe} d={d}");
+                }
             }
             for (lauf, basis, oben, schalter) in LAEUFE {
                 // Der Test läuft allein in seinem Prozess; niemand liest die Umgebung daneben.

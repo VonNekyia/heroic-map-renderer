@@ -48,6 +48,9 @@ enum Art {
     /// Wie `ZusammenGitter` mit 256 Farben, legt aber auch in Kacheln
     /// zusammen, die schon in die Palette passen.
     ZusammenImmer(u8),
+    /// Nur zusammenlegen, ohne Obergrenze für die Farben und ohne Rückfall:
+    /// Kacheln mit mehr als 256 Farben packen ohne Palette.
+    ZusammenRein(u8),
     /// Erst das Gitter mit dem ersten d, dann auf dessen Werten zusammenlegen
     /// mit dem zweiten; zusammen höchstens die Summe daneben. Passt es nicht
     /// in 256 Farben, das Gitter mit der Summe.
@@ -266,7 +269,8 @@ struct Gepackt {
     /// Davon die Vorstufe.
     vorstufe: f64,
     palette: bool,
-    /// Die Vorstufe passte nicht, near-lossless sprang ein.
+    /// Die Vorstufe passte nicht: near-lossless sprang ein, bei
+    /// `ZusammenImmer` das Gitter.
     rueckfall: bool,
     /// Das Bild, das verlustfrei gepackt wurde; so muss die Kachel dekodieren.
     vorbild: Option<RgbaImage>,
@@ -281,6 +285,7 @@ fn packe(image: &RgbaImage, art: Art) -> Gepackt {
         let vorbild = (vp8.is_none() && nah == 100).then(|| image.clone());
         Gepackt { daten, sekunden, vorstufe: 0.0, palette: vp8.is_none() && passt_in_palette(image), rueckfall: false, vorbild }
     };
+    let mut aufs_gitter = false;
     let vorstufe = match art {
         Art::Heute => return einfach(100, None),
         Art::Nah(stufe) => return einfach(stufe, None),
@@ -306,7 +311,11 @@ fn packe(image: &RgbaImage, art: Art) -> Gepackt {
         }
         Art::Zusammen(d, hoechstens) => zusammenlegen(image, d, hoechstens, false),
         Art::ZusammenGitter(d, hoechstens) => zusammenlegen(image, d, hoechstens, false).or_else(|| Some(gitter(image, d))),
-        Art::ZusammenImmer(d) => zusammenlegen(image, d, 256, true).or_else(|| Some(gitter(image, d))),
+        Art::ZusammenImmer(d) => zusammenlegen(image, d, 256, true).or_else(|| {
+            aufs_gitter = true;
+            Some(gitter(image, d))
+        }),
+        Art::ZusammenRein(d) => zusammenlegen(image, d, usize::MAX, true),
         Art::GitterZusammen(fein, d) => zusammenlegen(&gitter(image, fein), d, 256, true).or_else(|| Some(gitter(image, fein + d))),
         Art::Nachbar(d) => Some(nachbar(image, d, None)),
         Art::NachbarGitter(d, fein) => Some(nachbar(image, d, Some(fein))),
@@ -318,7 +327,7 @@ fn packe(image: &RgbaImage, art: Art) -> Gepackt {
             let daten = kodiere(&bild, 100, None);
             let sekunden = beginn.elapsed().as_secs_f64();
             let palette = passt_in_palette(&bild);
-            Gepackt { daten, sekunden, vorstufe: dauer, palette, rueckfall: false, vorbild: Some(bild) }
+            Gepackt { daten, sekunden, vorstufe: dauer, palette, rueckfall: aufs_gitter, vorbild: Some(bild) }
         }
         None => {
             let Art::Zusammen(d, _) = art else { unreachable!() };
@@ -427,24 +436,19 @@ impl Zahl {
     }
 }
 
-const VARIANTEN: [(&str, Art); 17] = [
+const VARIANTEN: [(&str, Art); 12] = [
     ("heute", Art::Heute),
     ("nl60a", Art::NahAlpha(60)),
     ("nl40a", Art::NahAlpha(40)),
-    ("q95", Art::Vp8(95.0)),
-    ("q90", Art::Vp8(90.0)),
     ("gitter2", Art::Gitter(2)),
+    ("gitter3", Art::Gitter(3)),
     ("gitter4", Art::Gitter(4)),
-    ("gitter8", Art::Gitter(8)),
-    ("zusammen2-256g", Art::ZusammenGitter(2, 256)),
-    ("zusammen4-256g", Art::ZusammenGitter(4, 256)),
-    ("immer1", Art::ZusammenImmer(1)),
     ("immer2", Art::ZusammenImmer(2)),
     ("immer3", Art::ZusammenImmer(3)),
     ("immer4", Art::ZusammenImmer(4)),
-    ("immer5", Art::ZusammenImmer(5)),
-    ("immer6", Art::ZusammenImmer(6)),
-    ("immer8", Art::ZusammenImmer(8)),
+    ("rein2", Art::ZusammenRein(2)),
+    ("rein3", Art::ZusammenRein(3)),
+    ("rein4", Art::ZusammenRein(4)),
 ];
 
 fn lies(pfad: &Path) -> RgbaImage {

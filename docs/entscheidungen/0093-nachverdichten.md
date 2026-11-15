@@ -53,6 +53,12 @@ Hintergrund verdichten. Der Maintainer entschied das am 08.10. mit Weg 2.
   gibt es nicht.
 - **Manifest:** Mit `--manifest` liest der Aufruf am Ende den ganzen Baum
   neu. Ohne entfernt er ein altes, wie jeder Lauf, der Kacheln schreibt.
+- **Schicht und Rest des Reliefs** (#410): Nennt `map.json` eine Schicht
+  (`relief_tiles`), packt der Aufruf nach dem Baum `relief/` und
+  `relief/rest/` ebenso, je mit eigenen Hashes und eigenem Manifest
+  ([0132](0132-relief-als-schicht.md)). Bis #410 fasste er sie nicht an:
+  `map.json` nannte den Baum kompakt, Schicht und Rest blieben schnell
+  gepackt, und mit `--manifest` blieben ihre Manifeste falsch.
 - **Gemessen** in
   [2026-10-08, Nachverdichten](../messungen/2026-10-08-nachverdichten.md):
   - rund 13,5 ms je Kachel auf einem Thread, ein zweiter Aufruf 1,1 ms;

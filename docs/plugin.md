@@ -558,7 +558,10 @@ Ein Beispiel aus dem Testvektor, entpackt:
   `--pyramid --manifest` aufrufen oder `manifest` löschen. Sonst stimmt jedes
   ETag nicht mehr, das kein Update anfasst, und der Mod lädt bei jedem
   Abgleich alles, siehe
-  [0083](entscheidungen/0083-manifest-je-baum.md), „Folgen“.
+  [0083](entscheidungen/0083-manifest-je-baum.md), „Folgen“. Mit Relief
+  dazu `relief/manifest` und `relief/rest/manifest` löschen: `--pyramid`
+  fasst die Schicht nicht an, ein Update ohne Änderung mit `--manifest`
+  schreibt fehlende neu.
 
 ### Was das Plugin daraus nimmt
 

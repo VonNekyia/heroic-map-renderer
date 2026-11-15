@@ -45,6 +45,9 @@ enum Art {
     Zusammen(u8, usize),
     /// Wie `Zusammen`; passt es nicht, das Gitter mit derselben Grenze.
     ZusammenGitter(u8, usize),
+    /// Wie `ZusammenGitter` mit 256 Farben, legt aber auch in Kacheln
+    /// zusammen, die schon in die Palette passen.
+    ZusammenImmer(u8),
     /// Jedes Pixel übernimmt den linken oder oberen Nachbarn der Ausgabe,
     /// wenn der höchstens d je Kanal neben seinem Original liegt.
     Nachbar(u8),
@@ -139,12 +142,12 @@ fn passt(a: &[u8; 4], b: &[u8; 4], d: u8) -> bool {
     a[3] == b[3] && (0..3).all(|k| a[k].abs_diff(b[k]) <= d && (a[k] == 255) == (b[k] == 255))
 }
 
-fn zusammenlegen(image: &RgbaImage, d: u8, hoechstens: usize) -> Option<RgbaImage> {
+fn zusammenlegen(image: &RgbaImage, d: u8, hoechstens: usize, immer: bool) -> Option<RgbaImage> {
     let mut zahl: HashMap<[u8; 4], u32> = HashMap::new();
     for p in image.pixels() {
         *zahl.entry(p.0).or_default() += 1;
     }
-    if zahl.len() <= hoechstens {
+    if !immer && zahl.len() <= hoechstens {
         return Some(image.clone());
     }
     let mut farben: Vec<([u8; 4], u32)> = zahl.into_iter().collect();
@@ -293,8 +296,9 @@ fn packe(image: &RgbaImage, art: Art) -> Gepackt {
                 (1..=bis).map(|d| gitter(image, d)).find(|bild| passt_in_palette(bild)).or_else(|| Some(gitter(image, bis)))
             }
         }
-        Art::Zusammen(d, hoechstens) => zusammenlegen(image, d, hoechstens),
-        Art::ZusammenGitter(d, hoechstens) => zusammenlegen(image, d, hoechstens).or_else(|| Some(gitter(image, d))),
+        Art::Zusammen(d, hoechstens) => zusammenlegen(image, d, hoechstens, false),
+        Art::ZusammenGitter(d, hoechstens) => zusammenlegen(image, d, hoechstens, false).or_else(|| Some(gitter(image, d))),
+        Art::ZusammenImmer(d) => zusammenlegen(image, d, 256, true).or_else(|| Some(gitter(image, d))),
         Art::Nachbar(d) => Some(nachbar(image, d, None)),
         Art::NachbarGitter(d, fein) => Some(nachbar(image, d, Some(fein))),
         Art::Median(hoechstens) => Some(median_schnitt(image, hoechstens)),
@@ -411,34 +415,24 @@ impl Zahl {
     }
 }
 
-const VARIANTEN: [(&str, Art); 27] = [
+const VARIANTEN: [(&str, Art); 17] = [
     ("heute", Art::Heute),
-    ("nl60", Art::Nah(60)),
-    ("nl40", Art::Nah(40)),
     ("nl60a", Art::NahAlpha(60)),
     ("nl40a", Art::NahAlpha(40)),
     ("q95", Art::Vp8(95.0)),
     ("q90", Art::Vp8(90.0)),
-    ("gitter1", Art::Gitter(1)),
     ("gitter2", Art::Gitter(2)),
-    ("gitter3", Art::Gitter(3)),
     ("gitter4", Art::Gitter(4)),
-    ("gitter5", Art::Gitter(5)),
-    ("gitter6", Art::Gitter(6)),
     ("gitter8", Art::Gitter(8)),
-    ("zusammen1-256g", Art::ZusammenGitter(1, 256)),
     ("zusammen2-256g", Art::ZusammenGitter(2, 256)),
-    ("zusammen3-256g", Art::ZusammenGitter(3, 256)),
     ("zusammen4-256g", Art::ZusammenGitter(4, 256)),
-    ("zusammen6-256g", Art::ZusammenGitter(6, 256)),
-    ("zusammen8-256g", Art::ZusammenGitter(8, 256)),
-    ("zusammen4-256", Art::Zusammen(4, 256)),
-    ("nachbar2-gitter1", Art::NachbarGitter(2, 1)),
-    ("nachbar3-gitter1", Art::NachbarGitter(3, 1)),
-    ("nachbar4-gitter1", Art::NachbarGitter(4, 1)),
-    ("nachbar4-gitter2", Art::NachbarGitter(4, 2)),
-    ("nachbar8-gitter4", Art::NachbarGitter(8, 4)),
-    ("median64", Art::Median(64)),
+    ("immer1", Art::ZusammenImmer(1)),
+    ("immer2", Art::ZusammenImmer(2)),
+    ("immer3", Art::ZusammenImmer(3)),
+    ("immer4", Art::ZusammenImmer(4)),
+    ("immer5", Art::ZusammenImmer(5)),
+    ("immer6", Art::ZusammenImmer(6)),
+    ("immer8", Art::ZusammenImmer(8)),
 ];
 
 fn lies(pfad: &Path) -> RgbaImage {
@@ -492,22 +486,20 @@ fn eltern(kinder: &Stufe, art: Verkleinern, tiefe: u32) -> Stufe {
 
 /// Name, Packung der Basis und Packung der Eltern; die Eltern entstehen aus
 /// den dekodierten Kindern.
-const LAEUFE: [(&str, Art, Art); 15] = [
+const LAEUFE: [(&str, Art, Art); 13] = [
     ("heute", Art::Heute, Art::Heute),
     ("nl60a", Art::NahAlpha(60), Art::NahAlpha(60)),
     ("nl40a", Art::NahAlpha(40), Art::NahAlpha(40)),
-    ("q95", Art::Vp8(95.0), Art::Vp8(95.0)),
     ("q90", Art::Vp8(90.0), Art::Vp8(90.0)),
-    ("gitter1", Art::Gitter(1), Art::Gitter(1)),
     ("gitter2", Art::Gitter(2), Art::Gitter(2)),
-    ("gitter3", Art::Gitter(3), Art::Gitter(3)),
     ("gitter4", Art::Gitter(4), Art::Gitter(4)),
-    ("zusammen2-256g", Art::ZusammenGitter(2, 256), Art::ZusammenGitter(2, 256)),
-    ("zusammen3-256g", Art::ZusammenGitter(3, 256), Art::ZusammenGitter(3, 256)),
     ("zusammen4-256g", Art::ZusammenGitter(4, 256), Art::ZusammenGitter(4, 256)),
-    ("zusammen8-256g", Art::ZusammenGitter(8, 256), Art::ZusammenGitter(8, 256)),
-    ("nachbar4-gitter2", Art::NachbarGitter(4, 2), Art::NachbarGitter(4, 2)),
-    ("gitter4-gitter2", Art::Gitter(4), Art::Gitter(2)),
+    ("immer1", Art::ZusammenImmer(1), Art::ZusammenImmer(1)),
+    ("immer2", Art::ZusammenImmer(2), Art::ZusammenImmer(2)),
+    ("immer3", Art::ZusammenImmer(3), Art::ZusammenImmer(3)),
+    ("immer4", Art::ZusammenImmer(4), Art::ZusammenImmer(4)),
+    ("immer6", Art::ZusammenImmer(6), Art::ZusammenImmer(6)),
+    ("immer8", Art::ZusammenImmer(8), Art::ZusammenImmer(8)),
 ];
 
 #[test]

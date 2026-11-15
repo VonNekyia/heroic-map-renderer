@@ -518,3 +518,11 @@ danach jeweils `trees.json`; `--pyramid` schreibt `map.json` bei jedem
 Aufruf. Die Datei geht dabei jedes Mal ganz auf die Platte, bevor sie die
 alte ersetzt: Nach einem Stromausfall steht die alte oder die neue da, und
 kein Lauf scheitert an einer halben.
+
+Ein Baum ist nur dann neu, wenn `map.json` fehlt. Steht sie da und lässt
+sich nicht lesen, etwa ohne Leserechte, als Ordner oder ohne gültiges
+UTF-8, bricht jeder Lauf mit ihrem Pfad ab, bevor er etwas schreibt; ebenso
+`--pyramid`, `--heights` und `--compact-tree`. Ungültiges JSON bricht mit
+dem Rat ab, sie zu löschen, wenn der Baum neu entstehen soll. `lies_bestand`
+in [`renderer/src/cli.rs`](../../renderer/src/cli.rs), Test
+`unlesbare_map_json_bricht_ab`.

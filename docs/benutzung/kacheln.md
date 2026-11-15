@@ -315,6 +315,11 @@ Verdichtet: 3086 Kacheln, 108.4 MB statt 154.0 MB, 0 schon kompakt, 0 übergange
   noch nicht kompakt ist.
 - **Manifest:** Mit `--manifest` schreibt er es am Ende neu; jede Kachel hat
   ein neues ETag.
+- **Schicht des Reliefs:** In einem Baum mit `--relief` packt er danach
+  `relief/` und `relief/rest/` ebenso, mit ihren Hashes und, mit
+  `--manifest`, ihren Manifesten. Vor jedem der beiden Ordner steht eine
+  Zeile `Schicht:` mit seinem Pfad; die Zeile `Verdichtet:` zählt alle drei
+  zusammen (`nachverdichten_mit_der_schicht` in `renderer/tests/cli.rs`).
 - **Kosten:** rund 13,5 ms je Kachel auf einem Thread, ein zweiter Aufruf
   rund 1 ms; der Speicher bleibt unter 0,05 GiB. Gemessen in
   [2026-10-08, Nachverdichten](../messungen/2026-10-08-nachverdichten.md).

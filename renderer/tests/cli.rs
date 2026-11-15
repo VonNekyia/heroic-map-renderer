@@ -1087,6 +1087,33 @@ fn prune_braucht_tiles() {
     }
 }
 
+/// Eine `map.json`, die dasteht, aber sich nicht lesen lässt, ist kein
+/// neuer Baum: Der Lauf bricht ab und lässt den Baum, wie er ist.
+#[test]
+fn unlesbare_map_json_bricht_ab() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0)], zwei_bloecke);
+    for was in ["Ordner", "kein UTF-8"] {
+        let out = neuer_baum("2x1-se");
+        gelungen(&tiles(welt.path(), out.path(), &["--scale", "16"]));
+        let map_json = out.path().join("map.json");
+        std::fs::remove_file(&map_json).unwrap();
+        if was == "Ordner" {
+            std::fs::create_dir(&map_json).unwrap();
+        } else {
+            std::fs::write(&map_json, b"{\xff}").unwrap();
+        }
+        let vorher = schnappschuss(out.path());
+
+        let lauf = tiles(welt.path(), out.path(), &["--scale", "16", "--update"]);
+        let text = String::from_utf8_lossy(&lauf.stderr);
+        assert!(!lauf.status.success(), "{was}: lief weiter");
+        assert!(text.contains("map.json lesen"), "{was}: {text}");
+        assert_eq!(schnappschuss(out.path()), vorher, "{was}");
+        assert_eq!(map_json.is_dir(), was == "Ordner", "{was}");
+    }
+}
+
 /// Ein Ausschnitt darf nicht an einem Block scheitern, der weit ausserhalb
 /// liegt und gar nicht gezeichnet wird.
 #[test]
@@ -2717,6 +2744,57 @@ fn nachverdichten_wie_kompakt() {
         ohne_karte(schnappschuss(baum.path())),
         ohne_karte(schnappschuss(soll.path()))
     );
+}
+
+/// Auch Schicht und Rest des Reliefs packt `--compact-tree` kompakt nach,
+/// mit ihren alten Zeiten; mit `--manifest` stimmen alle drei Manifeste.
+/// Siehe docs/entscheidungen/0093-nachverdichten.md.
+#[test]
+fn nachverdichten_mit_der_schicht() {
+    let welt = tempdir();
+    baue_update_welt(welt.path(), hell_am_hang, &[], 1);
+    let args = ["--camera", "top-north", "--scale", "8", "--relief", "slope"];
+    let zeiten = |dir: &Path| -> BTreeMap<String, SystemTime> {
+        dateien(dir)
+            .into_iter()
+            .map(|rel| {
+                let zeit = zeit_von(&dir.join(&rel));
+                (rel, zeit)
+            })
+            .collect()
+    };
+    let baum = neuer_baum("top-north-s");
+    gelungen(&export(welt.path(), baum.path(), &args));
+    let damals = zeiten(baum.path());
+    assert!(
+        damals.keys().any(|rel| rel.starts_with("relief/rest/")),
+        "kein Rest"
+    );
+    gelungen(&cli(&[
+        OsStr::new("--compact-tree"),
+        baum.path().as_os_str(),
+        OsStr::new("--manifest"),
+    ]));
+
+    let soll = neuer_baum("top-north-s");
+    gelungen(&export(
+        welt.path(),
+        soll.path(),
+        &[&args[..], &["--compact"]].concat(),
+    ));
+    let ohne_karte = |mut dateien: BTreeMap<String, Vec<u8>>| {
+        dateien.remove("map.json");
+        dateien
+    };
+    assert_eq!(
+        ohne_karte(schnappschuss(baum.path())),
+        ohne_karte(schnappschuss(soll.path()))
+    );
+    assert_eq!(zeiten(baum.path()), damals);
+    for ordner in ["", "relief", "relief/rest"] {
+        let dir = baum.path().join(ordner);
+        assert_eq!(manifest(&dir), manifest_soll(&dir), "{ordner}");
+    }
 }
 
 /// Auch die Eltern, die im Speicher entstehen, kodiert ein zweiter Lauf

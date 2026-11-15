@@ -18,8 +18,8 @@ use super::licht::{Ausbreitung, ChunkLicht, Eingabe};
 use super::projection::Umkehrung;
 use super::pyramid::LINEAR;
 use super::rasterizer::{
-    AO_FACES, AO_PLAETZE, Ecken, Geometrie, Light, VOLL_HELL, darken, ecken_faktor, over, pack,
-    smooth_blend, tinted, tinted_im_licht,
+    AO_FACES, AO_PLAETZE, Ecken, Geometrie, Light, Lightmap, VOLL_HELL, darken, ecken_faktor, over,
+    pack, smooth_blend, tinted, tinted_im_licht,
 };
 use super::sonne::texel_mitte;
 use super::sprites::{Family, Rows, TINT_BLOCK, TINT_WATER, mask_bit};
@@ -832,6 +832,191 @@ fn ao_seiten(richtung: Richtung) -> [AoSeite; 3] {
         }
     })
 }
+/// Das Bit einer Zelle `(dx, dy, dz)` um den Block, je von -1 bis 1, wie in
+/// [`ChunkCache::lichter_um`].
+fn zellen_bit([dx, dy, dz]: [i32; 3]) -> u32 {
+    1 << (dx + 1 + 3 * (dy + 1) + 9 * (dz + 1))
+}
+
+/// Das Bit einer Spalte `(dx, dz)` um den Block, je von -1 bis 2, wie in
+/// [`ChunkCache::umgebung`].
+fn spalten_bit([dx, _, dz]: [i32; 3]) -> u16 {
+    1 << (dx + 1 + 4 * (dz + 1))
+}
+
+/// Je Menge von Plätzen die Zellen, deren Licht [`ecken_aus`] liest
+/// ([`zellen_bit`]), und die Spalten, deren Ebenen es liest
+/// ([`spalten_bit`]). Die eigene Zelle ist immer dabei, die andere Hälfte
+/// einer Doppelkiste nicht. Wer in `ecken_aus` eine Zelle mehr liest, zieht
+/// sie hier nach; `ao_masken_decken_jeden_zugriff` fängt es.
+fn ao_masken(seiten: &[AoSeite; 3]) -> [(u32, u16); 1 << AO_PLAETZE] {
+    let bei = |p: [i32; 3], o: [i32; 3]| [p[0] + o[0], p[1] + o[1], p[2] + o[2]];
+    let mut je_platz = [(0, 0); AO_PLAETZE];
+    for (seite, s) in seiten.iter().enumerate() {
+        let d = s.richtung;
+        // Auf dem Rand ab der Zelle vor der Seite, im Innern ab der eigenen.
+        for (platz, start) in [(seite, d), (seite + 3, [0; 3])] {
+            let (zellen, spalten) = &mut je_platz[platz];
+            // Vor der Seite: `fest`, `opak` und das Licht der Mitte.
+            *zellen |= zellen_bit(d) | zellen_bit(start);
+            *spalten |= spalten_bit(d) | spalten_bit(start);
+            for (k, &n) in s.nachbarn.iter().enumerate() {
+                let p = bei(start, n);
+                *zellen |= zellen_bit(p);
+                *spalten |= spalten_bit(p) | spalten_bit(bei(p, d));
+                // Die Ecken; ein Paar gegenüber trifft `start`.
+                for &m in &s.nachbarn[..k] {
+                    *zellen |= zellen_bit(bei(p, m));
+                    *spalten |= spalten_bit(bei(p, m));
+                }
+            }
+        }
+    }
+    std::array::from_fn(|plaetze| {
+        (0..AO_PLAETZE)
+            .filter(|platz| plaetze >> platz & 1 != 0)
+            .fold((zellen_bit([0; 3]), 0), |(z, s), platz| {
+                (z | je_platz[platz].0, s | je_platz[platz].1)
+            })
+    })
+}
+
+/// Was [`ChunkCache::ecken_at`] rechnet, aus den Ebenen von
+/// [`ChunkCache::umgebung`] und dem Licht von [`ChunkCache::lichter_um`].
+/// Mit `kino` stehen statt der Helligkeit die Kanäle für Cinematic.
+#[allow(clippy::too_many_arguments)]
+fn ecken_aus(
+    ao_seiten: &[AoSeite; 3],
+    (lightmap, kino): (&Lightmap, bool),
+    [fest, dunkelt, sicht, opak]: [u64; 4],
+    (roh, voll): ([u32; 27], u32),
+    weich: bool,
+    stufe: u8,
+    innen: Option<Option<[i32; 3]>>,
+    plaetze: u8,
+) -> ([u32; 3], Option<Ecken>) {
+    // Das Licht einer ganzen Stufe, gepackt wie `Light::packed`.
+    let ganz = |licht: u32| match kino {
+        true => kino_kanaele(licht, 255),
+        false => lightmap.factors(Light::from_packed(licht)),
+    };
+    // Alles relativ zum Block, siehe `umgebung` und `lichter_um`.
+    let bit = |ebene: u64, [dx, dy, dz]: [i32; 3]| {
+        ebene >> (dy + 1 + 4 * (dx + 1) + 16 * (dz + 1)) & 1 != 0
+    };
+    let stelle = |[dx, dy, dz]: [i32; 3]| (dx + 1 + 3 * (dy + 1) + 9 * (dz + 1)) as usize;
+    // Das Licht einer Zelle, wie ihr eigener Block es angibt
+    // (`LightCoordsUtil.getLightCoords`).
+    let licht = |p: [i32; 3]| match voll >> stelle(p) & 1 {
+        0 => roh[stelle(p)],
+        _ => VOLL_HELL,
+    };
+    let bei = |p: [i32; 3], o: [i32; 3]| [p[0] + o[0], p[1] + o[1], p[2] + o[2]];
+    // Die vier Werte einer Seite ab der Zelle `start`: auf dem Rand der
+    // vor ihr, im Innern der eigenen. Den Schatten der Mitte gibt der
+    // Block in `start`, ihr Licht kommt aus `mitte`.
+    let weich_ab = |s: &AoSeite, start: [i32; 3], mitte: u32| {
+        let (d, nachbarn) = (s.richtung, s.nachbarn);
+        let mut dunkel = [false; 4];
+        let mut frei = [false; 4];
+        let mut nah = [0; 4];
+        for (k, &n) in nachbarn.iter().enumerate() {
+            dunkel[k] = bit(dunkelt, bei(start, n));
+            frei[k] = !bit(sicht, bei(bei(start, n), d));
+            nah[k] = licht(bei(start, n));
+        }
+        let ecke = |a: usize, b: usize| {
+            if frei[a] || frei[b] {
+                let q = bei(bei(start, nachbarn[a]), nachbarn[b]);
+                (bit(dunkelt, q), licht(q))
+            } else {
+                (dunkel[0], nah[0])
+            }
+        };
+        let (e03, e02, e12, e13) = (ecke(0, 3), ecke(0, 2), ecke(1, 2), ecke(1, 3));
+        let davor = bit(dunkelt, start);
+        let je_ecke = [
+            (
+                [dunkel[3], dunkel[0], e03.0, davor],
+                [nah[3], nah[0], e03.1],
+            ),
+            (
+                [dunkel[2], dunkel[0], e02.0, davor],
+                [nah[2], nah[0], e02.1],
+            ),
+            (
+                [dunkel[2], dunkel[1], e12.0, davor],
+                [nah[2], nah[1], e12.1],
+            ),
+            (
+                [dunkel[3], dunkel[1], e13.0, davor],
+                [nah[3], nah[1], e13.1],
+            ),
+        ];
+        let mut werte = [[0; 3]; 4];
+        for ((schatten, [a0, a1, a2]), &ziel) in je_ecke.iter().zip(&s.remap) {
+            let ao = AO_WERTE[schatten.iter().filter(|&&d| d).count()];
+            let l = smooth_blend(*a0, *a1, *a2, mitte);
+            werte[ziel] = match kino {
+                true => kino_kanaele(l, ao),
+                false => lightmap.linear(l).map(|l| (l * ao + 127) / 255),
+            };
+        }
+        werte
+    };
+    let eigen_licht = ganz(licht([0; 3]));
+    let mut seiten: [Option<[[u32; 3]; 4]>; AO_PLAETZE] = [None; AO_PLAETZE];
+    for (seite, s) in ao_seiten.iter().enumerate() {
+        let d = s.richtung;
+        if plaetze & 1 << seite != 0 && !bit(fest, d) {
+            seiten[seite] = Some(if weich {
+                weich_ab(s, d, licht(d))
+            } else {
+                let Light { sky, block } = Light::from_packed(roh[stelle(d)]);
+                let eigen = Light {
+                    sky,
+                    block: block.max(stufe),
+                };
+                [ganz(eigen.packed()); 4]
+            });
+        }
+        // Im Innern: ab der eigenen Zelle; das Licht der Mitte aus der
+        // Zelle davor, ausser ihr Block ist `isSolidRender`, [`OPAQUE`].
+        // Flach im Licht der eigenen Zelle (`prepareQuadFlat`).
+        if plaetze & 1 << (seite + 3) != 0 {
+            seiten[seite + 3] = Some(if weich {
+                let mitte = if bit(opak, d) {
+                    licht([0; 3])
+                } else {
+                    licht(d)
+                };
+                weich_ab(s, [0; 3], mitte)
+            } else {
+                [eigen_licht; 4]
+            });
+        }
+    }
+    let eigen = innen.map(|kiste| match kiste {
+        None => eigen_licht,
+        Some(q) => ganz(hellstes(licht([0; 3]), licht(q))),
+    });
+    let Some(erste) = seiten.iter().flatten().flatten().next().copied() else {
+        return (eigen.unwrap_or([255; 3]), None);
+    };
+    let rest = eigen.unwrap_or(erste);
+    if seiten.iter().flatten().flatten().all(|&w| w == rest) {
+        return (rest, None);
+    }
+    let mut ecken = [[0; AO_PLAETZE]; 3];
+    for (seite, werte) in seiten.iter().enumerate() {
+        let werte = werte.unwrap_or([erste; 4]);
+        for (c, kanal) in ecken.iter_mut().enumerate() {
+            kanal[seite] = werte[0][c] | werte[1][c] << 8 | werte[2][c] << 16 | werte[3][c] << 24;
+        }
+    }
+    (rest, Some(ecken))
+}
+
 /// Der Wert einer Ecke, wenn so viele ihrer vier Blöcke abdunkeln:
 /// `ARGB.gray` des Mittels aus 1 und 0,2, in f32 wie im Spiel.
 const AO_WERTE: [u32; 5] = [255, 204, 153, 102, 51];
@@ -1829,8 +2014,10 @@ pub struct ChunkCache<'a> {
     /// die Saat der Alternativen in der Welt.
     /// Siehe docs/renderer/richtungen.md.
     richtung: Richtung,
-    /// Die Seiten für [`ChunkCache::ecken_at`], siehe [`ao_seiten`].
+    /// Die Seiten für [`ChunkCache::ecken_at`], siehe [`ao_seiten`], und
+    /// die Masken je Menge von Plätzen, siehe [`ao_masken`].
     ao_seiten: [AoSeite; 3],
+    ao_masken: [(u32, u16); 1 << AO_PLAETZE],
 }
 
 /// Was von einem Chunk nicht am scale hängt: er selbst und sein Licht,
@@ -2373,6 +2560,7 @@ impl<'a> ChunkCache<'a> {
             vorrat: None,
             richtung: sprites.projection().richtung(),
             ao_seiten: ao_seiten(sprites.projection().richtung()),
+            ao_masken: ao_masken(&ao_seiten(sprites.projection().richtung())),
         }
     }
 
@@ -3290,144 +3478,41 @@ impl<'a> ChunkCache<'a> {
         innen: Option<Option<[i32; 3]>>,
         plaetze: u8,
     ) -> Result<([u32; 3], Option<Ecken>)> {
-        let lightmap = self.sprites.lightmap();
-        let kino = self.sprites.kino().is_some();
-        // Das Licht einer ganzen Stufe, gepackt wie `Light::packed`.
-        let ganz = |licht: u32| match kino {
-            true => kino_kanaele(licht, 255),
-            false => lightmap.factors(Light::from_packed(licht)),
-        };
-        let [fest, dunkelt, sicht, opak] = self.umgebung(block)?;
-        let (roh, voll) = self.lichter_um(block)?;
-        // Alles relativ zum Block, siehe `umgebung` und `lichter_um`.
-        let bit = |ebene: u64, [dx, dy, dz]: [i32; 3]| {
-            ebene >> (dy + 1 + 4 * (dx + 1) + 16 * (dz + 1)) & 1 != 0
-        };
-        let stelle = |[dx, dy, dz]: [i32; 3]| (dx + 1 + 3 * (dy + 1) + 9 * (dz + 1)) as usize;
-        // Das Licht einer Zelle, wie ihr eigener Block es angibt
-        // (`LightCoordsUtil.getLightCoords`).
-        let licht = |p: [i32; 3]| match voll >> stelle(p) & 1 {
-            0 => roh[stelle(p)],
-            _ => VOLL_HELL,
-        };
-        let bei = |p: [i32; 3], o: [i32; 3]| [p[0] + o[0], p[1] + o[1], p[2] + o[2]];
-        // Die vier Werte einer Seite ab der Zelle `start`: auf dem Rand der
-        // vor ihr, im Innern der eigenen. Den Schatten der Mitte gibt der
-        // Block in `start`, ihr Licht kommt aus `mitte`.
-        let weich_ab = |s: &AoSeite, start: [i32; 3], mitte: u32| {
-            let (d, nachbarn) = (s.richtung, s.nachbarn);
-            let mut dunkel = [false; 4];
-            let mut frei = [false; 4];
-            let mut nah = [0; 4];
-            for (k, &n) in nachbarn.iter().enumerate() {
-                dunkel[k] = bit(dunkelt, bei(start, n));
-                frei[k] = !bit(sicht, bei(bei(start, n), d));
-                nah[k] = licht(bei(start, n));
-            }
-            let ecke = |a: usize, b: usize| {
-                if frei[a] || frei[b] {
-                    let q = bei(bei(start, nachbarn[a]), nachbarn[b]);
-                    (bit(dunkelt, q), licht(q))
-                } else {
-                    (dunkel[0], nah[0])
-                }
-            };
-            let (e03, e02, e12, e13) = (ecke(0, 3), ecke(0, 2), ecke(1, 2), ecke(1, 3));
-            let davor = bit(dunkelt, start);
-            let je_ecke = [
-                (
-                    [dunkel[3], dunkel[0], e03.0, davor],
-                    [nah[3], nah[0], e03.1],
-                ),
-                (
-                    [dunkel[2], dunkel[0], e02.0, davor],
-                    [nah[2], nah[0], e02.1],
-                ),
-                (
-                    [dunkel[2], dunkel[1], e12.0, davor],
-                    [nah[2], nah[1], e12.1],
-                ),
-                (
-                    [dunkel[3], dunkel[1], e13.0, davor],
-                    [nah[3], nah[1], e13.1],
-                ),
-            ];
-            let mut werte = [[0; 3]; 4];
-            for ((schatten, [a0, a1, a2]), &ziel) in je_ecke.iter().zip(&s.remap) {
-                let ao = AO_WERTE[schatten.iter().filter(|&&d| d).count()];
-                let l = smooth_blend(*a0, *a1, *a2, mitte);
-                werte[ziel] = match kino {
-                    true => kino_kanaele(l, ao),
-                    false => lightmap.linear(l).map(|l| (l * ao + 127) / 255),
-                };
-            }
-            werte
-        };
-        let eigen_licht = ganz(licht([0; 3]));
-        let mut seiten: [Option<[[u32; 3]; 4]>; AO_PLAETZE] = [None; AO_PLAETZE];
-        for (seite, s) in self.ao_seiten.iter().enumerate() {
-            let d = s.richtung;
-            if plaetze & 1 << seite != 0 && !bit(fest, d) {
-                seiten[seite] = Some(if weich {
-                    weich_ab(s, d, licht(d))
-                } else {
-                    let Light { sky, block } = Light::from_packed(roh[stelle(d)]);
-                    let eigen = Light {
-                        sky,
-                        block: block.max(stufe),
-                    };
-                    [ganz(eigen.packed()); 4]
-                });
-            }
-            // Im Innern: ab der eigenen Zelle; das Licht der Mitte aus der
-            // Zelle davor, ausser ihr Block ist `isSolidRender`, [`OPAQUE`].
-            // Flach im Licht der eigenen Zelle (`prepareQuadFlat`).
-            if plaetze & 1 << (seite + 3) != 0 {
-                seiten[seite + 3] = Some(if weich {
-                    let mitte = if bit(opak, d) {
-                        licht([0; 3])
-                    } else {
-                        licht(d)
-                    };
-                    weich_ab(s, [0; 3], mitte)
-                } else {
-                    [eigen_licht; 4]
-                });
-            }
+        // Nur die Zellen und Spalten, nach denen die gezeigten Plätze fragen.
+        let (mut zellen, spalten) = self.ao_masken[usize::from(plaetze)];
+        if let Some(Some(kiste)) = innen {
+            zellen |= zellen_bit(kiste);
         }
-        let eigen = innen.map(|kiste| match kiste {
-            None => eigen_licht,
-            Some(q) => ganz(hellstes(licht([0; 3]), licht(q))),
-        });
-        let Some(erste) = seiten.iter().flatten().flatten().next().copied() else {
-            return Ok((eigen.unwrap_or([255; 3]), None));
-        };
-        let rest = eigen.unwrap_or(erste);
-        if seiten.iter().flatten().flatten().all(|&w| w == rest) {
-            return Ok((rest, None));
-        }
-        let mut ecken = [[0; AO_PLAETZE]; 3];
-        for (seite, werte) in seiten.iter().enumerate() {
-            let werte = werte.unwrap_or([erste; 4]);
-            for (c, kanal) in ecken.iter_mut().enumerate() {
-                kanal[seite] =
-                    werte[0][c] | werte[1][c] << 8 | werte[2][c] << 16 | werte[3][c] << 24;
-            }
-        }
-        Ok((rest, Some(ecken)))
+        let ebenen = self.umgebung(block, spalten)?;
+        let licht = self.lichter_um(block, zellen)?;
+        let (lightmap, kino) = (self.sprites.lightmap(), self.sprites.kino().is_some());
+        Ok(ecken_aus(
+            &self.ao_seiten,
+            (lightmap, kino),
+            ebenen,
+            licht,
+            weich,
+            stufe,
+            innen,
+            plaetze,
+        ))
     }
 
     /// Das Licht der 27 Zellen um einen Block, `(dx, dy, dz)` je von -1 bis
     /// 1, an Stelle `dx + 1 + 3 · (dy + 1) + 9 · (dz + 1)`, gepackt wie
     /// [`Light::packed`], dazu je Stelle ein Bit für einen Block, den das
-    /// Spiel voll hell zeichnet.
-    fn lichter_um(&mut self, [x, y, z]: [i32; 3]) -> Result<([u32; 27], u32)> {
+    /// Spiel voll hell zeichnet. Nur die Zellen in `zellen`, Bit an derselben
+    /// Stelle; die übrigen bleiben 0.
+    fn lichter_um(&mut self, [x, y, z]: [i32; 3], zellen: u32) -> Result<([u32; 27], u32)> {
         let mut roh = [0; 27];
         let mut voll = 0;
         for dz in -1..=1 {
             for dy in -1..=1 {
                 for dx in -1..=1 {
                     let k = (dx + 1 + 3 * (dy + 1) + 9 * (dz + 1)) as usize;
+                    if zellen >> k & 1 == 0 {
+                        continue;
+                    }
                     let (licht, hell) = self.zelle([x + dx, y + dy, z + dz])?;
                     roh[k] = licht;
                     voll |= u32::from(hell) << k;
@@ -3477,13 +3562,13 @@ impl<'a> ChunkCache<'a> {
     /// Stelle `dy + 1 + 4 · (dx + 1) + 16 · (dz + 1)`. Die vier Zellen einer
     /// Spalte kommen aus einem Wort je Ebene, an einer Sectionsgrenze aus
     /// zweien. Ausserhalb der Welt und in fehlenden Chunks steht nichts, wie
-    /// für Luft.
-    fn umgebung(&mut self, [x, y, z]: [i32; 3]) -> Result<[u64; 4]> {
+    /// für Luft. Nur die Spalten in `spalten` ([`spalten_bit`]); die übrigen
+    /// bleiben leer.
+    fn umgebung(&mut self, [x, y, z]: [i32; 3], spalten: u16) -> Result<[u64; 4]> {
         let mut out = [0; 4];
         for dz in -1..=2 {
             for dx in -1..=2 {
-                // Diese Spalte fragt keine der drei Seiten.
-                if (dx, dz) == (2, 2) {
+                if spalten & spalten_bit([dx, 0, dz]) == 0 {
                     continue;
                 }
                 let (px, pz) = (x + dx, z + dz);
@@ -3708,6 +3793,115 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// Die Masken aus [`ao_masken`] decken jeden Zugriff von [`ecken_aus`]:
+    /// Was ausserhalb liegt, mit Zufall überschrieben, ändert kein Ergebnis.
+    /// Je Richtung jeder Kamera, für jede Menge von Plätzen, mit und ohne
+    /// `weich`, mit `innen` und Doppelkiste, auch mit Cinematic.
+    #[test]
+    fn ao_masken_decken_jeden_zugriff() {
+        // xorshift: reproduzierbar ohne weitere Abhängigkeit.
+        let mut zustand = 0x2545_f491_4f6c_dd1d_u64;
+        let mut zufall = move || {
+            zustand ^= zustand << 13;
+            zustand ^= zustand >> 7;
+            zustand ^= zustand << 17;
+            zustand
+        };
+        let mut richtungen = Vec::new();
+        for kamera in [Kamera::ZWEI_ZU_EINS, Kamera::Nord45, Kamera::ObenNord] {
+            for name in ["se", "sw", "nw", "ne", "s", "w", "n", "e"] {
+                richtungen.extend(Richtung::parse(name, kamera).ok());
+            }
+        }
+        assert!(richtungen.len() >= 8, "{}", richtungen.len());
+        // Die Zahlen aus docs/renderer/weiche-beleuchtung.md: Oberseite
+        // allein 10 Zellen aus 9 Spalten, drei Seiten auf dem Rand 20 Zellen.
+        let vorgabe = ao_masken(&ao_seiten(Richtung::default()));
+        let zahl = |(z, s): (u32, u16)| (z.count_ones(), s.count_ones());
+        assert_eq!(
+            [zahl(vorgabe[0b1]), zahl(vorgabe[0b111])],
+            [(10, 9), (20, 15)]
+        );
+        let lightmap = Lightmap::oberwelt();
+        // Die vier Bits je Spalte in den Ebenen von `umgebung`.
+        let in_ebenen = |spalten: u16| {
+            (0..16)
+                .filter(|c| spalten >> c & 1 != 0)
+                .fold(0u64, |m, c| m | 0xf << (4 * c))
+        };
+        let (mut verschieden, mut gezaehlt) = (0, 0);
+        for richtung in richtungen {
+            let seiten = ao_seiten(richtung);
+            let masken = ao_masken(&seiten);
+            for plaetze in 0..1u8 << AO_PLAETZE {
+                for innen in [
+                    None,
+                    Some(None),
+                    Some(Some([1, 0, 0])),
+                    Some(Some([0, 0, -1])),
+                ] {
+                    let (mut zellen, spalten) = masken[usize::from(plaetze)];
+                    if let Some(Some(kiste)) = innen {
+                        zellen |= zellen_bit(kiste);
+                    }
+                    let ebenen_maske = in_ebenen(spalten);
+                    for (weich, kino) in [(true, false), (false, false), (true, true)] {
+                        for _ in 0..3 {
+                            let mut licht = || {
+                                let r = zufall();
+                                Light {
+                                    sky: (r & 15) as u8,
+                                    block: (r >> 4 & 15) as u8,
+                                }
+                                .packed()
+                            };
+                            let roh: [u32; 27] = std::array::from_fn(|_| licht());
+                            let anders: [u32; 27] = std::array::from_fn(|_| licht());
+                            let ebenen: [u64; 4] = std::array::from_fn(|_| zufall());
+                            let voll = zufall() as u32 & zufall() as u32 & ((1 << 27) - 1);
+                            let (rauschen, fremd) = (zufall(), zufall() as u32);
+                            let gemischt: [u32; 27] = std::array::from_fn(|k| {
+                                if zellen >> k & 1 != 0 {
+                                    roh[k]
+                                } else {
+                                    anders[k]
+                                }
+                            });
+                            let rechne = |ebenen, roh, voll| {
+                                ecken_aus(
+                                    &seiten,
+                                    (lightmap, kino),
+                                    ebenen,
+                                    (roh, voll),
+                                    weich,
+                                    7,
+                                    innen,
+                                    plaetze,
+                                )
+                            };
+                            let soll = rechne(ebenen, roh, voll);
+                            let ist = rechne(
+                                ebenen.map(|e| e & ebenen_maske | rauschen & !ebenen_maske),
+                                gemischt,
+                                voll & zellen | fremd & !zellen,
+                            );
+                            assert_eq!(
+                                ist, soll,
+                                "{richtung:?}, Plätze {plaetze:06b}, {innen:?}, weich {weich}, kino {kino}"
+                            );
+                            // Dass der Zufall das Ergebnis überhaupt bewegt:
+                            // ganz verrauscht weicht es meist ab.
+                            let ohne = rechne(ebenen.map(|e| e ^ rauschen), anders, voll ^ fremd);
+                            verschieden += usize::from(ohne != soll);
+                            gezaehlt += 1;
+                        }
+                    }
+                }
+            }
+        }
+        assert!(verschieden * 2 > gezaehlt, "{verschieden} von {gezaehlt}");
     }
 
     /// Je Richtung und Seite im Blick gehört jeder Wert von `ecken_at` an

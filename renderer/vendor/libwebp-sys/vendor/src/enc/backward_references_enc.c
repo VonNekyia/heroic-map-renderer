@@ -13,6 +13,7 @@
 #include "src/enc/backward_references_enc.h"
 
 #include <assert.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "src/dsp/cpu.h"
@@ -892,13 +893,24 @@ static int BackwardRefsWithLocalCache(const uint32_t* const argb,
   return 1;
 }
 
+// Probe, nicht mergen: Buchstaben in HEROIC_PROBE schalten Varianten.
+static int Probe(char c) {
+  const char* const p = getenv("HEROIC_PROBE");
+  return p != NULL && strchr(p, c) != NULL;
+}
+
 static VP8LBackwardRefs* GetBackwardReferencesLowEffort(
     int width, int height, const uint32_t* const argb,
     int* const cache_bits, const VP8LHashChain* const hash_chain,
     VP8LBackwardRefs* const refs_lz77) {
+  const int probe_cache = Probe('l') ? *cache_bits : 0;
   *cache_bits = 0;
   if (!BackwardReferencesLz77(width, height, argb, 0, hash_chain, refs_lz77)) {
     return NULL;
+  }
+  if (probe_cache > 0) {
+    if (!BackwardRefsWithLocalCache(argb, probe_cache, refs_lz77)) return NULL;
+    *cache_bits = probe_cache;
   }
   BackwardReferences2DLocality(width, refs_lz77);
   return refs_lz77;
@@ -961,7 +973,8 @@ static int GetBackwardReferences(int width, int height,
 
       if (i == 0) {
         // Try with a color cache.
-        if (!CalculateBestCacheSize(argb, quality, refs_tmp, &cache_bits)) {
+        if (!Probe('c') &&
+            !CalculateBestCacheSize(argb, quality, refs_tmp, &cache_bits)) {
           goto Error;
         }
         if (cache_bits > 0) {
@@ -1001,7 +1014,7 @@ static int GetBackwardReferences(int width, int height,
     if (i == 1 && !do_no_cache) continue;
     if ((lz77_types_best[i] == kLZ77Standard ||
          lz77_types_best[i] == kLZ77Box) &&
-        quality >= 25) {
+        quality >= 25 && !Probe('t')) {
       const VP8LHashChain* const hash_chain_tmp =
           (lz77_types_best[i] == kLZ77Standard) ? hash_chain : &hash_chain_box;
       const int cache_bits = (i == 1) ? 0 : *cache_bits_best;

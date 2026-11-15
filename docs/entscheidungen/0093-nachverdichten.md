@@ -61,7 +61,7 @@ Hintergrund verdichten. Der Maintainer entschied das am 08.10. mit Weg 2.
     [Updates](../benutzung/updates.md), „Das offene Gebiet“.
   - Kosten: Ein Aufruf danach erkennt die Kacheln dieses Aufrufs nicht am
     Hash und kodiert jede noch einmal, um sie zu vergleichen: je Kachel auf
-    einem Thread rund 13,5 ms statt 1,1 ms, gemessen wie oben.
+    einem Thread rund 13,5 ms statt 1,1 ms, siehe „Gemessen“ unten.
 - **Manifest:** Mit `--manifest` liest der Aufruf am Ende den ganzen Baum
   neu. Ohne entfernt er ein altes, wie jeder Lauf, der Kacheln schreibt.
 - **Schicht und Rest des Reliefs** (#410): Nennt `map.json` eine Schicht

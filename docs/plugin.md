@@ -553,7 +553,8 @@ Ein Beispiel aus dem Testvektor, entpackt:
   sein als ihre Zeile; der Mod speichert deshalb das ETag aus der Antwort
   (#154).
 - **`manifest-offen-<pid>-<ns>`** liegt daneben, je Lauf, solange er
-  schreibt, auch ohne `--manifest`. Das Plugin braucht es nicht.
+  schreibt, auch ohne `--manifest`, offen und gesperrt. Das Plugin braucht
+  es nicht; siehe [0083](entscheidungen/0083-manifest-je-baum.md).
 - **Nach dem Kopieren** eines Baums ohne genaue Zeiten einmal
   `--pyramid --manifest` aufrufen oder `manifest` löschen. Sonst stimmt jedes
   ETag nicht mehr, das kein Update anfasst, und der Mod lädt bei jedem

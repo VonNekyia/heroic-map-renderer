@@ -251,7 +251,7 @@ Geschrieben werden die Zeilen von `melde_json` und `fortschritt` in
 | `phase` | wann | Felder |
 |---|---|---|
 | `prepass` | je neuem Prozent der Regionen des Vorlaufs, höchstens 100 Mal, und bei der letzten | `regions`, `of`, `rate`, `eta_s`, `s` |
-| `prepass` | einmal, nach dem Vorlauf | `chunks` gelesen, `tiles` zu zeichnen, `s` |
+| `prepass` | einmal je Vorlauf, nach ihm; ein Update mit Cinematic, das ins Rechteck zurückfällt, hat zwei Vorläufe, siehe [Updates](benutzung/updates.md), „Der Weg des Schattens“ | `chunks` gelesen, `tiles` zu zeichnen, `s` |
 | `base` | alle 200 Basiskacheln und bei der letzten | `tiles`, `of`, `rate`, `eta_s`, `s` |
 | `level` | je native Stufe alle 200 Kacheln und bei ihrer letzten | `level`, `tiles`, `of`, `rate`, `eta_s`, `s` |
 | `pyramid` | je verkleinerte Zoomstufe, von fein nach grob bis 0 | `level`, `tiles` dieser Stufe |

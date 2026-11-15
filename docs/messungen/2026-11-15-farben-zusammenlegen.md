@@ -369,7 +369,9 @@ Iso ohne Cinematic, 154 Kacheln:
 | Zusammenlegen 4 ohne Rückfall | 38,9 % | 4 | 84,2 % | 42,7 | 41,1 | 115 | – | +39 % | 2,26 |
 
 Grosse Welt, dieselbe Stichprobe wie in „Grosse Welt“, Bytes in Prozent
-von kompakt verlustfrei; die grösste Abweichung ist in jeder Zeile d:
+von kompakt verlustfrei; die grösste Abweichung ist in jeder Zeile d.
+Gemessen sind dort auch ohne Rückfall nur Bytes und die grösste
+Abweichung, die PSNR nur an der Testwelt:
 
 | Packung | iso mit Cinematic | aufs Gitter gefallen | von oben | aufs Gitter gefallen |
 |---|---|---|---|---|
@@ -388,7 +390,8 @@ von kompakt verlustfrei; die grösste Abweichung ist in jeder Zeile d:
 - **Abweichung:** Ohne Rückfall sind es an der Testwelt 0,7 bis 2,4 dB
   mehr PSNR, die schlechteste Kachel ist 1,3 bis 2,8 dB besser, und es
   ändern sich weniger Pixel, bei 2 sind es 72 bis 79 % statt 88 bis 92 %.
-  Die grösste Abweichung bleibt d, Alpha und 255 bleiben stehen.
+  Die grösste Abweichung bleibt d, Alpha und 255 bleiben stehen. An der
+  grossen Welt ist die PSNR nicht gemessen.
 - **Rückfälle:** An der Testwelt fallen bei 2 je Baum 56 bis 73 % der
   Kacheln aufs Gitter, bei 4 noch 22 bis 34 %; an der grossen Welt 42 und
   43 % bei 2, 27 und 21 % bei 4.
@@ -486,7 +489,8 @@ Angesehen, nicht gemessen:
   für das Zusammenlegen und 15 für das Gitter.
 - **Grenzen:**
   - PSNR und Pyramide sind nur an der Testwelt gemessen, an der grossen
-    Welt nur Bytes und die grösste Abweichung an der Basis;
+    Welt nur Bytes und die grösste Abweichung an der Basis, auch ohne
+    Rückfall;
   - die Testwelt ist im iso mit scale 24 gerendert, die grosse Welt mit
     scale 8;
   - ab Stufe 6 haben die Ausschnitte unter 2 500 sichtbare Pixel;

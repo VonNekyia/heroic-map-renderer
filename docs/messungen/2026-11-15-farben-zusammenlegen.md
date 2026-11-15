@@ -1,0 +1,406 @@
+---
+title: Farben zusammenlegen vor dem Packen
+description: Eine eigene Vorstufe, die ähnliche Farben einer Kachel zusammenlegt, bevor libwebp verlustfrei packt, gegen near-lossless und verlustbehaftet, an 563 Kacheln der Testwelt in der CI und an einer Stichprobe der grossen Welt; mit höchstens 4 Stufen Abweichung je Kanal 25 bis 30 % kleiner als near-lossless 40, an der grossen Welt 35 %; nicht gebaut.
+date: 2026-11-15
+commits: [cfe87ecf]
+code:
+  - renderer/src/render/tiles.rs
+  - renderer/src/render/pyramid.rs
+---
+
+# Farben zusammenlegen vor dem Packen
+
+Legt eine Vorstufe ähnliche Farben einer Kachel zusammen, bevor libwebp sie
+kompakt verlustfrei packt, werden die Kacheln bei höchstens 4 Stufen
+Abweichung je Kanal 25 bis 30 % kleiner als mit near-lossless 40, an einer
+Stichprobe der grossen Welt 35 %. Das Format bleibt das verlustfreie, Alpha
+bleibt Bit für Bit, und ein Kanal mit 255 bleibt 255. Gebaut ist nichts;
+welche Stufe gilt, entscheidet der Maintainer.
+
+## Aufbau
+
+- **Frage:** Schlägt eine eigene Vorstufe, zugeschnitten auf die Farben
+  unserer Kacheln, near-lossless 40 und verlustbehaftet 95 (#421)?
+  Bedingungen: Das Format bleibt VP8L, Alpha bleibt Bit für Bit, und ein
+  Kanal mit 255 bleibt 255.
+- **Kacheln:** 563 Kacheln der Testwelt in drei Bäumen.
+  - Von oben und iso mit Cinematic: die 409 Kacheln aus dem zweiten Lauf
+    von
+    [Farb-Cache fest statt gesucht](2026-11-13-farbcache-fest-statt-suchen.md),
+    182 und 227.
+  - Iso ohne Cinematic: die feinsten Stufen derselben vier Ausschnitte mit
+    denselben Befehlen ohne `--cinematic`, 154 Kacheln, gerendert mit 0.20.0.
+- **Vorstufen:** Sie ändern nur die Farbe sichtbarer Pixel. Danach packt
+  libwebp kompakt verlustfrei, wie `kodiere` mit `Packen::Kompakt` in
+  [`tiles.rs`](../../renderer/src/render/tiles.rs).
+  - **Gitter d:** Jeder Kanal geht auf die Mitte seiner Zelle in einem
+    festen Gitter mit Schritt 2 d + 1, höchstens d daneben. 255 bleibt
+    255, und kein Wert wird neu 255.
+  - **Zusammenlegen d:** Die Farben der Kachel nach Häufigkeit; jede geht
+    auf die erste häufigere, die dasselbe Alpha hat, je Kanal höchstens d
+    daneben liegt und 255 genau dort hat, wo sie selbst 255 hat. Sonst
+    bleibt sie. Bleiben mehr als 256 Farben, bekommt die Kachel
+    stattdessen das Gitter d.
+- **Vergleich:**
+  - near-lossless 60 und 40 von libwebp, mit festem Alpha, und
+    verlustbehaftet 95 und 90, wie in
+    [Verlust je Stufe der Pyramide](2026-11-14-verlust-je-stufe-der-pyramide.md),
+    „Aufbau“;
+  - Prozent der Bytes gegen kompakt verlustfrei.
+- **Abweichung:** Farbe an sichtbaren Pixeln, also dort, wo das Original
+  Alpha über 0 hat; Alpha an allen Pixeln. Geändert heisst: R, G oder B
+  weicht ab. PSNR über R, G und B, nicht mit Alpha gewichtet. Dazu gezählt:
+  Kanäle, die 255 waren und es nicht mehr sind.
+- **Pyramide:** über den feinsten Stufen der vier Ausschnitte alle Stufen
+  bis Stufe 0, Eltern mit `merge` aus
+  [`pyramid.rs`](../../renderer/src/render/pyramid.rs) aus den dekodierten
+  Kindern, jede Stufe mit derselben Packung, gegen die verlustfreie
+  Pyramide. Von oben 114 Kacheln an der Basis, im iso je 154.
+- **Grosse Welt:** jede zehnte Kachel des Ausschnitts aus
+  [Packungen an einem Ausschnitt der grossen Welt](2026-11-14-packungen-am-ausschnitt-der-grossen-welt.md)
+  über alle Stufen, 3 415 im iso mit Cinematic und 2 132 von oben. Gepackt
+  lokal mit einem kleinen Programm auf der Kopie von libwebp, mit
+  derselben Vorstufe; an den Kacheln der Testwelt gibt es auf das Byte die
+  Summen des Tests. Gemessen sind dort nur Bytes und die grösste
+  Abweichung.
+- **Zeit:** Vorstufe und Packen zusammen, ein Thread, je Kachel gestoppt;
+  bei near-lossless mit festem Alpha zählt das Packen mit near-lossless.
+- **Messcode:** der Tag `versuch/farben-vorstufe`, `cfe87ecf`, Test
+  `probe_farben`. Gemessen an Ständen eines Probezweigs mit den Kacheln;
+  nicht gemergt. Die Liste der Packungen wechselte je Lauf, der Tag trägt
+  die des fünften; die Kopie von libwebp liest dort die Schalter des
+  Zuschnitts aus der Umgebung.
+- **Rechner:** die CI, `ubuntu-latest`, Release-Build, ein geteilter
+  Rechner.
+
+## Ablauf
+
+Am 15.11.2026, fünf Läufe des Workflows an den Ständen `4b669a0e`,
+`7e04b9ac`, `b290d5b5`, `b64c2c2e` und `f594858a`. Die Zahlen sind die
+Ausgabe des Tests im Log.
+
+- Die Leiter und die Pyramide stammen aus dem vierten Lauf, die
+  ausgeschiedenen Vorstufen aus dem zweiten und dritten, der Zuschnitt und
+  das Zusammenlegen auf Gitterwerten aus dem fünften.
+- Bytes und Abweichungen jeder Packung, die in mehreren Läufen stand, sind
+  in allen gleich.
+- Jeder Lauf führt den Test dreimal aus. Für die Zeiten der Median der
+  drei; gegen kompakt im selben Durchgang liegen die drei höchstens 0,9
+  Prozentpunkte auseinander, im fünften Lauf von oben und im iso mit
+  Cinematic höchstens 1,2, im iso ohne Cinematic bis 3,3.
+- Die grosse Welt: lokal, vier Threads mit niedrigster Priorität; die
+  Zeiten dort zählen nicht.
+- Das Aussehen ist keine Messung: Die Ausschnitte unten hat der Researcher
+  angesehen.
+
+## Ergebnis
+
+### Farben je Kachel
+
+Verschiedene Farben samt Alpha je Kachel. Eine Kachel mit höchstens 256
+Farben packt libwebp mit Palette.
+
+| Kacheln | Zahl | Median je Gruppe | grösste | höchstens 256 Farben |
+|---|---|---|---|---|
+| Testwelt von oben | 182 | 2 531 bis 3 833 | 20 177 | 3 |
+| Testwelt iso mit Cinematic | 227 | 1 495 bis 4 426 | 13 291 | 5 |
+| Testwelt iso ohne Cinematic | 154 | 1 414 bis 13 917 | 20 652 | 16, alle am Rand der Welt |
+| grosse Welt von oben, feinste Stufe | 794 | 1 453 | 13 359 | 37 % |
+| grosse Welt iso mit Cinematic, feinste Stufe | 1 270 | 563 | 17 661 | 44 % |
+
+Die Zeilen der grossen Welt sind jede zwanzigste Kachel der feinsten Stufe
+des Ausschnitts, lokal gezählt.
+
+### Leiter von oben
+
+182 Kacheln, 9 058 560 sichtbare Pixel. Kompakt verlustfrei: 8 088 532
+Byte, Packen 7,87 ms und Dekodieren 0,65 ms je Kachel.
+
+| Packung | Bytes | grösste Abweichung | geänderte Pixel | PSNR, dB | schlechteste Kachel, dB | mit Palette | Packen | davon Vorstufe, ms | Dekodieren, ms |
+|---|---|---|---|---|---|---|---|---|---|
+| near-lossless 60 | 66,1 % | 2 | 95,4 % | 46,6 | 46,1 | 10 | +14 % | – | 0,51 |
+| near-lossless 40 | 56,4 % | 4 | 96,8 % | 41,4 | 40,1 | 16 | +26 % | – | 0,47 |
+| verlustbehaftet 95 | 43,9 % | 123 | 99,0 % | 34,5 | 29,8 | 0 | −20 % | – | 1,27 |
+| verlustbehaftet 90 | 31,0 % | 122 | 99,3 % | 33,9 | 29,4 | 0 | −28 % | – | 1,03 |
+| Zusammenlegen 1 | 68,4 % | 1 | 91,0 % | 50,1 | 49,2 | 25 | +15 % | 1,15 | 0,52 |
+| Zusammenlegen 2 | 57,0 % | 2 | 92,3 % | 45,6 | 44,1 | 53 | +21 % | 1,29 | 0,46 |
+| Zusammenlegen 3 | 48,3 % | 3 | 90,8 % | 43,1 | 41,8 | 88 | +25 % | 1,45 | 0,41 |
+| Zusammenlegen 4 | 42,4 % | 4 | 88,8 % | 41,7 | 39,6 | 124 | +28 % | 1,63 | 0,38 |
+| Zusammenlegen 5 | 37,3 % | 5 | 88,5 % | 40,4 | 37,8 | 153 | +25 % | 1,71 | 0,35 |
+| Zusammenlegen 6 | 34,2 % | 6 | 87,8 % | 39,6 | 36,1 | 169 | +26 % | 1,75 | 0,33 |
+| Zusammenlegen 8 | 28,8 % | 8 | 89,0 % | 37,5 | 34,7 | 181 | +23 % | 1,75 | 0,29 |
+| nur Gitter 2 | 57,4 % | 2 | 99,3 % | 45,0 | 44,1 | 48 | +5 % | 0,06 | 0,46 |
+| nur Gitter 4 | 43,7 % | 4 | 99,8 % | 40,2 | 39,5 | 116 | +9 % | 0,06 | 0,39 |
+| nur Gitter 8 | 31,2 % | 8 | 100,0 % | 34,8 | 33,6 | 181 | +10 % | 0,06 | 0,31 |
+
+### Leiter im iso mit Cinematic
+
+227 Kacheln, 12 475 196 sichtbare Pixel. Kompakt verlustfrei: 11 293 004
+Byte, Packen 8,38 ms und Dekodieren 0,76 ms je Kachel.
+
+| Packung | Bytes | grösste Abweichung | geänderte Pixel | PSNR, dB | schlechteste Kachel, dB | mit Palette | Packen | davon Vorstufe, ms | Dekodieren, ms |
+|---|---|---|---|---|---|---|---|---|---|
+| near-lossless 60 | 60,0 % | 2 | 95,3 % | 46,7 | 45,9 | 17 | +16 % | – | 0,53 |
+| near-lossless 40 | 50,7 % | 4 | 96,8 % | 41,4 | 40,3 | 22 | +25 % | – | 0,48 |
+| verlustbehaftet 95 | 51,3 % | 119 | 99,3 % | 35,5 | 30,5 | 0 | −15 % | – | 1,47 |
+| verlustbehaftet 90 | 36,2 % | 123 | 99,6 % | 34,7 | 30,2 | 0 | −23 % | – | 1,14 |
+| Zusammenlegen 1 | 60,7 % | 1 | 89,0 % | 50,3 | 49,5 | 58 | +14 % | 1,21 | 0,52 |
+| Zusammenlegen 2 | 47,4 % | 2 | 90,0 % | 46,2 | 44,7 | 115 | +22 % | 1,39 | 0,44 |
+| Zusammenlegen 3 | 40,1 % | 3 | 88,0 % | 44,2 | 41,7 | 159 | +28 % | 1,57 | 0,39 |
+| Zusammenlegen 4 | 35,2 % | 4 | 89,3 % | 42,1 | 39,2 | 187 | +31 % | 1,62 | 0,36 |
+| Zusammenlegen 5 | 30,8 % | 5 | 90,6 % | 40,7 | 38,1 | 210 | +28 % | 1,66 | 0,32 |
+| Zusammenlegen 6 | 27,8 % | 6 | 91,5 % | 39,7 | 36,4 | 223 | +27 % | 1,67 | 0,30 |
+| Zusammenlegen 8 | 23,7 % | 8 | 92,7 % | 37,7 | 36,0 | 227 | +24 % | 1,66 | 0,27 |
+| nur Gitter 2 | 47,6 % | 2 | 99,1 % | 45,1 | 44,5 | 107 | +5 % | 0,06 | 0,44 |
+| nur Gitter 4 | 36,2 % | 4 | 99,9 % | 39,6 | 38,2 | 183 | +10 % | 0,06 | 0,37 |
+| nur Gitter 8 | 25,2 % | 8 | 100,0 % | 34,3 | 33,2 | 226 | +13 % | 0,06 | 0,28 |
+
+### Leiter im iso ohne Cinematic
+
+154 Kacheln, 9 502 829 sichtbare Pixel. Kompakt verlustfrei: 9 087 572
+Byte, Packen 9,01 ms und Dekodieren 0,83 ms je Kachel.
+
+| Packung | Bytes | grösste Abweichung | geänderte Pixel | PSNR, dB | schlechteste Kachel, dB | mit Palette | Packen | davon Vorstufe, ms | Dekodieren, ms |
+|---|---|---|---|---|---|---|---|---|---|
+| near-lossless 60 | 64,0 % | 2 | 86,8 % | 46,9 | 46,3 | 19 | +15 % | – | 0,63 |
+| near-lossless 40 | 54,3 % | 4 | 88,4 % | 41,8 | 40,4 | 20 | +26 % | – | 0,57 |
+| verlustbehaftet 95 | 50,0 % | 118 | 95,5 % | 34,2 | 29,3 | 0 | −16 % | – | 1,58 |
+| verlustbehaftet 90 | 36,6 % | 119 | 96,0 % | 33,6 | 29,1 | 0 | −25 % | – | 1,23 |
+| Zusammenlegen 1 | 65,8 % | 1 | 90,4 % | 50,1 | 49,8 | 21 | +13 % | 1,24 | 0,64 |
+| Zusammenlegen 2 | 51,8 % | 2 | 88,0 % | 46,1 | 43,5 | 64 | +22 % | 1,48 | 0,55 |
+| Zusammenlegen 3 | 43,6 % | 3 | 85,2 % | 43,9 | 42,0 | 99 | +30 % | 1,68 | 0,51 |
+| Zusammenlegen 4 | 38,2 % | 4 | 86,1 % | 42,0 | 39,8 | 124 | +33 % | 1,80 | 0,46 |
+| Zusammenlegen 5 | 34,1 % | 5 | 87,0 % | 40,5 | 38,1 | 148 | +36 % | 1,89 | 0,42 |
+| Zusammenlegen 6 | 31,2 % | 6 | 88,0 % | 39,4 | 36,5 | 153 | +35 % | 1,97 | 0,38 |
+| Zusammenlegen 8 | 26,8 % | 8 | 89,8 % | 37,4 | 35,6 | 154 | +32 % | 1,89 | 0,34 |
+| nur Gitter 2 | 52,4 % | 2 | 97,1 % | 45,2 | 43,0 | 53 | +5 % | 0,06 | 0,55 |
+| nur Gitter 4 | 39,1 % | 4 | 99,7 % | 40,0 | 37,9 | 123 | +14 % | 0,06 | 0,47 |
+| nur Gitter 8 | 28,8 % | 8 | 99,2 % | 34,7 | 33,5 | 154 | +19 % | 0,06 | 0,35 |
+
+### Alpha und 255
+
+- Jede Vorstufe lässt Alpha an jedem Pixel und jeden Kanal mit 255 stehen
+  und macht keinen neu zu 255, auch über die Pyramide.
+- near-lossless von libwebp lässt 255 stehen, macht aber von oben 873
+  Kanäle (60) und 1 323 (40) neu zu 255, ohne Cinematic 201 und 353.
+- Verlustbehaftet verliert von oben 3 430 Kanäle mit 255 (95) und 3 697
+  (90), ohne Cinematic je 432, mit Cinematic keinen.
+
+### Grosse Welt
+
+Bytes in Prozent von kompakt verlustfrei, über alle Stufen der Stichprobe.
+
+| Packung | iso mit Cinematic | von oben | grösste Abweichung |
+|---|---|---|---|
+| near-lossless 60 | 72,2 % | 77,4 % | 2 |
+| near-lossless 40 | 65,2 % | 70,8 % | 4 |
+| verlustbehaftet 95 | 64,7 % | 54,8 % | – |
+| verlustbehaftet 90 | 42,5 % | 34,6 % | – |
+| Zusammenlegen 2 | 54,0 % | 62,2 % | 2 |
+| Zusammenlegen 3 | 46,1 % | 53,7 % | 3 |
+| Zusammenlegen 4 | 41,6 % | 45,7 % | 4 |
+| Zusammenlegen 6 | 32,2 % | 36,3 % | 6 |
+| Zusammenlegen 8 | 26,9 % | 29,9 % | 8 |
+| nur Gitter 2 | 54,5 % | 63,2 % | 2 |
+| nur Gitter 4 | 43,3 % | 50,6 % | 4 |
+| nur Gitter 8 | 29,9 % | 40,6 % | 8 |
+
+- Kompakt verlustfrei hat die Stichprobe 109 998 750 Byte im iso und
+  65 290 434 von oben.
+- Die Bytes für verlustbehaftet stammen aus den Bytes je Kachel der
+  Messung am Ausschnitt; ihre Abweichung steht dort.
+- near-lossless ist hier das von libwebp ohne festes Alpha.
+
+### Pyramide von oben
+
+PSNR in dB und grösste Abweichung der Farbe, als „PSNR / grösste“. Von
+oben bleibt je 2 × 2 ein Pixel.
+
+| Stufe | sichtbare Pixel | near-lossless 40 | verlustbehaftet 90 | Zusammenlegen 2 | Zusammenlegen 4 | Zusammenlegen 8 | nur Gitter 4 |
+|---|---|---|---|---|---|---|---|
+| 0 | 6 901 760 | 41,4 / 4 | 34,1 / 122 | 45,6 / 2 | 41,7 / 4 | 37,5 / 8 | 40,2 / 4 |
+| 1 | 1 725 440 | 40,8 / 5 | 32,1 / 114 | 45,1 / 4 | 40,6 / 8 | 36,6 / 16 | 40,3 / 4 |
+| 2 | 431 360 | 40,3 / 5 | 30,6 / 114 | 44,8 / 5 | 39,9 / 12 | 37,1 / 23 | 40,0 / 4 |
+| 3 | 107 840 | 40,2 / 5 | 29,2 / 113 | 44,4 / 5 | 39,7 / 12 | 36,7 / 24 | 40,0 / 4 |
+| 4 | 26 960 | 40,2 / 5 | 27,8 / 117 | 44,4 / 5 | 39,6 / 12 | 36,7 / 23 | 40,0 / 4 |
+| 5 | 6 740 | 40,3 / 5 | 26,3 / 121 | 44,4 / 5 | 39,6 / 12 | 36,5 / 23 | 40,0 / 4 |
+| 6 | 1 685 | 40,2 / 5 | 24,5 / 102 | 44,4 / 5 | 39,7 / 11 | 36,6 / 18 | 40,1 / 4 |
+| Bytes aller Stufen | 8 275 978 Byte | 55,2 % | 30,7 % | 57,2 % | 42,4 % | 29,0 % | 43,9 % |
+
+### Pyramide im iso mit Cinematic
+
+Im iso mittelt das Verkleinern.
+
+| Stufe | sichtbare Pixel | near-lossless 40 | verlustbehaftet 90 | Zusammenlegen 2 | Zusammenlegen 4 | Zusammenlegen 8 | nur Gitter 4 |
+|---|---|---|---|---|---|---|---|
+| 0 | 9 502 829 | 41,4 / 4 | 34,4 / 123 | 46,3 / 2 | 42,5 / 4 | 37,7 / 8 | 39,6 / 4 |
+| 1 | 2 377 601 | 39,9 / 9 | 34,4 / 101 | 44,6 / 5 | 40,1 / 8 | 36,1 / 16 | 38,8 / 8 |
+| 2 | 594 766 | 39,3 / 11 | 34,6 / 77 | 44,0 / 6 | 39,4 / 10 | 35,5 / 21 | 38,2 / 10 |
+| 3 | 148 847 | 39,2 / 10 | 34,4 / 70 | 43,7 / 6 | 39,0 / 11 | 35,1 / 23 | 37,5 / 11 |
+| 4 | 37 300 | 38,9 / 11 | 33,8 / 83 | 43,0 / 6 | 38,8 / 12 | 34,7 / 21 | 36,9 / 11 |
+| 5 | 9 368 | 38,6 / 10 | 32,7 / 46 | 43,2 / 6 | 38,8 / 12 | 34,4 / 20 | 36,2 / 12 |
+| 6 | 2 361 | 38,1 / 10 | 31,1 / 56 | 44,0 / 6 | 39,2 / 10 | 34,0 / 20 | 35,5 / 12 |
+| Bytes aller Stufen | 11 593 710 Byte | 51,2 % | 35,5 % | 47,7 % | 35,0 % | 23,2 % | 36,6 % |
+
+### Pyramide im iso ohne Cinematic
+
+| Stufe | sichtbare Pixel | near-lossless 40 | verlustbehaftet 90 | Zusammenlegen 2 | Zusammenlegen 4 | Zusammenlegen 8 | nur Gitter 4 |
+|---|---|---|---|---|---|---|---|
+| 0 | 9 502 829 | 41,8 / 4 | 33,6 / 119 | 46,1 / 2 | 42,0 / 4 | 37,4 / 8 | 40,0 / 4 |
+| 1 | 2 377 601 | 40,2 / 9 | 33,8 / 121 | 44,2 / 5 | 39,8 / 8 | 35,7 / 16 | 39,1 / 8 |
+| 2 | 594 766 | 39,6 / 11 | 34,1 / 107 | 43,4 / 6 | 39,3 / 11 | 34,7 / 21 | 38,5 / 11 |
+| 3 | 148 847 | 39,6 / 11 | 34,0 / 91 | 42,6 / 6 | 39,1 / 11 | 34,3 / 22 | 37,8 / 11 |
+| 4 | 37 300 | 39,4 / 12 | 33,5 / 92 | 41,8 / 6 | 38,8 / 11 | 33,9 / 24 | 36,9 / 13 |
+| 5 | 9 368 | 39,0 / 12 | 32,5 / 59 | 41,6 / 7 | 39,3 / 11 | 33,8 / 24 | 36,0 / 12 |
+| 6 | 2 361 | 38,7 / 11 | 30,8 / 67 | 42,8 / 6 | 39,4 / 10 | 34,2 / 19 | 35,0 / 12 |
+| Bytes aller Stufen | 13 151 622 Byte | 53,0 % | 32,4 % | 52,0 % | 37,8 % | 25,4 % | 38,7 % |
+
+### Mit dem Zuschnitt von libwebp
+
+Über alle Stufen der Pyramide, Eltern aus den dekodierten Kindern, 214
+Kacheln von oben und 276 im iso mit Cinematic; Packen samt Vorstufe in ms
+je Kachel. „Gegen heute“ ist gegen das kompakte Packen von heute ohne
+Dekodieren, „mit Dekodieren“ ist Packen plus Dekodieren dagegen. Der
+Zuschnitt ist Stufe 4 aus
+[libwebp für Kacheln zuschneiden](2026-11-14-libwebp-zuschneiden.md):
+Farb-Cache fest, ohne RLE, ohne Analyse der Entropie.
+
+| Packung | von oben: Packen, ms | gegen heute | mit Dekodieren | Bytes | iso: Packen, ms | gegen heute | mit Dekodieren | Bytes |
+|---|---|---|---|---|---|---|---|---|
+| kompakt heute | 6,86 | – | +8,2 % | 100,0 % | 6,93 | – | +9,0 % | 100,0 % |
+| kompakt mit Zuschnitt | 4,80 | −29,9 % | −21,7 % | 100,0 % | 4,58 | −34,0 % | −25,0 % | 100,0 % |
+| near-lossless 40 | 8,55 | +24,9 % | +30,7 % | 55,2 % | 8,89 | +28,5 % | +34,6 % | 51,2 % |
+| near-lossless 40 mit Zuschnitt | 6,82 | −0,5 % | +5,4 % | 55,4 % | 6,93 | −0,1 % | +5,8 % | 51,2 % |
+| Zusammenlegen 2 | 8,40 | +22,6 % | +28,5 % | 57,2 % | 8,76 | +26,4 % | +31,9 % | 47,7 % |
+| Zusammenlegen 2 mit Zuschnitt | 6,63 | −3,2 % | +2,8 % | 57,5 % | 6,87 | −0,8 % | +4,6 % | 48,0 % |
+| Zusammenlegen 4 | 8,82 | +28,7 % | +33,7 % | 42,4 % | 9,38 | +35,4 % | +39,7 % | 35,0 % |
+| Zusammenlegen 4 mit Zuschnitt | 7,30 | +6,5 % | +11,4 % | 43,1 % | 7,80 | +12,4 % | +16,7 % | 35,5 % |
+| Zusammenlegen 8 | 8,57 | +25,0 % | +28,9 % | 29,0 % | 8,84 | +27,5 % | +30,8 % | 23,2 % |
+| Zusammenlegen 8 mit Zuschnitt | 7,55 | +10,1 % | +14,0 % | 29,4 % | 7,84 | +13,2 % | +16,7 % | 23,3 % |
+| nur Gitter 4 | 7,55 | +10,2 % | +15,3 % | 43,9 % | 7,78 | +12,2 % | +16,7 % | 36,6 % |
+| nur Gitter 4 mit Zuschnitt | 5,97 | −12,8 % | −7,8 % | 44,7 % | 6,09 | −12,1 % | −7,7 % | 37,0 % |
+| verlustbehaftet 90 | 5,36 | −21,8 % | −7,9 % | 30,7 % | 5,91 | −14,8 % | +0,5 % | 35,5 % |
+
+- Im iso ohne Cinematic packt Zusammenlegen 2, 4 und 8 mit Zuschnitt um
+  −2,9, +12,2 und +19,1 % gegen heute, mit Dekodieren um +3,4, +17,1 und
+  +23,1 %.
+- Die Pixel sind mit und ohne Zuschnitt auf jeder Stufe gleich.
+- Mit Zuschnitt wachsen die Bytes von Zusammenlegen 4 um 1,3 bis 1,7 %, von
+  Zusammenlegen 2 um 0,4 bis 0,7 %, von Zusammenlegen 8 um 0,4 bis 1,2 %
+  und von nur Gitter 4 um 1,3 bis 1,6 %; kompakt um 0,04 %, near-lossless
+  40 um 0,1 bis 0,2 %.
+
+### Von oben: die Grenze über die Pyramide
+
+Welche Packung von oben die grösste Abweichung über die Stufen hält; PSNR
+in dB und grösste Abweichung als „PSNR / grösste“.
+
+| Lauf | Stufe 0 | 1 | 2 | 3 | 4 | 5 | 6 | Bytes aller Stufen |
+|---|---|---|---|---|---|---|---|---|
+| nur Gitter 4 | 40,2 / 4 | 40,3 / 4 | 40,0 / 4 | 40,0 / 4 | 40,0 / 4 | 40,0 / 4 | 40,1 / 4 | 43,9 % |
+| Zusammenlegen 4 | 41,7 / 4 | 40,6 / 8 | 39,9 / 12 | 39,7 / 12 | 39,6 / 12 | 39,6 / 12 | 39,7 / 11 | 42,4 % |
+| Gitter 1, darauf Zusammenlegen 3 | 41,6 / 4 | 40,7 / 7 | 40,0 / 10 | 39,9 / 10 | 39,8 / 10 | 39,8 / 10 | 39,9 / 9 | 42,1 % |
+| Basis Zusammenlegen 4, Eltern Gitter 4 | 41,7 / 4 | 39,0 / 8 | 38,8 / 8 | 38,8 / 8 | 38,8 / 8 | 38,8 / 8 | 38,9 / 8 | 42,0 % |
+| Zusammenlegen 2 | 45,6 / 2 | 45,1 / 4 | 44,8 / 5 | 44,4 / 5 | 44,4 / 5 | 44,4 / 5 | 44,4 / 5 | 57,2 % |
+| Basis Zusammenlegen 2, Eltern Gitter 2 | 45,6 / 2 | 44,5 / 4 | 44,4 / 4 | 44,4 / 4 | 44,4 / 4 | 44,4 / 4 | 44,4 / 4 | 57,1 % |
+
+- **Erst das Gitter, dann darauf zusammenlegen** ist mit derselben Grenze
+  das Gitter selbst: Zwei verschiedene Gitterwerte liegen 2 d + 1
+  auseinander, nie höchstens d. Mit feinerem Gitter, hier Gitter 1 und
+  darauf Zusammenlegen 3, zusammen höchstens 4, wächst die grösste
+  Abweichung über die Stufen wie beim Zusammenlegen allein: Wohin eine
+  Farbe geht, hängt an der Kachel, und die Eltern mischen vier Kacheln.
+- **Zusammenlegen an der Basis und das Gitter für die Eltern** hält von
+  oben eine feste Grenze: d an der Basis, genau 2 d auf jeder Stufe
+  darüber.
+- **Im iso** taugt das Gitter für die Eltern nicht: Basis Zusammenlegen 4
+  und Eltern Gitter 4 fallen dort von 42,5 dB auf 38,6, 38,3, 37,8 und
+  37,3 dB in Stufe 4; mit Zusammenlegen auf allen Stufen sind es dort
+  38,8 dB.
+
+### Ausgeschieden
+
+Bytes, grösste Abweichung und PSNR für von oben, iso mit und iso ohne
+Cinematic.
+
+| Vorstufe | von oben | iso mit Cinematic | iso ohne Cinematic | warum nicht |
+|---|---|---|---|---|
+| Zusammenlegen 4, sonst near-lossless 40 statt Gitter | 47,4 %, 4, 42,2 dB | 39,1 %, 4, 42,5 dB | 46,4 %, 4, 43,0 dB | grösser als mit dem Gitter; 61, 49 und 39 Kacheln fallen zurück |
+| Zusammenlegen 4 bis 64 Farben, sonst near-lossless 40 | 55,0 %, 4, 41,4 dB | 46,6 %, 4, 41,6 dB | 53,5 %, 4, 41,7 dB | die meisten Kacheln fallen zurück |
+| Nachbar übernehmen 4: ein Pixel nimmt den linken oder oberen Nachbarn der Ausgabe, wenn der höchstens 4 neben seinem Original liegt | 88,3 %, 4, 44,9 dB | 80,7 %, 4, 44,9 dB | 78,0 %, 4, 45,3 dB | spart kaum |
+| Nachbar übernehmen 4, sonst Gitter 2 | 54,5 %, 4, 43,0 dB | 43,9 %, 4, 43,1 dB | 46,9 %, 4, 43,2 dB | bei gleicher Grenze grösser als Zusammenlegen 4 |
+| Das kleinste Gitter bis 4, mit dem die Kachel in 256 Farben passt | 46,7 %, 4, 41,4 dB | 42,2 %, 4, 42,6 dB | 42,3 %, 4, 41,9 dB | grösser als Zusammenlegen 4 |
+| Median-Schnitt auf 256 Farben | 62,6 %, 105, 44,9 dB | 64,6 %, 118, 47,2 dB | 60,4 %, 122, 46,1 dB | keine Grenze für die Abweichung; verliert von oben 2 234 Kanäle mit 255 |
+| Median-Schnitt auf 64 Farben | 46,1 %, 156, 37,5 dB | 46,7 %, 155, 40,3 dB | 43,2 %, 162, 39,6 dB | bei gleichen Bytes weniger PSNR als Zusammenlegen; verliert von oben 5 580 Kanäle mit 255 |
+
+„Nachbar übernehmen 4, sonst Gitter 4“ ist dasselbe wie Gitter 4: Liegt ein
+Gitterwert höchstens 4 neben einem Pixel, ist es der seiner eigenen Zelle.
+
+### Aussehen
+
+![Ausschnitte der Testwelt verlustfrei, mit Zusammenlegen 2, 4, 6 und 8 und nur mit Gitter 4](../bilder/farben-zusammenlegen.webp)
+
+Je Zeile der Ausschnitt einer Kachel mit den meisten Pixeln in einem
+Verlauf, dreifach vergrössert; Quelle
+[`farben-zusammenlegen.py`](../bilder/quellen/farben-zusammenlegen.py).
+Angesehen, nicht gemessen:
+
+- Zusammenlegen 2 und 4 sehen aus wie das Original, auch im glatten Wasser
+  mit Cinematic.
+- Mit 6 und 8 werden in glatten Verläufen Stufen sichtbar, im Wasser und im
+  dunklen Wald des iso; mit 8 schon an der ganzen Kachel.
+- Nur Gitter 4 fällt von oben nicht auf. Im iso mit Cinematic wird glattes
+  Wasser fleckig.
+
+## Schluss
+
+- **Zusammenlegen schlägt near-lossless bei gleicher Grenze.**
+  - Mit 4 ist es an der Testwelt 24,8 % (von oben), 30,5 % (iso mit
+    Cinematic) und 29,6 % (iso ohne) kleiner als near-lossless 40, bei 0,2
+    bis 0,7 dB mehr PSNR; an der grossen Welt 36 % im iso und 35 % von
+    oben.
+  - Mit 2 ist es an der Testwelt 14 bis 21 % kleiner als near-lossless 60,
+    bei 0,5 bis 1,0 dB weniger PSNR; an der grossen Welt 25 % im iso und
+    20 % von oben.
+- **Gegen verlustbehaftet:**
+  - Zusammenlegen 4 ist an der grossen Welt im iso so gross wie
+    verlustbehaftet 90 und von oben kleiner als 95, mit grösster
+    Abweichung 4 statt über 100.
+  - Zusammenlegen 8 ist kleiner als verlustbehaftet 90, an der Testwelt um
+    7 bis 35 %, an der grossen Welt um 37 % im iso und 14 % von oben.
+  - Verlustbehaftet verliert Kanäle mit 255, die Vorstufen keinen.
+- **Warum es trägt:** Heute hat an der Testwelt fast keine Kachel
+  höchstens 256 Farben, an der grossen Welt gut ein Drittel. Nach
+  Zusammenlegen 4 packen 124 von 182, 187 von 227 und 124 von 154 Kacheln
+  mit Palette.
+- **Die grösste Abweichung gilt an der Basis.** In der Pyramide wächst sie
+  bis etwa zum Dreifachen der Grenze, im iso wie bei near-lossless. Die
+  PSNR bleibt nach ein bis zwei Stufen stehen.
+- **Von oben hält das reine Gitter die Grenze d auf jeder Stufe:** Es
+  bildet seine Werte auf sich ab. Zusammenlegen an der Basis mit dem
+  Gitter für die Eltern hält d an der Basis und 2 d darüber und ist dabei
+  die kleinste der drei. Im iso verliert jede Stufe mit Gitter rund
+  0,7 dB.
+- **Zeit:** Die Vorstufe kostet 1,2 bis 2,0 ms je Kachel, Zusammenlegen
+  packt damit 13 bis 36 % langsamer als kompakt heute, etwa wie
+  near-lossless 40; verlustbehaftet packt 15 bis 28 % schneller.
+  Dekodieren wird schneller, 0,27 bis 0,64 ms gegen 0,65 bis 0,83 ms. Die
+  Vorstufe im Test ist nicht optimiert.
+  - Mit dem Zuschnitt von libwebp packt Zusammenlegen 2 über alle Stufen
+    so schnell wie kompakt heute, Zusammenlegen 4 um 6 bis 12 % und
+    Zusammenlegen 8 um 10 bis 19 % langsamer; samt dem Dekodieren der
+    Kinder sind es +3 bis +5 %, +11 bis +17 % und +14 bis +23 %.
+  - Der Zuschnitt hilft Kacheln mit Palette weniger und kostet dort mehr
+    Bytes als ohne Palette.
+- **Aufwand:** eigener Code ohne neue Abhängigkeit, im Test rund 45 Zeilen
+  für das Zusammenlegen und 15 für das Gitter.
+- **Grenzen:**
+  - PSNR und Pyramide sind nur an der Testwelt gemessen, an der grossen
+    Welt nur Bytes und die grösste Abweichung an der Basis;
+  - die Testwelt ist im iso mit scale 24 gerendert, die grosse Welt mit
+    scale 8;
+  - ab Stufe 6 haben die Ausschnitte unter 2 500 sichtbare Pixel;
+  - das Aussehen ist angesehen, nicht gemessen;
+  - Zeiten von libwebp auf einem geteilten Rechner unter Linux.
+- **Was gilt:** Die Seite nennt nur Zahlen. Bis eine neue Entscheidung sie
+  ablöst, gilt [0004](../entscheidungen/0004-webp-verlustfrei.md).

@@ -1,8 +1,8 @@
 ---
 title: Farben zusammenlegen vor dem Packen
-description: Eine eigene Vorstufe, die ähnliche Farben einer Kachel zusammenlegt, bevor libwebp verlustfrei packt, gegen near-lossless und verlustbehaftet, an 563 Kacheln der Testwelt in der CI und an einer Stichprobe der grossen Welt; mit höchstens 4 Stufen Abweichung je Kanal 25 bis 30 % kleiner als near-lossless 40, an der grossen Welt 35 %; ohne den Rückfall aufs Gitter an der grossen Welt 0,7 bis 2,1 % kleiner, an der Testwelt 0,7 bis 2,4 dB mehr PSNR und mit schnellerer Suche samt dem Zuschnitt von libwebp so schnell wie kompakt heute; nicht gebaut.
+description: Eine eigene Vorstufe, die ähnliche Farben einer Kachel zusammenlegt, bevor libwebp verlustfrei packt, gegen near-lossless und verlustbehaftet, an 563 Kacheln der Testwelt in der CI und an einer Stichprobe der grossen Welt; mit höchstens 4 Stufen Abweichung je Kanal 25 bis 30 % kleiner als near-lossless 40, an der grossen Welt 35 %; ohne den Rückfall aufs Gitter an der grossen Welt 0,7 bis 2,1 % kleiner, an der Testwelt 0,7 bis 2,4 dB mehr PSNR und mit schnellerer Suche samt dem Zuschnitt von libwebp so schnell wie kompakt heute; glatte Farben mit 2 geschont und der Rest mit 4 ist so gross wie 3 überall; nicht gebaut.
 date: 2026-11-15
-commits: [cfe87ecf, 72432d32, 79817b39, 9b378406]
+commits: [cfe87ecf, 72432d32, 79817b39, 9b378406, 80facf47]
 code:
   - renderer/src/render/tiles.rs
   - renderer/src/render/pyramid.rs
@@ -45,6 +45,9 @@ ist nichts; welche Stufe gilt, entscheidet der Maintainer.
   - **Zusammenlegen d ohne Rückfall:** dasselbe Zusammenlegen ohne Grenze
     für die Zahl der Farben und ohne das Gitter. Bleiben mehr als 256
     Farben, packt libwebp die Kachel ohne Palette.
+  - **Glatt g, sonst 4:** das Zusammenlegen ohne Rückfall, bei dem glatte
+    Farben nur g weit gehen und alle anderen 4. Die Regel steht in
+    „Glatte Farben schonen“.
 - **Vergleich:**
   - near-lossless 60 und 40 von libwebp, mit festem Alpha, und
     verlustbehaftet 95 und 90, wie in
@@ -77,26 +80,29 @@ ist nichts; welche Stufe gilt, entscheidet der Maintainer.
   Zuschnitts aus der Umgebung. Der sechste Lauf: der Tag
   `versuch/farben-rein`, `72432d32`; der siebte: der Tag
   `versuch/farben-rein-pyramide`, `79817b39`; der achte: der Tag
-  `versuch/farben-rein-schnell`, `9b378406`.
+  `versuch/farben-rein-schnell`, `9b378406`; der neunte: der Tag
+  `versuch/farben-schonend`, `80facf47`.
 - **Rechner:** die CI, `ubuntu-latest`, Release-Build, ein geteilter
   Rechner.
 
 ## Ablauf
 
-Am 15.11.2026, acht Läufe des Workflows an den Ständen `4b669a0e`,
-`7e04b9ac`, `b290d5b5`, `b64c2c2e`, `f594858a`, `7c405eae`, `6236d3d9` und
-`affd6203`. Die Zahlen sind die Ausgabe des Tests im Log.
+Am 15.11.2026, neun Läufe des Workflows an den Ständen `4b669a0e`,
+`7e04b9ac`, `b290d5b5`, `b64c2c2e`, `f594858a`, `7c405eae`, `6236d3d9`,
+`affd6203` und `139ba888`. Die Zahlen sind die Ausgabe des Tests im Log.
 
 - Die Leiter und die Pyramide stammen aus dem vierten Lauf, die
   ausgeschiedenen Vorstufen aus dem zweiten und dritten, der Zuschnitt und
   das Zusammenlegen auf Gitterwerten aus dem fünften, das Zusammenlegen
   ohne Rückfall und die Zahl der Rückfälle aus dem sechsten, seine
   Pyramide und seine Zeit mit dem Zuschnitt aus dem siebten, die
-  schnellere Suche aus dem achten.
+  schnellere Suche aus dem achten, das Schonen glatter Farben aus dem
+  neunten.
 - Bytes und Abweichungen jeder Packung, die in mehreren Läufen stand, sind
   in allen gleich.
 - Der sechste Lauf führt den Test einmal aus; seine Zeiten sind ein
-  Anhalt, kein Median.
+  Anhalt, kein Median. Der neunte misst die feinste Stufe einmal und die
+  Pyramide dreimal.
 - Jeder andere Lauf führt den Test dreimal aus. Für die Zeiten der
   Median der drei; gegen kompakt im selben Durchgang liegen die drei
   höchstens 0,9 Prozentpunkte auseinander, im fünften Lauf von oben und
@@ -568,6 +574,148 @@ Laufs.
 - **Aufwand:** im Test 56 Zeilen für die Vorstufe, dazu 19 für den Hash,
   den der Renderer schon hat.
 
+### Glatte Farben schonen
+
+Aus dem neunten Lauf. Das Zusammenlegen ohne Rückfall, bei dem glatte
+Farben weniger weit gehen als die anderen:
+
+- Eine Farbe ist **glatt**, wenn mindestens die Hälfte ihrer Kanten zu
+  anderen sichtbaren Farben zu einer Farbe mit demselben Alpha geht, die
+  je Kanal höchstens t daneben liegt. Kanten sind der rechte und der
+  untere Nachbar. Gleichfarbige Nachbarn zählen nicht, sonst gälte jede
+  vergrösserte Textur als glatt.
+- Eine glatte Farbe sucht ihren Vertreter höchstens g weit, jede andere
+  höchstens 4. „Glatt g, sonst 4“ ist unten diese Regel mit t = 4.
+- Mit derselben Grenze für alle Farben ist es das Zusammenlegen ohne
+  Rückfall: Der Test prüft das auf jeder Kachel jeder Stufe, und die Bytes
+  sind die des sechsten Laufs.
+
+Mit t = 4 liegen von oben 30,1 %, im iso mit Cinematic 36,5 % und im iso
+ohne 34,6 % der sichtbaren Pixel in glatten Farben: in den Gruppen mit
+Wasser 49 bis 72 %, mit Wüste 47 bis 55 %, mit Wald 1 bis 11 %.
+
+Feinste Stufe, 563 Kacheln, ein Durchgang. „Glatt“ und „unruhig“ trennen
+die sichtbaren Pixel nach ihrer Farbe im Original, eingestuft mit t = 4.
+„Weiche Kanten hart“ zählt Nachbarn mit demselben Alpha, die im Original 1
+bis 4 Stufen auseinander liegen und danach über 4.
+
+Von oben, 182 Kacheln:
+
+| Packung | Bytes | grösste Abweichung | in glatten Farben | PSNR glatt, dB | PSNR unruhig, dB | weiche Kanten hart | mit Palette |
+|---|---|---|---|---|---|---|---|
+| 1 ohne Rückfall | 68,3 % | 1 | 1 | 52,2 | 52,7 | 7,3 % | 25 |
+| 2 ohne Rückfall | 56,1 % | 2 | 2 | 47,6 | 48,2 | 14,7 % | 50 |
+| 3 ohne Rückfall | 47,9 % | 3 | 3 | 44,6 | 45,1 | 21,0 % | 77 |
+| 4 ohne Rückfall | 41,8 % | 4 | 4 | 42,5 | 43,0 | 27,9 % | 121 |
+| glatt 2, sonst 4 | 47,8 % | 4 | 2 | 47,7 | 42,8 | 20,7 % | 84 |
+| glatt 1, sonst 4 | 52,6 % | 4 | 1 | 52,6 | 42,7 | 15,3 % | 63 |
+| glatt 0, sonst 4 | 61,9 % | 4 | 0 | unverändert | 42,6 | 12,2 % | 42 |
+| glatt 1, sonst 4, mit t = 2 | 45,1 % | 4 | 4 | 43,1 | 42,9 | 26,5 % | 84 |
+| glatt 0, sonst 4, mit t = 2 | 46,7 % | 4 | 4 | 43,2 | 42,9 | 26,1 % | 70 |
+| glatt 1, sonst 4, mit t = 8 | 59,7 % | 4 | 1 | 52,2 | 44,9 | 11,1 % | 41 |
+| glatt 0, sonst 4, mit t = 8 | 77,6 % | 4 | 0 | unverändert | 45,0 | 5,4 % | 10 |
+
+Iso mit Cinematic, 227 Kacheln:
+
+| Packung | Bytes | grösste Abweichung | in glatten Farben | PSNR glatt, dB | PSNR unruhig, dB | weiche Kanten hart | mit Palette |
+|---|---|---|---|---|---|---|---|
+| 1 ohne Rückfall | 61,0 % | 1 | 1 | 51,8 | 52,4 | 7,0 % | 54 |
+| 2 ohne Rückfall | 47,2 % | 2 | 2 | 47,8 | 47,8 | 13,3 % | 100 |
+| 3 ohne Rückfall | 40,2 % | 3 | 3 | 45,3 | 44,9 | 20,5 % | 159 |
+| 4 ohne Rückfall | 35,4 % | 4 | 4 | 42,7 | 42,8 | 30,5 % | 178 |
+| glatt 2, sonst 4 | 40,2 % | 4 | 2 | 47,8 | 42,6 | 20,0 % | 161 |
+| glatt 1, sonst 4 | 45,9 % | 4 | 1 | 52,1 | 42,5 | 16,4 % | 112 |
+| glatt 0, sonst 4 | 61,5 % | 4 | 0 | unverändert | 42,4 | 13,2 % | 40 |
+| glatt 1, sonst 4, mit t = 2 | 38,4 % | 4 | 4 | 43,1 | 42,7 | 26,5 % | 161 |
+| glatt 0, sonst 4, mit t = 2 | 41,0 % | 4 | 4 | 43,0 | 42,7 | 25,6 % | 129 |
+| glatt 1, sonst 4, mit t = 8 | 52,5 % | 4 | 1 | 51,9 | 44,5 | 11,2 % | 75 |
+| glatt 0, sonst 4, mit t = 8 | 77,4 % | 4 | 0 | unverändert | 44,7 | 5,6 % | 12 |
+
+Iso ohne Cinematic, 154 Kacheln:
+
+| Packung | Bytes | grösste Abweichung | in glatten Farben | PSNR glatt, dB | PSNR unruhig, dB | weiche Kanten hart | mit Palette |
+|---|---|---|---|---|---|---|---|
+| 1 ohne Rückfall | 66,1 % | 1 | 1 | 51,4 | 52,6 | 6,6 % | 21 |
+| 2 ohne Rückfall | 52,0 % | 2 | 2 | 47,4 | 48,2 | 14,1 % | 61 |
+| 3 ohne Rückfall | 44,3 % | 3 | 3 | 44,7 | 45,0 | 21,5 % | 96 |
+| 4 ohne Rückfall | 38,9 % | 4 | 4 | 42,5 | 42,7 | 28,7 % | 115 |
+| glatt 2, sonst 4 | 44,5 % | 4 | 2 | 47,5 | 42,6 | 21,5 % | 97 |
+| glatt 1, sonst 4 | 51,0 % | 4 | 1 | 51,7 | 42,5 | 16,8 % | 66 |
+| glatt 0, sonst 4 | 64,4 % | 4 | 0 | unverändert | 42,3 | 14,1 % | 36 |
+| glatt 1, sonst 4, mit t = 2 | 42,6 % | 4 | 4 | 43,5 | 42,7 | 25,4 % | 97 |
+| glatt 0, sonst 4, mit t = 2 | 45,1 % | 4 | 4 | 43,7 | 42,6 | 25,0 % | 73 |
+| glatt 1, sonst 4, mit t = 8 | 57,8 % | 4 | 1 | 51,4 | 44,6 | 11,5 % | 43 |
+| glatt 0, sonst 4, mit t = 8 | 79,8 % | 4 | 0 | unverändert | 44,7 | 6,6 % | 18 |
+
+Über alle Stufen der Pyramide, jede Zeile bis auf die letzte mit dem
+Zuschnitt von libwebp; Zeit gegen kompakt heute, Median aus drei
+Durchgängen auf der CI, die drei höchstens 0,4 Prozentpunkte auseinander.
+Die Abweichung ist hier über alle Stufen gezählt.
+
+Von oben, 214 Kacheln:
+
+| Packung | Bytes | grösste Abweichung | in glatten Farben | PSNR glatt, dB | PSNR unruhig, dB | Packen gegen heute | mit Dekodieren | Vorstufe, ms |
+|---|---|---|---|---|---|---|---|---|
+| kompakt | 100,0 % | 0 | 0 | – | – | −30,6 % | −22,4 % | 0,00 |
+| 2 ohne Rückfall | 56,9 % | 7 | 7 | 47,5 | 47,9 | −8,3 % | −2,6 % | 0,65 |
+| 4 ohne Rückfall | 42,6 % | 12 | 11 | 42,5 | 42,6 | −6,8 % | −2,1 % | 0,58 |
+| glatt 2, sonst 4 | 47,8 % | 15 | 12 | 47,2 | 42,3 | +7,3 % | +12,5 % | 1,33 |
+| glatt 1, sonst 4 | 52,1 % | 14 | 12 | 50,9 | 42,1 | +6,0 % | +11,4 % | 1,39 |
+| glatt 0, sonst 4 | 61,2 % | 13 | 12 | 55,7 | 42,0 | +6,3 % | +12,4 % | 1,56 |
+| glatt 1, sonst 4, ohne Zuschnitt | 51,9 % | 14 | 12 | 50,9 | 42,1 | +30,5 % | +36,0 % | 1,39 |
+
+Iso mit Cinematic, 276 Kacheln:
+
+| Packung | Bytes | grösste Abweichung | in glatten Farben | PSNR glatt, dB | PSNR unruhig, dB | Packen gegen heute | mit Dekodieren | Vorstufe, ms |
+|---|---|---|---|---|---|---|---|---|
+| kompakt | 100,0 % | 0 | 0 | – | – | −34,2 % | −25,0 % | 0,00 |
+| 2 ohne Rückfall | 47,1 % | 7 | 7 | 47,1 | 47,4 | −9,4 % | −4,2 % | 0,65 |
+| 4 ohne Rückfall | 35,1 % | 12 | 11 | 42,1 | 42,3 | −2,8 % | +1,3 % | 0,57 |
+| glatt 2, sonst 4 | 39,9 % | 11 | 11 | 46,4 | 42,3 | +8,1 % | +12,6 % | 1,36 |
+| glatt 1, sonst 4 | 45,4 % | 11 | 10 | 49,0 | 42,2 | +6,3 % | +11,4 % | 1,43 |
+| glatt 0, sonst 4 | 61,2 % | 12 | 12 | 52,0 | 42,1 | +4,0 % | +10,5 % | 1,72 |
+| glatt 1, sonst 4, ohne Zuschnitt | 45,1 % | 11 | 10 | 49,0 | 42,2 | +32,7 % | +38,0 % | 1,43 |
+
+Iso ohne Cinematic, 276 Kacheln:
+
+| Packung | Bytes | grösste Abweichung | in glatten Farben | PSNR glatt, dB | PSNR unruhig, dB | Packen gegen heute | mit Dekodieren | Vorstufe, ms |
+|---|---|---|---|---|---|---|---|---|
+| kompakt | 100,0 % | 0 | 0 | – | – | −33,2 % | −23,5 % | 0,00 |
+| 2 ohne Rückfall | 52,4 % | 6 | 6 | 46,9 | 47,5 | −3,8 % | +2,3 % | 1,15 |
+| 4 ohne Rückfall | 38,3 % | 13 | 11 | 42,1 | 42,1 | +1,7 % | +6,5 % | 0,94 |
+| glatt 2, sonst 4 | 43,9 % | 11 | 11 | 46,1 | 42,0 | +14,6 % | +20,0 % | 1,87 |
+| glatt 1, sonst 4 | 50,1 % | 12 | 11 | 48,7 | 42,0 | +16,5 % | +22,6 % | 2,07 |
+| glatt 0, sonst 4 | 63,2 % | 14 | 14 | 51,8 | 41,8 | +25,7 % | +33,1 % | 2,85 |
+| glatt 1, sonst 4, ohne Zuschnitt | 50,0 % | 12 | 11 | 48,7 | 42,0 | +43,7 % | +50,0 % | 2,07 |
+
+- **Glatt 2, sonst 4** ist auf 0,5 % so gross wie 3 ohne Rückfall: 13,6
+  bis 14,4 % grösser als 4, 14,5 bis 14,9 % kleiner als 2. In glatten
+  Farben ist es so genau wie 2, in unruhigen wie 4.
+- **Glatt 1, sonst 4** ist 25,8 bis 31,0 % grösser als 4 und 2,0 bis
+  6,2 % kleiner als 2, über die Pyramide 3,5 bis 8,5 % kleiner.
+- **Glatt 0, sonst 4** ist grösser als 2 ohne Rückfall, um 10,3 bis
+  30,2 %.
+- **Die Schwelle t:** Mit t = 2 gilt zu wenig als glatt, die glatten
+  Farben des Originals kommen kaum über 4 ohne Rückfall hinaus. Mit t = 8
+  gilt zu viel als glatt: Glatt 1, sonst 4 ist dann grösser als 2 ohne
+  Rückfall.
+- **Über die Pyramide** wird der Vorsprung in glatten Farben kleiner, weil
+  die Eltern aus den dekodierten Kindern entstehen: Glatt 2, sonst 4 liegt
+  dort 0,3 bis 0,8 dB unter 2 ohne Rückfall. Die grösste Abweichung wächst
+  über die Stufen wie sonst, auch in glatten Farben.
+- **Zeit:** Die Vorstufe braucht 0,7 bis 1,9 ms mehr je Kachel. Mit dem
+  Zuschnitt packt glatt 1 oder 2, sonst 4 damit 6,0 bis 16,5 % langsamer
+  als kompakt heute; ohne Rückfall sind es zwischen 9,4 % schneller und
+  1,7 % langsamer. Die Einstufung ist im Test nicht optimiert, sie misst
+  24 Zeilen.
+- **Weiche Kanten** sind über die ganze Kachel gezählt, glatte und
+  unruhige Flächen zusammen; sie trennen darum schlechter als die PSNR
+  nach Farben.
+- **Nicht gemessen:** ob die Einstufung trifft, was man sieht. Gezählt ist
+  nur, dass Wasser und Wüste überwiegend als glatt gelten und Wald nicht;
+  glatter Stein, Schnee und Wiese haben in der Testwelt keine eigene
+  Gruppe. Die grosse Welt ist nicht gemessen.
+
 ### Ausgeschieden
 
 Bytes, grösste Abweichung und PSNR für von oben, iso mit und iso ohne
@@ -642,6 +790,17 @@ Angesehen, nicht gemessen:
     Rückfall mit dem Zuschnitt zwischen 8,4 % schneller und 1,4 %
     langsamer als kompakt heute; die Vorstufe braucht 0,6 bis 1,1 ms je
     Kachel. Die Fassung mit Rückfall ist damit nicht gemessen.
+- **Glatte Farben schonen kostet Platz: mit 2 in glatten Farben und 4
+  sonst so viel wie 3 überall.**
+  - Glatt 2, sonst 4 ist rund 14 % grösser als 4 ohne Rückfall und rund
+    15 % kleiner als 2, in glatten Farben so genau wie 2, in unruhigen wie
+    4. Gegen 3 ohne Rückfall bleibt der Platz gleich, die Abweichung
+    wandert aus den glatten in die unruhigen Farben.
+  - Glatt 1, sonst 4 lässt gegen 2 ohne Rückfall 2 bis 9 % übrig; glatt
+    0, sonst 4 ist grösser als 2.
+  - Auf der CI im Median aus drei Durchgängen packt es mit dem Zuschnitt
+    6 bis 17 % langsamer als kompakt heute.
+  - Ob die Einstufung trifft, was man sieht, ist nicht gemessen.
 - **Die grösste Abweichung gilt an der Basis.** In der Pyramide wächst sie
   bis etwa zum Dreifachen der Grenze, im iso wie bei near-lossless. Die
   PSNR bleibt nach ein bis zwei Stufen stehen.

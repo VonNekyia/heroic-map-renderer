@@ -2797,6 +2797,56 @@ fn nachverdichten_mit_der_schicht() {
     }
 }
 
+/// Nach einem Update, das vor der Pyramide abbrach, legt `--compact-tree`
+/// keine Hashes ab. Sonst sähe das nächste Update ohne `--resume` Treffer
+/// für die neuen Basiskacheln und liesse ihre Eltern von der Platte
+/// veraltet. Danach gleicht der Baum einem vollen kompakten Lauf, auf jeder
+/// Stufe, mit nativen Stufen und ohne. Ein Thread, damit der Abbruch immer
+/// dieselben Kacheln trifft.
+/// Siehe docs/entscheidungen/0124-pyramide-nur-ueber-neuen-kindern.md.
+#[test]
+fn nachverdichten_nach_abbruch_ohne_hashes() {
+    for native in ["0", "9"] {
+        let welt = tempdir();
+        baue_gelaende(welt.path());
+        let baum = neuer_baum("2x1-se");
+        let extra = ["--scale", "16", "--native-levels", native];
+        gelungen(&export(welt.path(), baum.path(), &extra));
+        baue_aenderungen(welt.path());
+        let update = [&extra[..], &["--update", "--threads", "1"]].concat();
+        let abbruch = update_mit_abbruch(welt.path(), baum.path(), &update, "vor-pyramide");
+        assert!(!abbruch.status.success(), "{native}");
+        let verdichtet = gelungen(&cli(&[
+            OsStr::new("--compact-tree"),
+            baum.path().as_os_str(),
+        ]))
+        .stdout
+        .clone();
+        let text = String::from_utf8_lossy(&verdichtet);
+        assert!(text.contains("Hashes:     keine neuen"), "{native}: {text}");
+        gelungen(&export(welt.path(), baum.path(), &update));
+
+        let voll = neuer_baum("2x1-se");
+        gelungen(&export(
+            welt.path(),
+            voll.path(),
+            &[&extra[..], &["--compact"]].concat(),
+        ));
+        let ohne_karte = |dir: &Path| {
+            let mut dateien = schnappschuss(dir);
+            dateien.remove("map.json");
+            dateien
+        };
+        let (ist, soll) = (ohne_karte(baum.path()), ohne_karte(voll.path()));
+        let anders: Vec<&String> = ist
+            .keys()
+            .chain(soll.keys())
+            .filter(|k| ist.get(*k) != soll.get(*k))
+            .collect();
+        assert!(anders.is_empty(), "--native-levels {native}: {anders:?}");
+    }
+}
+
 /// Auch die Eltern, die im Speicher entstehen, kodiert ein zweiter Lauf
 /// nicht, wenn sie schon dieselben Pixel zeigen. Auf einem Thread, damit
 /// die Streifen breit genug für sie sind.

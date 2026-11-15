@@ -446,9 +446,10 @@ liegen“. Entschieden in
     und derselben Zeit der letzten Änderung auf die Nanosekunde;
   - nur für denselben Kodierstand, `KODIERSTAND` in
     [`renderer/src/cli/pixel.rs`](../../renderer/src/cli/pixel.rs). Er
-    steigt, wenn sich am Kodieren etwas ändert: libwebp oder sein Patch,
-    die Vorgaben in `encode_webp` oder `Packen`. Was gezeichnet wird, zählt
-    nicht, siehe
+    steigt, wenn nach einer Änderung am Kodieren dieselben Pixel andere
+    Bytes ergeben: an libwebp oder seinem Patch, an den Vorgaben in
+    `encode_webp` oder `Packen`. Eine Änderung, die kein Byte ändert, hebt
+    ihn nicht. Was gezeichnet wird, zählt nicht, siehe
     [0098](../entscheidungen/0098-der-zeichenstand-statt-des-builds.md).
 
   Schrieb jemand anders die Datei, kodiert der nächste Lauf sie wie ohne
@@ -486,7 +487,12 @@ liegen“. Entschieden in
   [2026-10-24, Pyramide nur über neuen Kindern](../messungen/2026-10-24-pyramide-nur-ueber-neuen.md).
 - **Ein anderer Kodierstand** kodiert jede Kachel neu, die ein Lauf
   ablegt. Ein Block eines alten Builds, bis v0.5.0 mit dem Fingerabdruck
-  der ausführbaren Datei im Kopf, gilt als Kodierstand 1.
+  der ausführbaren Datei im Kopf, gilt als Kodierstand 1. Das erste Update
+  danach kodiert also jede Kachel seines Gebiets und baut die Pyramide über
+  allen. In einem kompakten Baum bekommt eine Kachel mit anderen Bytes ein
+  neues ETag; in einem schnellen sind die Bytes gleich, und die Kachel
+  bleibt liegen. Kodierstand 2 kam mit
+  [0142](../entscheidungen/0142-kompakt-ohne-suche-rle-und-analyse.md).
 - **Die Ausgabe** nennt am Ende, wie viele Kacheln der Lauf nicht kodiert
   hat:
 

@@ -292,6 +292,7 @@ static int GetTransformBits(int method, int histo_bits) {
 typedef struct {
   int lz77;
   int do_no_cache;
+  int cache_fixed;  // heroic-map-renderer: see EncoderAnalyze.
 } CrunchSubConfig;
 typedef struct {
   int entropy_idx;
@@ -347,9 +348,17 @@ static int EncoderAnalyze(VP8LEncoder* const enc,
     EntropyIx min_entropy_ix;
     // Try out multiple LZ77 on images with few colors.
     n_lz77s = (enc->palette_size > 0 && enc->palette_size <= 16) ? 2 : 1;
-    if (!AnalyzeEntropy(pic->argb, width, height, pic->argb_stride, use_palette,
-                        enc->palette_size, transform_bits, &min_entropy_ix,
-                        red_and_blue_always_zero)) {
+    // heroic-map-renderer: With WEBP_HINT_GRAPH, an image without a palette
+    // skips AnalyzeEntropy: below, subtract green replaces its guess, and
+    // without a predictor red_and_blue_always_zero is not read. Method 6
+    // with quality 100 reads it, so it still analyzes.
+    if (config->image_hint == WEBP_HINT_GRAPH && !use_palette &&
+        !(method == 6 && config->quality == 100)) {
+      min_entropy_ix = kSubGreen;
+      *red_and_blue_always_zero = 0;
+    } else if (!AnalyzeEntropy(pic->argb, width, height, pic->argb_stride,
+                               use_palette, enc->palette_size, transform_bits,
+                               &min_entropy_ix, red_and_blue_always_zero)) {
       return 0;
     }
     if (method == 6 && config->quality == 100) {
@@ -416,9 +425,15 @@ static int EncoderAnalyze(VP8LEncoder* const enc,
     int j;
     for (j = 0; j < n_lz77s; ++j) {
       assert(j < CRUNCH_SUBCONFIGS_MAX);
+      // heroic-map-renderer: With WEBP_HINT_GRAPH, the first LZ77 leaves out
+      // RLE, and the color cache keeps its maximum size instead of a search.
       crunch_configs[i].sub_configs[j].lz77 =
-          (j == 0) ? kLZ77Standard | kLZ77RLE : kLZ77Box;
+          (j != 0) ? kLZ77Box
+          : (config->image_hint == WEBP_HINT_GRAPH) ? kLZ77Standard
+                                                    : kLZ77Standard | kLZ77RLE;
       crunch_configs[i].sub_configs[j].do_no_cache = do_no_cache;
+      crunch_configs[i].sub_configs[j].cache_fixed =
+          (config->image_hint == WEBP_HINT_GRAPH);
     }
     crunch_configs[i].sub_configs_size = n_lz77s;
   }
@@ -801,8 +816,8 @@ static int EncodeImageNoHuffman(VP8LBitWriter* const bw,
   }
   if (!VP8LGetBackwardReferences(width, height, argb, quality, /*low_effort=*/0,
                                  kLZ77Standard | kLZ77RLE, cache_bits,
-                                 /*do_no_cache=*/0, hash_chain, refs_array,
-                                 &cache_bits, pic,
+                                 /*do_no_cache=*/0, /*cache_fixed=*/0,
+                                 hash_chain, refs_array, &cache_bits, pic,
                                  percent_range - percent_range / 2, percent)) {
     goto Error;
   }
@@ -940,8 +955,9 @@ static int EncodeImageInternal(
 
     if (!VP8LGetBackwardReferences(
             width, height, argb, quality, low_effort, sub_config->lz77,
-            cache_bits_init, sub_config->do_no_cache, hash_chain,
-            &refs_array[0], &cache_bits_best, pic, i_percent_range, percent)) {
+            cache_bits_init, sub_config->do_no_cache, sub_config->cache_fixed,
+            hash_chain, &refs_array[0], &cache_bits_best, pic, i_percent_range,
+            percent)) {
       goto Error;
     }
 

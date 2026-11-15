@@ -34,7 +34,7 @@ const KANTE: i32 = 32;
 /// nach der dieselben Pixel andere Bytes ergeben. Was gezeichnet wird, zählt
 /// nicht: Der Hash gilt den Pixeln.
 /// Siehe docs/entscheidungen/0098-der-zeichenstand-statt-des-builds.md.
-pub(super) const KODIERSTAND: u64 = 1;
+pub(super) const KODIERSTAND: u64 = 2;
 /// Kopf: Magie, Fassung, Kodierstand, Zahl der Einträge.
 const KOPF: usize = 8 + 4 + 8 + 4;
 /// Bytes je Eintrag: Platz im Block, Hash, Grösse, Zeit in ns.

@@ -16,6 +16,11 @@ code:
 
 # 0092: Kompakt packen ohne Vorhersage
 
+Ergänzt durch [0142](0142-kompakt-ohne-suche-rle-und-analyse.md): Beim kompakten
+Packen sucht libwebp den Farb-Cache nicht mehr, probiert keine RLE und lässt
+die Analyse der Entropie aus; die ersten zwei gelten auch für Bilder mit
+Palette.
+
 ## Anlass
 
 #205: Kacheln bestehen aus wenigen Texturen, die sich Pixel für Pixel

@@ -506,6 +506,39 @@ fn transformationen(webp: &[u8]) -> Vec<u8> {
     out
 }
 
+/// Die Bits des Farb-Caches eines verlustfreien WebP, dessen einzige
+/// Transformation „subtract green“ ist, siehe [`transformationen`]: Danach
+/// steht ein Bit für den Cache, mit ihm 4 Bit für seine Grösse; 0 ohne.
+fn farbcache(webp: &[u8]) -> u8 {
+    assert_eq!(transformationen(webp), [2], "nicht nur subtract green");
+    let daten = &webp[21..];
+    // 32 Bit Kopf, je Transformation 3 Bit, 1 Bit ohne weitere.
+    let mut pos = 32 + 3 + 1;
+    let mut bit = || {
+        let b = (daten[pos / 8] >> (pos % 8)) & 1;
+        pos += 1;
+        b
+    };
+    if bit() == 0 {
+        return 0;
+    }
+    (0..4).map(|k| bit() << k).sum()
+}
+
+/// Kompakt nimmt den Farb-Cache fest mit 10 Bit, auch wo eine Suche ihn
+/// wegliesse: bei einem Verlauf, in dem kaum eine Farbe wiederkehrt. Der
+/// Hinweis `WEBP_HINT_GRAPH` kommt also bis `GetBackwardReferences`.
+/// Schnell bleibt, wie libwebp es packt.
+/// Siehe docs/entwicklung/libwebp-mit-patch.md, „Der Patch“.
+#[test]
+fn kompakt_mit_festem_farbcache() {
+    let bild = RgbaImage::from_fn(TILE, TILE, |x, y| {
+        image::Rgba([x as u8, y as u8, ((x + y) / 2) as u8, 255])
+    });
+    let kompakt = encode_webp(&bild, Packen::Kompakt).unwrap();
+    assert_eq!(farbcache(&kompakt), 10);
+}
+
 /// Kompakt packt ein Bild ohne Palette nur mit „subtract green“, ohne
 /// räumliche Vorhersage, auch wo sie hier lohnte: ein Verlauf mit mehr als
 /// 256 Farben. Schnell nimmt die Vorhersage dazu. Beide geben dieselben
@@ -522,6 +555,41 @@ fn kompakt_ohne_vorhersage() {
     assert_eq!(transformationen(&schnell)[..2], [2, 0]);
     for daten in [&schnell, &kompakt] {
         assert_eq!(decode_webp(daten, (TILE, TILE)).unwrap(), bild);
+    }
+}
+
+/// Kompakt packt weiter verlustfrei, mit festem Farb-Cache, ohne RLE und
+/// ohne `AnalyzeEntropy`: Ein Bild ohne Palette, eins mit Palette und eins
+/// mit höchstens 16 Farben, je mit durchsichtigen Pixeln und Mustern, die
+/// sich wiederholen, geben nach dem Packen dieselben Pixel zurück.
+/// Siehe docs/entwicklung/libwebp-mit-patch.md, „Der Patch“.
+#[test]
+fn kompakt_bleibt_verlustfrei() {
+    let ohne_palette = RgbaImage::from_fn(TILE, TILE, |x, y| {
+        let a = if (x / 8 + y / 8) % 5 == 0 { 0 } else { 255 };
+        image::Rgba([
+            (x * 7 % 256) as u8,
+            (y * 3 % 256) as u8,
+            ((x ^ y) & 0xff) as u8,
+            a,
+        ])
+    });
+    let palette = RgbaImage::from_fn(TILE, TILE, |x, y| {
+        let i = ((x / 4) * 31 + (y / 4) * 17) % 200;
+        let a = if i % 13 == 0 { 0 } else { 255 };
+        image::Rgba([i as u8, (255 - i) as u8, (i * 3 % 256) as u8, a])
+    });
+    let wenige = RgbaImage::from_fn(TILE, TILE, |x, y| {
+        let i = (x / 16 + y / 16) % 10;
+        image::Rgba([(i * 25) as u8, (i * 11) as u8, 200, 255])
+    });
+    for (was, bild) in [
+        ("ohne Palette", &ohne_palette),
+        ("mit Palette", &palette),
+        ("16 Farben", &wenige),
+    ] {
+        let kompakt = encode_webp(bild, Packen::Kompakt).unwrap();
+        assert_eq!(&decode_webp(&kompakt, (TILE, TILE)).unwrap(), bild, "{was}");
     }
 }
 

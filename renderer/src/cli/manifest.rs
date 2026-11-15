@@ -20,11 +20,12 @@ use super::{entferne, je_kachel, tausche, tile_path};
 pub(super) const MANIFEST: &str = "manifest";
 
 /// Je Lauf eine Marke, solange er Kacheln schreibt:
-/// `manifest-offen-<pid>-<ns>`. Findet ein Lauf eine fremde vor, läuft der
-/// andere noch, etwa ein `--pyramid` neben einem Export, oder er brach ab.
-/// Dann kennt das Manifest vielleicht nicht jede Kachel, und er liest den
-/// Baum ganz. Jeder Lauf entfernt seine eigene Marke und die eines
-/// Prozesses, der beim Beginn schon nicht mehr lief.
+/// `manifest-offen-<pid>-<ns>`. Der Lauf hält sie offen und gesperrt; die
+/// Sperre endet mit seinem Prozess, auch nach einem Abbruch. Findet ein
+/// Lauf eine fremde vor, läuft der andere noch, etwa ein `--pyramid` neben
+/// einem Export, oder er brach ab. Dann kennt das Manifest vielleicht nicht
+/// jede Kachel, und er liest den Baum ganz. Jeder Lauf entfernt seine eigene
+/// Marke und die, die beim Beginn niemand mehr sperrte.
 pub(super) const OFFEN: &str = "manifest-offen-";
 
 /// Das ETag einer Datei: Grösse und letzte Änderung in ns seit 1970, beide
@@ -57,17 +58,21 @@ pub(super) fn mit_eltern(
     out
 }
 
-/// Die Marken anderer Läufe neben dem Manifest, mit ihrer Prozessnummer.
-fn marken(dir: &Path) -> Result<Vec<(PathBuf, u32)>> {
+/// Die Marken anderer Läufe neben dem Manifest.
+fn marken(dir: &Path) -> Result<Vec<PathBuf>> {
     Ok(std::fs::read_dir(dir)
         .with_context(|| format!("{} lesen", dir.display()))?
         .flatten()
-        .filter_map(|e| {
-            let name = e.file_name().into_string().ok()?;
-            let pid = name.strip_prefix(OFFEN)?.split('-').next()?.parse().ok()?;
-            Some((e.path(), pid))
-        })
+        .filter(|e| e.file_name().to_string_lossy().starts_with(OFFEN))
+        .map(|e| e.path())
         .collect())
+}
+
+/// Ob niemand die Marke sperrt: Dann brach ihr Lauf ab. Im Zweifel nein,
+/// etwa wo das Dateisystem keine Sperre kennt; dann bleibt sie, und jeder
+/// Lauf liest ganz, bis sie weg ist.
+fn ungesperrt(marke: &Path) -> bool {
+    File::open(marke).is_ok_and(|datei| datei.try_lock().is_ok())
 }
 
 /// Ein Lauf, der Kacheln eines Baums schreibt, mit oder ohne `--manifest`.
@@ -77,9 +82,10 @@ pub(super) struct Lauf<'a> {
     schreiben: bool,
     /// Ob das Manifest beim Beginn schon nicht mehr zum Baum passen kann.
     ganz: bool,
-    /// Die eigene Marke und die verwaisten von Prozessen, die beim Beginn
-    /// nicht mehr liefen; am Ende gehen sie weg.
+    /// Die eigene Marke, offen und gesperrt, und die verwaisten, die beim
+    /// Beginn niemand sperrte; am Ende gehen sie weg.
     eigene: PathBuf,
+    sperre: File,
     verwaist: Vec<PathBuf>,
 }
 
@@ -90,21 +96,24 @@ impl<'a> Lauf<'a> {
     pub(super) fn beginne(dir: &'a Path, schreiben: bool) -> Result<Lauf<'a>> {
         let fremde = marken(dir)?;
         let ganz = !fremde.is_empty() || !dir.join(MANIFEST).is_file();
-        let verwaist = fremde
-            .into_iter()
-            .filter(|&(_, pid)| !laeuft(pid))
-            .map(|(pfad, _)| pfad)
-            .collect();
+        let verwaist = fremde.into_iter().filter(|m| ungesperrt(m)).collect();
         let ns = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_or(0, |d| d.as_nanos());
         let eigene = dir.join(format!("{OFFEN}{}-{ns}", std::process::id()));
-        File::create(&eigene).with_context(|| format!("{} anlegen", eigene.display()))?;
+        let sperre =
+            File::create(&eigene).with_context(|| format!("{} anlegen", eigene.display()))?;
+        // ponytail: Bis hier sieht ein anderer Lauf die Marke ungesperrt und
+        // entfernt sie vielleicht. Das schadet erst einem dritten, der danach
+        // beginnt; eine Marke unter anderem Namen sperren und umbenennen, wenn
+        // drei Läufe an einem Baum üblich werden.
+        let _ = sperre.try_lock();
         Ok(Lauf {
             dir,
             schreiben,
             ganz,
             eigene,
+            sperre,
             verwaist,
         })
     }
@@ -147,6 +156,7 @@ impl<'a> Lauf<'a> {
 
     /// Entfernt die eigene Marke und die verwaisten.
     fn ohne_marken(self) -> Result<()> {
+        drop(self.sperre);
         for marke in self.verwaist.iter().chain([&self.eigene]) {
             entferne(marke)?;
         }
@@ -155,13 +165,14 @@ impl<'a> Lauf<'a> {
 }
 
 /// Für ein Update mit `--manifest`, das nichts zeichnet: Fehlt das
-/// Manifest, lässt es sich nicht lesen oder liegt die Marke eines
-/// Prozesses, der nicht mehr läuft, schreibt es das Manifest aus dem ganzen
-/// Baum. Sonst lässt es alles, wie es ist.
+/// Manifest, lässt es sich nicht lesen oder liegt eine verwaiste Marke,
+/// schreibt es das Manifest aus dem ganzen Baum. Sonst lässt es alles, wie
+/// es ist, und liest das Manifest dafür nur.
 pub(super) fn ohne_aenderung(dir: &Path) -> Result<()> {
-    let tot = marken(dir)?.iter().any(|&(_, pid)| !laeuft(pid));
+    let tot = marken(dir)?.iter().any(|m| ungesperrt(m));
     let pfad = dir.join(MANIFEST);
-    if !tot && nachgezogen(dir, &pfad, &BTreeSet::new())?.is_some() {
+    let nichts = BTreeSet::new();
+    if !tot && ziehe_nach(dir, &pfad, &nichts, &mut std::io::sink())?.is_some() {
         return Ok(());
     }
     Lauf::beginne(dir, true)?.schliesse(None)
@@ -199,11 +210,25 @@ fn nachgezogen(
     pfad: &Path,
     angefasst: &BTreeSet<(u32, TileId)>,
 ) -> Result<Option<(Vec<u8>, usize)>> {
+    let mut aus = GzEncoder::new(Vec::new(), Compression::default());
+    let Some(kacheln) = ziehe_nach(dir, pfad, angefasst, &mut aus)? else {
+        return Ok(None);
+    };
+    Ok(Some((aus.finish()?, kacheln)))
+}
+
+/// Schreibt das alte Manifest mit neuen Zeilen für `angefasst` nach `aus`,
+/// ungepackt, und gibt die Zahl der Kacheln. `None` wie bei [`nachgezogen`].
+fn ziehe_nach(
+    dir: &Path,
+    pfad: &Path,
+    angefasst: &BTreeSet<(u32, TileId)>,
+    aus: &mut impl Write,
+) -> Result<Option<usize>> {
     let Ok(datei) = File::open(pfad) else {
         return Ok(None);
     };
     let mut alt = BufReader::new(GzDecoder::new(datei));
-    let mut aus = GzEncoder::new(Vec::new(), Compression::default());
     let mut neu = angefasst.iter().peekable();
     let (mut kacheln, mut vorige) = (0, None);
     let mut text = String::new();
@@ -223,7 +248,7 @@ fn nachgezogen(
             && (z, tile) <= hier
         {
             neu.next();
-            kacheln += usize::from(zeile(&mut aus, dir, z, tile)?);
+            kacheln += usize::from(zeile(aus, dir, z, tile)?);
         }
         // Eine angefasste Kachel steht schon neu da, oder sie fehlt jetzt.
         if !angefasst.contains(&hier) {
@@ -232,48 +257,9 @@ fn nachgezogen(
         }
     }
     for &(z, tile) in neu {
-        kacheln += usize::from(zeile(&mut aus, dir, z, tile)?);
+        kacheln += usize::from(zeile(aus, dir, z, tile)?);
     }
-    Ok(Some((aus.finish()?, kacheln)))
-}
-
-/// Ob ein Prozess mit dieser Nummer läuft. Im Zweifel ja: Dann bleibt seine
-/// Marke, und jeder Lauf liest ganz, bis sie weg ist.
-#[cfg(windows)]
-fn laeuft(pid: u32) -> bool {
-    use windows_sys::Win32::Foundation::{
-        CloseHandle, ERROR_ACCESS_DENIED, GetLastError, STILL_ACTIVE,
-    };
-    use windows_sys::Win32::System::Threading::{
-        GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
-    };
-    // SAFETY: Der Griff stammt aus OpenProcess und wird genau einmal
-    // geschlossen; `code` lebt über den Aufruf.
-    unsafe {
-        let griff = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
-        if griff.is_null() {
-            return GetLastError() == ERROR_ACCESS_DENIED;
-        }
-        let mut code = 0u32;
-        let gelesen = GetExitCodeProcess(griff, &mut code) != 0;
-        CloseHandle(griff);
-        !gelesen || code == STILL_ACTIVE as u32
-    }
-}
-
-#[cfg(unix)]
-fn laeuft(pid: u32) -> bool {
-    let Ok(pid) = i32::try_from(pid) else {
-        return true;
-    };
-    // SAFETY: Signal 0 prüft nur, ob es den Prozess gibt.
-    let da = unsafe { libc::kill(pid, 0) } == 0;
-    da || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
-}
-
-#[cfg(not(any(windows, unix)))]
-fn laeuft(_: u32) -> bool {
-    true
+    Ok(Some(kacheln))
 }
 
 /// Das Manifest aus dem ganzen Baum, gepackt, und die Zahl der Kacheln.
@@ -445,22 +431,9 @@ mod tests {
         );
     }
 
-    /// Die Nummer eines Prozesses, der eben endete.
-    fn beendeter_prozess() -> u32 {
-        let mut kind = std::process::Command::new(std::env::current_exe().unwrap())
-            .arg("--list")
-            .stdout(std::process::Stdio::null())
-            .spawn()
-            .unwrap();
-        let pid = kind.id();
-        kind.wait().unwrap();
-        assert!(!laeuft(pid), "{pid} läuft noch");
-        pid
-    }
-
     /// Ein Update ohne Änderung schreibt das Manifest nur, wenn es fehlt,
-    /// kaputt ist oder eine tote Marke liegt; sonst bleibt es Byte für Byte
-    /// und mit seiner Zeit.
+    /// kaputt ist oder eine verwaiste Marke liegt; sonst bleibt es Byte für
+    /// Byte und mit seiner Zeit.
     #[test]
     fn ohne_aenderung_nur_wenn_noetig() {
         let dir = tempfile::tempdir().unwrap();
@@ -479,23 +452,18 @@ mod tests {
         ohne_aenderung(dir.path()).unwrap();
         assert_eq!(entpackt(&std::fs::read(&pfad).unwrap()), soll(), "kaputt");
 
+        // Eine Marke ohne Sperre ist verwaist, auch mit der Nummer eines
+        // Prozesses, der läuft.
         lege(dir.path(), 1, t, 10, 1_759_708_900_000_000_000);
-        let tot = dir.path().join(format!("{OFFEN}{}-1", beendeter_prozess()));
+        let tot = dir.path().join(format!("{OFFEN}{}-1", std::process::id()));
         std::fs::write(&tot, b"").unwrap();
         ohne_aenderung(dir.path()).unwrap();
         assert_eq!(
             entpackt(&std::fs::read(&pfad).unwrap()),
             soll(),
-            "tote Marke"
+            "verwaiste Marke"
         );
         assert!(!tot.exists());
-    }
-
-    /// Dieser Prozess läuft, einer, der endete, nicht.
-    #[test]
-    fn laeuft_nur_wer_laeuft() {
-        assert!(laeuft(std::process::id()));
-        beendeter_prozess();
     }
 
     /// Grösse und Zeit aus dem Verzeichnis geben dasselbe ETag wie aus der
@@ -530,6 +498,8 @@ mod tests {
     /// Ein Lauf ohne Manifest, nach einem abgebrochenen oder neben einem
     /// laufenden liest den Baum ganz, auch wenn er nur wenig angefasst hat.
     /// Danach liegt seine Marke nicht mehr, und die eines laufenden bleibt.
+    /// Verwaist ist eine Marke, die niemand sperrt, gleich mit welcher
+    /// Nummer.
     #[test]
     fn nach_einem_abbruch_ganz_gelesen() {
         let dir = tempfile::tempdir().unwrap();
@@ -554,7 +524,7 @@ mod tests {
 
         // Ein Lauf schreibt eine Kachel und bricht ab, der nächste fasst
         // sie nicht an: Er liest ganz und räumt die verwaiste Marke weg.
-        let abgebrochen = format!("{OFFEN}{}-1", beendeter_prozess());
+        let abgebrochen = format!("{OFFEN}{}-1", std::process::id());
         std::fs::write(dir.path().join(&abgebrochen), b"").unwrap();
         lege(dir.path(), 1, t, 10, 1_759_708_900_000_000_000);
         lauf().schliesse(Some(&BTreeSet::new())).unwrap();
@@ -565,12 +535,14 @@ mod tests {
         assert!(marken().is_empty());
 
         // Neben einem, der noch läuft, liest er ganz und lässt dessen Marke.
-        let laufend = format!("{OFFEN}{}-1", std::process::id());
-        std::fs::write(dir.path().join(&laufend), b"").unwrap();
+        let laufend = format!("{OFFEN}{}-2", std::process::id());
+        let sperre = File::create(dir.path().join(&laufend)).unwrap();
+        sperre.try_lock().unwrap();
         lege(dir.path(), 2, t, 10, 1_759_709_000_000_000_000);
         lauf().schliesse(Some(&BTreeSet::new())).unwrap();
         assert_eq!(entpackt(&std::fs::read(&pfad).unwrap()).lines().count(), 3);
         assert_eq!(marken(), std::slice::from_ref(&laufend));
+        drop(sperre);
         std::fs::remove_file(dir.path().join(&laufend)).unwrap();
 
         // Ohne fremde Marke zieht er nur nach.
@@ -585,6 +557,7 @@ mod tests {
         let mit = lauf();
         assert!(mit.ganz);
         mit.schliesse(Some(&BTreeSet::new())).unwrap();
+        assert_eq!(marken().len(), 1, "die Marke des laufenden bleibt");
         assert!(pfad.exists());
         ohne.schliesse(None).unwrap();
         assert!(!pfad.exists());

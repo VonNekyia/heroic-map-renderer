@@ -587,7 +587,8 @@ impl Stand {
         let assets = u64::from_le_bytes(nimm(8)?.try_into()?);
         let anzahl = u32::from_le_bytes(nimm(4)?.try_into()?);
         let mut stand = Stand::neu(art, renderer, assets);
-        let mut regionen = Vec::with_capacity(anzahl as usize);
+        // Ohne Reserve: Die Zahl ist nicht geprüft, bevor die Einträge folgen.
+        let mut regionen = Vec::new();
         for _ in 0..anzahl {
             let rx = i32::from_le_bytes(nimm(4)?.try_into()?);
             let rz = i32::from_le_bytes(nimm(4)?.try_into()?);
@@ -1136,7 +1137,10 @@ mod tests {
             Stand::aus_kopf(&doppelt[..doppelt.len() - 8]).is_err(),
             "zu kurz"
         );
+        let mut riesig = kopf[..33].to_vec();
+        riesig[29..33].copy_from_slice(&u32::MAX.to_le_bytes());
         for (kaputt, was) in [
+            (riesig, "Zahl der Regionen verdorben"),
             (kopf[..kopf.len() - 1].to_vec(), "gekürzt"),
             ([&kopf[..], &[0u8][..]].concat(), "zu lang"),
             (

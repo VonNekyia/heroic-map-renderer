@@ -2323,7 +2323,7 @@ fn write_tiles(
     // Update im Rechteck um alle Chunks, deren Strahlen die Änderung lesen,
     // und liest die Welt dafür noch einmal. Bis hier hat der Lauf nichts
     // geschrieben.
-    // Siehe docs/benutzung/updates.md, „Wo ein Update zeichnet“.
+    // Siehe docs/benutzung/updates.md, „Der Weg des Schattens“.
     let ragt = sprites.ragt();
     if matches!(bereich, Bereich::Update) && look.is_some() && !huelle && ragt > RAGT_HOECHSTENS {
         println!(

@@ -6125,7 +6125,7 @@ fn mit_weitem_modell_und_aenderungen(x: i32, y: i32, z: i32) -> &'static str {
 /// im Rechteck um die Strahlen zur Sonne statt am Weg des Schattens, liest
 /// die Welt dafür noch einmal und sagt es. Danach gleicht der Baum einem
 /// vollen Lauf.
-/// Siehe docs/benutzung/updates.md, „Wo ein Update zeichnet“.
+/// Siehe docs/benutzung/updates.md, „Der Weg des Schattens“.
 #[test]
 fn update_mit_weit_ragendem_modell_nimmt_das_rechteck() {
     let welt = tempdir();

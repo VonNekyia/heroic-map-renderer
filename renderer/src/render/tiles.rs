@@ -483,7 +483,7 @@ fn zur_sonne(projection: Projection, look: &Look) -> [[i32; 2]; 2] {
 /// deckt den Start des Strahls im ragenden Modell, das Ragen um jede Zelle
 /// und die Lava daneben, 2 · 7 + 1. Ragt eines weiter, nimmt ein Update das
 /// Hüllrechteck.
-/// Siehe docs/benutzung/updates.md, „Wo ein Update zeichnet“.
+/// Siehe docs/benutzung/updates.md, „Der Weg des Schattens“.
 pub const RAGT_HOECHSTENS: i32 = 7;
 
 /// Wie viele Blöcke waagrecht ein Schritt entlang des Wegs zur Sonne im
@@ -1239,7 +1239,7 @@ mod tests {
     /// Blöcken auf der Basis: Dort überlappen benachbarte Kästen kaum, und
     /// erst dort zeigt sich, dass Verbreiterung, letzter Schritt und sinkende
     /// Kante halten. Die Grenze nach unten gilt nicht.
-    /// Siehe docs/benutzung/updates.md, „Wo ein Update zeichnet“.
+    /// Siehe docs/benutzung/updates.md, „Der Weg des Schattens“.
     #[test]
     fn gebiet_reicht_den_weg_des_schattens() {
         use crate::render::look::LOOK;
@@ -1329,7 +1329,7 @@ mod tests {
     /// Am Weg des Schattens ist das Gebiet mit Cinematic kleiner als das
     /// Rechteck um alle Chunks, deren Strahlen die Änderung lesen; mit dem
     /// Schalter `huelle` ist es dieses Rechteck. Die Zahlen stehen in
-    /// docs/benutzung/updates.md, „Wo ein Update zeichnet“.
+    /// docs/benutzung/updates.md, „Der Weg des Schattens“.
     #[test]
     fn weg_des_schattens_kleiner_als_die_huelle() {
         use crate::render::look::LOOK;

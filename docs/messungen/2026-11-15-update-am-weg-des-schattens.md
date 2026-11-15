@@ -47,6 +47,7 @@ und nach seinem Abriss gleicht der Baum ausserdem einem vollen Lauf.
   Skript bis zu 2 min auf eine Last von höchstens 10 %.
   - Die gemessenen Updates fielen zwischen 17:04 und 17:27. Die Last davor
     lag bei 0 bis 7 %.
+  - Daneben lief ein kleiner Webserver im Leerlauf.
   - Ab 18:12 lief ein Spiel. Davon war unter den Läufen dieser Seite nur
     der volle Lauf nach dem Abriss betroffen. Dessen Zeit steht hier
     nicht.
@@ -83,7 +84,8 @@ und nach seinem Abriss gleicht der Baum ausserdem einem vollen Lauf.
 
 - **Turm,** ein Chunk, mit allen Threads:
   - Bauen: 2,8 s gegen 2,0 s. Abreissen: 4,3 s gegen 2,2 s.
-  - Basiskacheln im Gebiet: 127 gegen 93.
+  - Kacheln im Gebiet: 384 gegen 194. Basiskacheln gezeichnet: 127 gegen
+    93.
   - Geschrieben wurden je 6 Kacheln, nach dem Abriss je 2.
 - **Bytevergleich:**
   - Nach jedem der drei Updates waren alle 304 345 Dateien gleich, nach

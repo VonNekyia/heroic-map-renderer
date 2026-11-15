@@ -275,6 +275,35 @@ geprüft und verworfen, siehe
   also dieselben Bits. Gemessen in
   [2026-10-04, Cinematic schneller, Hebel 1 und 2](../messungen/2026-10-04-hebel-1-und-2.md).
 
+### Wie weit ein Modell ragt
+
+`SpriteSet::sonne_reich` sind die Würfel um einen Block, in die irgendein
+Modell der Tabelle ragt, `SpriteSet::ragt` der weiteste je Achse. Davon
+hängt ab, wie weit ein Update mit Cinematic zeichnet, siehe
+[Updates](../benutzung/updates.md), „Der Weg des Schattens“.
+
+- **Was das Spiel begrenzt** (Client 26.3, per javap):
+  `CuboidModelElement$Deserializer.getPosition` lehnt `from` und `to`
+  ausserhalb von −16 bis 32 ab, also höchstens einen Würfel daneben.
+  `getRotation` liest `origin` und die Winkel, `angle` oder `x`, `y` und
+  `z`, ohne Grenze; `SingleAxisRotation` und `EulerXYZRotation` rechnen
+  nur Grad in Bogenmass um. Ein Element, das um einen fernen Drehpunkt
+  dreht, landet beliebig weit weg.
+- **Was der Renderer begrenzt:** dasselbe. `parse_element` in
+  [`renderer/src/assets/model.rs`](../../renderer/src/assets/model.rs)
+  prüft `from` und `to` wie das Spiel, Drehpunkt und Winkel nicht.
+- **Vanilla 26.3:** Über alle 35 723 Zustände aus `blocks.txt` ragt kein
+  Modell weiter als einen Würfel, `sonne_reich` ist −1 bis 1 je Achse
+  (`vanilla_ragt_hoechstens_zwei_wuerfel` in
+  [`renderer/src/render/sprites.rs`](../../renderer/src/render/sprites.rs),
+  mit `#[ignore]`, weil er die Assets des Spiels braucht).
+- **Ragt eines weiter als 7,** nimmt ein Update das Rechteck von früher,
+  siehe ebenda. `update_mit_weit_ragendem_modell_nimmt_das_rechteck` in
+  `renderer/tests/cli.rs` baut ein Modell, das um einen Drehpunkt 24 Blöcke
+  ausserhalb dreht. Der Test zeigt, dass der Rückfall greift und stimmt,
+  nicht dass er hier nötig ist: In dieser Szene gleicht der Baum auch ohne
+  ihn einem vollen Lauf.
+
 ### Der schnelle Gang
 
 `ChunkCache::sonne` fragt zuerst die Bits „frei zur Sonne“, siehe unten.

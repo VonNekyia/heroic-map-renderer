@@ -1,8 +1,8 @@
 ---
 title: Farben zusammenlegen vor dem Packen
-description: Eine eigene Vorstufe, die ähnliche Farben einer Kachel zusammenlegt, bevor libwebp verlustfrei packt, gegen near-lossless und verlustbehaftet, an 563 Kacheln der Testwelt in der CI und an einer Stichprobe der grossen Welt; mit höchstens 4 Stufen Abweichung je Kanal 25 bis 30 % kleiner als near-lossless 40, an der grossen Welt 35 %; ohne den Rückfall aufs Gitter an der grossen Welt 0,7 bis 2,1 % kleiner, an der Testwelt 0,7 bis 2,4 dB mehr PSNR; nicht gebaut.
+description: Eine eigene Vorstufe, die ähnliche Farben einer Kachel zusammenlegt, bevor libwebp verlustfrei packt, gegen near-lossless und verlustbehaftet, an 563 Kacheln der Testwelt in der CI und an einer Stichprobe der grossen Welt; mit höchstens 4 Stufen Abweichung je Kanal 25 bis 30 % kleiner als near-lossless 40, an der grossen Welt 35 %; ohne den Rückfall aufs Gitter an der grossen Welt 0,7 bis 2,1 % kleiner, an der Testwelt 0,7 bis 2,4 dB mehr PSNR, mit der Vorstufe des Tests aber langsamer; nicht gebaut.
 date: 2026-11-15
-commits: [cfe87ecf, 72432d32]
+commits: [cfe87ecf, 72432d32, 79817b39]
 code:
   - renderer/src/render/tiles.rs
   - renderer/src/render/pyramid.rs
@@ -75,29 +75,30 @@ ist nichts; welche Stufe gilt, entscheidet der Maintainer.
   nicht gemergt. Die Liste der Packungen wechselte je Lauf, der Tag trägt
   die des fünften; die Kopie von libwebp liest dort die Schalter des
   Zuschnitts aus der Umgebung. Der sechste Lauf: der Tag
-  `versuch/farben-rein`, `72432d32`.
+  `versuch/farben-rein`, `72432d32`; der siebte: der Tag
+  `versuch/farben-rein-pyramide`, `79817b39`.
 - **Rechner:** die CI, `ubuntu-latest`, Release-Build, ein geteilter
   Rechner.
 
 ## Ablauf
 
-Am 15.11.2026, sechs Läufe des Workflows an den Ständen `4b669a0e`,
-`7e04b9ac`, `b290d5b5`, `b64c2c2e`, `f594858a` und `7c405eae`. Die Zahlen
-sind die Ausgabe des Tests im Log.
+Am 15.11.2026, sieben Läufe des Workflows an den Ständen `4b669a0e`,
+`7e04b9ac`, `b290d5b5`, `b64c2c2e`, `f594858a`, `7c405eae` und `6236d3d9`.
+Die Zahlen sind die Ausgabe des Tests im Log.
 
 - Die Leiter und die Pyramide stammen aus dem vierten Lauf, die
   ausgeschiedenen Vorstufen aus dem zweiten und dritten, der Zuschnitt und
   das Zusammenlegen auf Gitterwerten aus dem fünften, das Zusammenlegen
-  ohne Rückfall und die Zahl der Rückfälle aus dem sechsten.
+  ohne Rückfall und die Zahl der Rückfälle aus dem sechsten, seine
+  Pyramide und seine Zeit mit dem Zuschnitt aus dem siebten.
 - Bytes und Abweichungen jeder Packung, die in mehreren Läufen stand, sind
   in allen gleich.
 - Der sechste Lauf führt den Test einmal aus; seine Zeiten sind ein
   Anhalt, kein Median.
-- Jeder der ersten fünf Läufe führt den Test dreimal aus. Für die Zeiten
-  der Median der drei; gegen kompakt im selben Durchgang liegen die drei
-  höchstens 0,9
-  Prozentpunkte auseinander, im fünften Lauf von oben und im iso mit
-  Cinematic höchstens 1,2, im iso ohne Cinematic bis 3,3.
+- Jeder andere Lauf führt den Test dreimal aus. Für die Zeiten der
+  Median der drei; gegen kompakt im selben Durchgang liegen die drei
+  höchstens 0,9 Prozentpunkte auseinander, im fünften Lauf von oben und
+  im iso mit Cinematic höchstens 1,2, im iso ohne Cinematic bis 3,3.
 - Die grosse Welt: lokal, vier Threads mit niedrigster Priorität; die
   Zeiten dort zählen nicht.
 - Das Aussehen ist keine Messung: Die Ausschnitte unten hat der Researcher
@@ -401,8 +402,116 @@ Abweichung, die PSNR nur an der Testwelt:
 - **Zeit:** In dem einen Durchgang packt es ohne Rückfall 31 bis 45 %
   langsamer als kompakt verlustfrei, mit Rückfall 20 bis 33 %; die Vorstufe
   braucht 1,8 bis 3,3 ms statt 1,3 bis 1,8 ms je Kachel.
-- **Nicht gemessen:** die Pyramide ohne Rückfall und die Zeit mit dem
-  Zuschnitt von libwebp.
+- **Pyramide und Zeit mit dem Zuschnitt:** in den beiden Abschnitten
+  darunter.
+
+### Pyramide ohne Rückfall
+
+Aus dem siebten Lauf, gebaut wie die Pyramiden oben: jede Stufe mit
+derselben Packung, Eltern aus den dekodierten Kindern. PSNR in dB und
+grösste Abweichung der Farbe als „PSNR / grösste“.
+
+Von oben, 214 Kacheln; in den letzten drei Spalten packt die Basis ohne
+Rückfall und jede Stufe darüber mit dem Gitter:
+
+| Stufe | sichtbare Pixel | Zusammenlegen 2 | 2 ohne Rückfall | Zusammenlegen 3 | 3 ohne Rückfall | Zusammenlegen 4 | 4 ohne Rückfall | 2 ohne Rückfall, Eltern Gitter 2 | 3 ohne Rückfall, Eltern Gitter 3 | 4 ohne Rückfall, Eltern Gitter 4 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 0 | 6 901 760 | 45,6 / 2 | 47,9 / 2 | 43,1 / 3 | 44,8 / 3 | 41,7 / 4 | 42,7 / 4 | 47,9 / 2 | 44,8 / 3 | 42,7 / 4 |
+| 1 | 1 725 440 | 45,1 / 4 | 47,6 / 4 | 42,2 / 6 | 44,3 / 6 | 40,6 / 8 | 42,2 / 8 | 43,2 / 4 | 40,3 / 6 | 38,6 / 8 |
+| 2 | 431 360 | 44,8 / 5 | 47,4 / 6 | 41,7 / 9 | 44,5 / 9 | 39,9 / 12 | 42,2 / 12 | 43,1 / 4 | 40,4 / 6 | 38,4 / 8 |
+| 3 | 107 840 | 44,4 / 5 | 47,2 / 7 | 41,4 / 11 | 44,2 / 9 | 39,7 / 12 | 41,9 / 12 | 43,1 / 4 | 40,4 / 6 | 38,4 / 8 |
+| 4 | 26 960 | 44,4 / 5 | 47,2 / 6 | 41,4 / 9 | 44,2 / 8 | 39,6 / 12 | 41,9 / 11 | 43,1 / 4 | 40,3 / 6 | 38,4 / 8 |
+| 5 | 6 740 | 44,4 / 5 | 47,3 / 6 | 41,3 / 9 | 44,3 / 8 | 39,6 / 12 | 41,9 / 11 | 43,1 / 4 | 40,3 / 6 | 38,4 / 8 |
+| 6 | 1 685 | 44,4 / 5 | 47,3 / 6 | 41,3 / 7 | 44,3 / 7 | 39,7 / 11 | 42,0 / 11 | 43,1 / 4 | 40,3 / 6 | 38,5 / 8 |
+| Bytes aller Stufen | 8 275 978 Byte | 57,2 % | 56,7 % | 48,5 % | 48,4 % | 42,4 % | 42,0 % | 55,5 % | 47,4 % | 41,1 % |
+
+Iso mit Cinematic, 276 Kacheln:
+
+| Stufe | sichtbare Pixel | Zusammenlegen 2 | 2 ohne Rückfall | Zusammenlegen 3 | 3 ohne Rückfall | Zusammenlegen 4 | 4 ohne Rückfall |
+|---|---|---|---|---|---|---|---|
+| 0 | 9 502 829 | 46,3 / 2 | 47,9 / 2 | 44,5 / 3 | 45,2 / 3 | 42,5 / 4 | 42,8 / 4 |
+| 1 | 2 377 601 | 44,6 / 5 | 46,0 / 5 | 42,1 / 7 | 43,2 / 6 | 40,1 / 8 | 41,0 / 8 |
+| 2 | 594 766 | 44,0 / 6 | 45,3 / 6 | 41,5 / 8 | 42,4 / 8 | 39,4 / 10 | 40,5 / 10 |
+| 3 | 148 847 | 43,7 / 6 | 45,1 / 6 | 41,1 / 9 | 42,1 / 8 | 39,0 / 11 | 40,2 / 11 |
+| 4 | 37 300 | 43,0 / 6 | 44,9 / 7 | 40,3 / 9 | 42,0 / 9 | 38,8 / 12 | 39,8 / 12 |
+| 5 | 9 368 | 43,2 / 6 | 44,8 / 6 | 40,6 / 9 | 41,8 / 9 | 38,8 / 12 | 39,6 / 12 |
+| 6 | 2 361 | 44,0 / 6 | 44,6 / 6 | 41,0 / 9 | 41,7 / 9 | 39,2 / 10 | 39,6 / 10 |
+| Bytes aller Stufen | 11 593 710 Byte | 47,7 % | 46,8 % | 40,1 % | 39,8 % | 35,0 % | 34,7 % |
+
+Iso ohne Cinematic, 276 Kacheln:
+
+| Stufe | sichtbare Pixel | Zusammenlegen 2 | 2 ohne Rückfall | Zusammenlegen 3 | 3 ohne Rückfall | Zusammenlegen 4 | 4 ohne Rückfall |
+|---|---|---|---|---|---|---|---|
+| 0 | 9 502 829 | 46,1 / 2 | 47,9 / 2 | 43,9 / 3 | 44,9 / 3 | 42,0 / 4 | 42,7 / 4 |
+| 1 | 2 377 601 | 44,2 / 5 | 46,1 / 4 | 41,6 / 6 | 43,0 / 6 | 39,8 / 8 | 40,9 / 8 |
+| 2 | 594 766 | 43,4 / 6 | 45,2 / 6 | 40,4 / 8 | 42,2 / 8 | 39,3 / 11 | 40,0 / 11 |
+| 3 | 148 847 | 42,6 / 6 | 44,8 / 6 | 40,0 / 9 | 41,8 / 9 | 39,1 / 11 | 39,7 / 11 |
+| 4 | 37 300 | 41,8 / 6 | 44,6 / 6 | 39,7 / 9 | 41,4 / 9 | 38,8 / 11 | 39,3 / 11 |
+| 5 | 9 368 | 41,6 / 7 | 44,3 / 6 | 40,3 / 9 | 41,2 / 8 | 39,3 / 11 | 39,0 / 13 |
+| 6 | 2 361 | 42,8 / 6 | 44,0 / 6 | 40,7 / 8 | 40,8 / 9 | 39,4 / 10 | 38,7 / 11 |
+| Bytes aller Stufen | 13 151 622 Byte | 52,0 % | 52,1 % | 43,5 % | 43,8 % | 37,8 % | 37,9 % |
+
+- **PSNR:** Bis Stufe 4 liegt es ohne Rückfall auf jeder Stufe höher: von
+  oben um 2,2 bis 2,8 dB bei 2, um 1,7 bis 2,9 dB bei 3 und um 1,0 bis
+  2,3 dB bei 4; im iso mit Cinematic um 1,3 bis 2,0, 0,7 bis 1,7 und 0,3
+  bis 1,1 dB; im iso ohne um 1,8 bis 2,8, 1,0 bis 1,8 und 0,5 bis 1,1 dB.
+  In Stufe 5 und 6 des iso ohne Cinematic, mit unter 10 000 sichtbaren
+  Pixeln, liegt 4 ohne Rückfall 0,3 und 0,7 dB darunter.
+- **Grösste Abweichung:** Sie wächst über die Stufen wie mit Rückfall:
+  bei 2, 3 und 4 bis 7, 9 und 12 von oben und im iso mit Cinematic, bis
+  6, 9 und 13 im iso ohne. Mit Rückfall sind es 5, 11 und 12 von oben, 6,
+  9 und 12 im iso mit und 7, 9 und 11 im iso ohne.
+- **Bytes aller Stufen:** gegen mit Rückfall von oben 0,1 bis 0,9 %
+  kleiner, im iso mit Cinematic 0,8 bis 1,8 % kleiner, im iso ohne 0,2
+  bis 0,6 % grösser.
+- **Von oben mit dem Gitter für die Eltern:** Die grösste Abweichung ist
+  auf jeder Stufe über der Basis genau 2 d, und es ist mit 55,5, 47,4 und
+  41,1 % am kleinsten. Über der Basis sind es dann 43,1 bis 43,2, 40,3
+  bis 40,4 und 38,4 bis 38,6 dB statt 47,2 bis 47,6, 44,2 bis 44,5 und
+  41,9 bis 42,2 dB.
+- **Im iso** fällt das Gitter für die Eltern von Stufe zu Stufe: mit
+  Cinematic bei 4 von 42,8 dB auf 38,6, 38,3, 37,9 und 37,4 dB in Stufe
+  4, ohne Rückfall auf allen Stufen sind es dort 39,8 dB.
+- Alpha und jeder Kanal mit 255 bleiben auf jeder Stufe stehen.
+
+### Ohne Rückfall mit dem Zuschnitt von libwebp
+
+Aus dem siebten Lauf, über alle Stufen der Pyramide wie in „Mit dem
+Zuschnitt von libwebp“, 214 Kacheln von oben und je 276 im iso; Packen
+samt Vorstufe in ms je Kachel. Die Zeiten sind der Median aus drei
+Durchgängen auf der CI, einem geteilten Rechner; gegen kompakt im selben
+Durchgang liegen die drei höchstens 0,9 Prozentpunkte auseinander.
+
+| Packung | von oben: Packen, ms | gegen heute | mit Dekodieren | iso mit Cinematic: Packen, ms | gegen heute | mit Dekodieren | iso ohne Cinematic: Packen, ms | gegen heute | mit Dekodieren |
+|---|---|---|---|---|---|---|---|---|---|
+| kompakt heute | 6,87 | – | +8,2 % | 6,90 | – | +9,0 % | 6,88 | – | +9,6 % |
+| kompakt mit Zuschnitt | 4,80 | −30,1 % | −21,9 % | 4,57 | −33,8 % | −24,7 % | 4,60 | −33,1 % | −23,6 % |
+| Zusammenlegen 2 | 8,45 | +23,0 % | +29,1 % | 8,72 | +26,3 % | +31,9 % | 8,65 | +25,7 % | +32,4 % |
+| Zusammenlegen 2 mit Zuschnitt | 6,65 | −3,1 % | +2,9 % | 6,85 | −0,6 % | +4,7 % | 6,71 | −2,6 % | +3,9 % |
+| 2 ohne Rückfall | 9,66 | +40,8 % | +46,8 % | 9,53 | +38,0 % | +43,6 % | 10,51 | +52,6 % | +59,1 % |
+| 2 ohne Rückfall mit Zuschnitt | 7,87 | +14,7 % | +20,6 % | 7,69 | +11,4 % | +16,7 % | 8,60 | +24,9 % | +31,3 % |
+| Zusammenlegen 3 | 8,64 | +26,0 % | +31,5 % | 9,14 | +32,3 % | +37,2 % | 9,16 | +33,1 % | +39,1 % |
+| Zusammenlegen 3 mit Zuschnitt | 6,97 | +1,5 % | +6,9 % | 7,42 | +7,6 % | +12,3 % | 7,25 | +5,4 % | +11,0 % |
+| 3 ohne Rückfall | 9,31 | +35,6 % | +41,0 % | 9,58 | +38,7 % | +43,6 % | 10,10 | +46,9 % | +52,7 % |
+| 3 ohne Rückfall mit Zuschnitt | 7,67 | +11,7 % | +17,0 % | 7,86 | +13,9 % | +18,6 % | 8,26 | +20,0 % | +25,6 % |
+| Zusammenlegen 4 | 8,79 | +28,1 % | +33,1 % | 9,32 | +35,0 % | +39,4 % | 9,42 | +36,8 % | +42,0 % |
+| Zusammenlegen 4 mit Zuschnitt | 7,29 | +6,1 % | +11,0 % | 7,76 | +12,4 % | +16,7 % | 7,70 | +11,9 % | +16,8 % |
+| 4 ohne Rückfall | 9,13 | +33,1 % | +38,0 % | 9,51 | +37,7 % | +42,1 % | 9,92 | +44,1 % | +49,3 % |
+| 4 ohne Rückfall mit Zuschnitt | 7,61 | +11,1 % | +15,9 % | 7,95 | +15,2 % | +19,5 % | 8,22 | +19,5 % | +24,5 % |
+
+- **Mit Zuschnitt** packt es ohne Rückfall 11 bis 25 % langsamer als
+  kompakt heute, mit Rückfall zwischen 3 % schneller und 12 % langsamer;
+  samt dem Dekodieren der Kinder 16 bis 31 % gegen 3 bis 17 %.
+- **Ohne Zuschnitt** sind es 33 bis 53 % gegen 23 bis 37 %.
+- **Der Unterschied ist die Vorstufe:** 1,7 bis 3,0 ms je Kachel ohne
+  Rückfall gegen 1,2 bis 1,6 ms. Jede Farbe sucht ihren Vertreter der
+  Reihe nach unter allen bisherigen; mit Rückfall bricht die Suche beim
+  257. Vertreter ab. Bei 2 bleiben die meisten Farben, dort ist der
+  Abstand am grössten, 12 bis 28 Prozentpunkte mit Zuschnitt; bei 4 sind
+  es 3 bis 8. Die Vorstufe im Test ist nicht optimiert.
+- **Bytes:** Der Zuschnitt kostet ohne Rückfall 0,3 bis 1,6 %, mit
+  Rückfall 0,4 bis 1,7 %.
+- Die Pixel sind mit und ohne Zuschnitt auf jeder Stufe gleich.
 
 ### Ausgeschieden
 
@@ -459,13 +568,19 @@ Angesehen, nicht gemessen:
   höchstens 256 Farben, an der grossen Welt gut ein Drittel. Nach
   Zusammenlegen 4 packen 124 von 182, 187 von 227 und 124 von 154 Kacheln
   mit Palette.
-- **Der Rückfall aufs Gitter lohnt nicht.** Ohne ihn sind die Kacheln
-  an der grossen Welt 0,7 bis 2,1 % kleiner, an der Testwelt zwischen
-  1,5 % kleiner und 1,9 % grösser, dort bei 0,7 bis 2,4 dB mehr PSNR;
-  die grösste Abweichung bleibt dieselbe. Mit Rückfall fallen an der grossen Welt
-  21 bis 43 % der Kacheln aufs Gitter. Offen sind die Pyramide ohne
-  Rückfall und die Zeit mit dem Zuschnitt von libwebp; in einem Durchgang
-  braucht die Vorstufe ohne Rückfall 0,2 bis 1,9 ms mehr je Kachel.
+- **Ohne den Rückfall aufs Gitter: gleich gross und genauer, mit der
+  Vorstufe des Tests langsamer.**
+  - Die Kacheln sind an der grossen Welt 0,7 bis 2,1 % kleiner, an der
+    Testwelt zwischen 1,5 % kleiner und 1,9 % grösser, dort bei 0,7 bis
+    2,4 dB mehr PSNR; die grösste Abweichung bleibt dieselbe. Mit Rückfall
+    fallen an der grossen Welt 21 bis 43 % der Kacheln aufs Gitter.
+  - Über die Pyramide bleibt der Vorsprung bis Stufe 4 auf jeder Stufe,
+    0,3 bis 2,9 dB; die grösste Abweichung wächst wie mit Rückfall.
+  - Die Zeit, auf der CI im Median aus drei Durchgängen über alle Stufen:
+    Mit dem Zuschnitt von libwebp packt es ohne Rückfall 11 bis 25 %
+    langsamer als kompakt heute, mit Rückfall zwischen 3 % schneller und
+    12 % langsamer. Der Unterschied liegt in der Vorstufe, 1,7 bis 3,0 ms
+    je Kachel gegen 1,2 bis 1,6 ms; sie ist im Test nicht optimiert.
 - **Die grösste Abweichung gilt an der Basis.** In der Pyramide wächst sie
   bis etwa zum Dreifachen der Grenze, im iso wie bei near-lossless. Die
   PSNR bleibt nach ein bis zwei Stufen stehen.

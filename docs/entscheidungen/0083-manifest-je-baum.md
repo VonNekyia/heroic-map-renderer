@@ -109,7 +109,8 @@ einer Stelle, `manifest::etag` in
 - **Kopierte Bäume:** Kopiert jemand einen Baum, ohne die Zeiten genau zu
   erhalten, stimmt jedes ETag nicht mehr, das ein Update nicht anfasst, und
   der Mod lädt bei jedem Abgleich alles. Nach dem Kopieren deshalb einmal
-  `--pyramid --manifest` aufrufen oder `manifest` löschen.
+  `--pyramid --manifest` aufrufen oder `manifest` löschen, mit Relief dazu
+  die Manifeste der Schicht, siehe [Plugin](../plugin.md), „Manifest“.
 - **Die Sperre statt der Prozessnummer** (#413): Eine wiederverwendete
   Nummer liess eine verwaiste Marke als laufend gelten, und jeder Lauf mit
   `--manifest` las ganz, für einen Satz zum Download rund 1,5 s je Lauf.

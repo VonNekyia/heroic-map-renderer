@@ -37,7 +37,12 @@ dem Plugin-Programmierer ab.
     `--manifest`, siehe [Kacheln exportieren](benutzung/kacheln.md),
     „Nachverdichten“. Das Plugin reiht den Aufruf wie seine Läufe ein, also
     nie neben einem anderen Lauf auf demselben Baum, wie
-    [0093](entscheidungen/0093-nachverdichten.md) verlangt. Es gibt keinen
+    [0093](entscheidungen/0093-nachverdichten.md) verlangt. Liegt im Baum
+    `stand-neu.bin` oder `gebiet-offen.bin` eines abgebrochenen Laufs,
+    packt der Aufruf wie sonst und endet mit 0, legt aber keine Hashes ab;
+    davor steht eine Zeile `Hashes:     keine neuen, solange … liegt`.
+    Das nächste Update baut die Eltern und legt die Hashes ab. Für das
+    Plugin ändert sich am Ausgang nichts. Es gibt keinen
     Fortschritt als JSON; das Plugin zeigt die letzte Zeile.
   - **Die Packung eines Baums,** das Feld `compact` in `map.json`, liest
     das Plugin für seinen Status: `true` heisst kompakt, sonst schnell.

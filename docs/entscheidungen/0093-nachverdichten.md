@@ -51,6 +51,11 @@ Hintergrund verdichten. Der Maintainer entschied das am 08.10. mit Weg 2.
   Hashes des Blocks ab. Ein neuer Aufruf dekodiert jede Kachel, kodiert aber
   nur, was noch nicht kompakt ist. Eine eigene Datei für den Fortschritt
   gibt es nicht.
+- **Keine Hashes neben einem abgebrochenen Lauf** (#411): Liegt
+  `stand-neu.bin` oder `gebiet-offen.bin`, packt der Aufruf wie sonst, legt
+  aber keine Hashes ab, siehe
+  [0124](0124-pyramide-nur-ueber-neuen-kindern.md). Ein Aufruf danach
+  kodiert dann alles noch einmal, was nicht schon kompakt dalag.
 - **Manifest:** Mit `--manifest` liest der Aufruf am Ende den ganzen Baum
   neu. Ohne entfernt er ein altes, wie jeder Lauf, der Kacheln schreibt.
 - **Schicht und Rest des Reliefs** (#410): Nennt `map.json` eine Schicht

@@ -35,6 +35,10 @@ Gebraucht wären nur die Eltern der 10.
 - **Warum ein Treffer genügt:** Die Hashes schreibt ein Lauf erst nach der
   Pyramide. Ein Treffer heisst also: Der letzte fertige Lauf hat aus genau
   dieser Datei die Eltern gebaut.
+  - **`--compact-tree`** schreibt seine Hashes ohne Pyramide. Liegt
+    `stand-neu.bin` oder `gebiet-offen.bin` eines abgebrochenen Laufs, legt
+    es darum keine ab; dessen Eltern baut erst das nächste Update (#411,
+    `nachverdichten_nach_abbruch_ohne_hashes`).
 - **Immer Eltern bauen:**
   - ein Kind mit neuen Pixeln;
   - ein Kind, das mit gleichen Bytes, aber ohne gültigen Eintrag liegen

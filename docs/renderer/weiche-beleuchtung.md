@@ -209,8 +209,14 @@ bekommt“; der Platz gilt für das, was durch das Wasser zu sehen ist. Ob ein S
 (`SpriteSet::innen`), welche Plätze es zeigt, auch (`SpriteSet::plaetze`).
 Ob der Block volle Kollisionsform hat, steht in `schatten.txt` und gehört
 zum Schlüssel der Familie. Beim Zeichnen rechnet `ecken_at` die Ecken der
-Plätze, die das Sprite zeigt, aus den Nachbarn, ihr Licht aus den 27
-Zellen um den Block (`lichter_um`). Ob ein Block abdunkelt, ob er die
+Plätze, die das Sprite zeigt, aus den Nachbarn, ihr Licht aus den Zellen
+um den Block, nach denen diese Plätze fragen (`lichter_um`): für die
+Oberseite allein aus 10 der 27, für drei Seiten auf dem Rand aus 20. Welche
+das sind, hält `ao_masken` je Menge von Plätzen fest; ein Test prüft, dass
+`ecken_aus` nichts ausserhalb liest. In einem vollen Lauf von oben über die
+Testwelt braucht `ChunkCache::zelle` so 56 % weniger eigene Zeit und der
+Lauf 2,8 % weniger CPU-Zeit, gemessen in
+[2026-11-15, Ecken nach Masken](../messungen/2026-11-15-ecken-nach-masken.md). Ob ein Block abdunkelt, ob er die
 Sicht nimmt, liegt dafür wie „deckend“ als eigene Ebene in den
 Bitmasken der Sections (`DARK`, `VIEW`), auch für Blöcke ohne Sprite. Die
 Sicht nimmt in 26.3 genau ein Block, der `isSolidRender` ist, siehe „Die
@@ -218,7 +224,8 @@ Regeln des Spiels“; dieselbe Ebene gibt deshalb auch die Mitte einer
 Fläche im Innern, geprüft von `sicht_ist_solid_render` in
 `renderer/src/assets/blockstate.rs`. Die 38 Blöcke, nach denen die sechs
 Plätze fragen, kommen aus 15 Spalten, je Spalte aus einem Wort
-(`umgebung`). Welche Blöcke abdunkeln und welche die Sicht nehmen, steht
+(`umgebung`); gelesen werden nur die Spalten der gezeigten Plätze, für die
+Oberseite allein 9. Welche Blöcke abdunkeln und welche die Sicht nehmen, steht
 in `renderer/src/assets/schatten.txt`, siehe
 [Erzeugte Tabellen](../entwicklung/tabellen.md) und
 [0031](../entscheidungen/0031-eigene-tabellen-statt-der-masken.md).

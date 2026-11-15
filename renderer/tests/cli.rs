@@ -1087,6 +1087,33 @@ fn prune_braucht_tiles() {
     }
 }
 
+/// Eine `map.json`, die dasteht, aber sich nicht lesen lässt, ist kein
+/// neuer Baum: Der Lauf bricht ab und lässt den Baum, wie er ist.
+#[test]
+fn unlesbare_map_json_bricht_ab() {
+    let welt = tempdir();
+    common::write_world(welt.path(), &[(0, 0)], zwei_bloecke);
+    for was in ["Ordner", "kein UTF-8"] {
+        let out = neuer_baum("2x1-se");
+        gelungen(&tiles(welt.path(), out.path(), &["--scale", "16"]));
+        let map_json = out.path().join("map.json");
+        std::fs::remove_file(&map_json).unwrap();
+        if was == "Ordner" {
+            std::fs::create_dir(&map_json).unwrap();
+        } else {
+            std::fs::write(&map_json, b"{\xff}").unwrap();
+        }
+        let vorher = schnappschuss(out.path());
+
+        let lauf = tiles(welt.path(), out.path(), &["--scale", "16", "--update"]);
+        let text = String::from_utf8_lossy(&lauf.stderr);
+        assert!(!lauf.status.success(), "{was}: lief weiter");
+        assert!(text.contains("map.json lesen"), "{was}: {text}");
+        assert_eq!(schnappschuss(out.path()), vorher, "{was}");
+        assert_eq!(map_json.is_dir(), was == "Ordner", "{was}");
+    }
+}
+
 /// Ein Ausschnitt darf nicht an einem Block scheitern, der weit ausserhalb
 /// liegt und gar nicht gezeichnet wird.
 #[test]

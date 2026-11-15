@@ -150,6 +150,10 @@ Eine Region, `stand/<x>.<z>.bin`:
   gibt.
 - **Fassung 1** hatte alles in `stand.bin`: hinter jeder Lage einer Region
   ihre Chunks zu 19 Bytes, 47 MB für dieselbe Welt.
+- **Verdorben:** Passt der Inhalt nicht zur Länge der Datei, auch bei
+  einer verdorbenen Zahl der Regionen, ist das ein Fehler „nach N Bytes zu
+  Ende“. Der Renderer reserviert nichts nach der Zahl, bevor die Einträge
+  dastehen (`stand_hin_und_zurueck`).
 - **Was das Plugin liest,** steht in [Plugin](../plugin.md), „Was das
   Plugin vom Renderer nutzt“.
 - Alles in Little Endian, `Stand::kopf_bytes` und `Stand::region_bytes` in

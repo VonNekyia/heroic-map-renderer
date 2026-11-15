@@ -4653,10 +4653,14 @@ fn native_levels(projection: Projection, max_zoom: u32) -> u32 {
 }
 
 /// Das `map.json` eines bestehenden Kachelbaums, falls es eines gibt.
+/// Kein Baum ist nur, wo die Datei fehlt; `dir` darf eine Datei sein, wie
+/// in `nachbarn`. Jeder andere Lesefehler bricht ab.
 fn lies_bestand(dir: &Path) -> Result<Option<MapInfo>> {
+    use std::io::ErrorKind::{NotADirectory, NotFound};
     let pfad = dir.join("map.json");
-    let Ok(text) = std::fs::read_to_string(&pfad) else {
-        return Ok(None);
+    let text = match std::fs::read_to_string(&pfad) {
+        Err(e) if matches!(e.kind(), NotFound | NotADirectory) => return Ok(None),
+        gelesen => gelesen.with_context(|| format!("{} lesen", pfad.display()))?,
     };
     let alt = serde_json::from_str(&text).with_context(|| {
         format!(

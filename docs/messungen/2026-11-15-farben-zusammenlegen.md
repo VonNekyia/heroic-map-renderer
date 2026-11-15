@@ -624,7 +624,8 @@ Angesehen, nicht gemessen:
   Zusammenlegen 4 packen 124 von 182, 187 von 227 und 124 von 154 Kacheln
   mit Palette.
 - **Ohne den Rückfall aufs Gitter: gleich gross und genauer, mit
-  schnellerer Suche so schnell wie kompakt heute.**
+  schnellerer Suche und dem Zuschnitt von libwebp so schnell wie kompakt
+  heute.**
   - Die Kacheln sind an der grossen Welt 0,7 bis 2,1 % kleiner, an der
     Testwelt zwischen 1,5 % kleiner und 1,9 % grösser, dort bei 0,7 bis
     2,4 dB mehr PSNR; die grösste Abweichung bleibt dieselbe. Mit Rückfall

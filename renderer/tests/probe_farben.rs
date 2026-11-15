@@ -3,7 +3,8 @@
 //! und verlustbehaftet. Alpha bleibt in jeder Vorstufe Bit für Bit, ein
 //! Kanal mit 255 bleibt 255, und keiner wird neu 255.
 //!
-//! `probe_farben` misst an den Kacheln unter `tests/probe-kacheln2` Bytes,
+//! `probe_farben` misst an den Kacheln unter `tests/probe-kacheln2` (von
+//! oben, iso mit Cinematic und iso ohne Cinematic als `ohne-…`) Bytes,
 //! Zeit und Abweichung; `probe_farben_pyramide` baut über den feinsten
 //! Stufen die Pyramide aus den dekodierten Kindern.
 //!
@@ -42,6 +43,8 @@ enum Art {
     /// keine mehr als d je Kanal daneben, bis höchstens so viele Farben
     /// bleiben. Passt es nicht: near-lossless mit derselben Grenze.
     Zusammen(u8, usize),
+    /// Wie `Zusammen`; passt es nicht, das Gitter mit derselben Grenze.
+    ZusammenGitter(u8, usize),
     /// Jedes Pixel übernimmt den linken oder oberen Nachbarn der Ausgabe,
     /// wenn der höchstens d je Kanal neben seinem Original liegt.
     Nachbar(u8),
@@ -288,6 +291,7 @@ fn packe(image: &RgbaImage, art: Art) -> Gepackt {
             }
         }
         Art::Zusammen(d, hoechstens) => zusammenlegen(image, d, hoechstens),
+        Art::ZusammenGitter(d, hoechstens) => zusammenlegen(image, d, hoechstens).or_else(|| Some(gitter(image, d))),
         Art::Nachbar(d) => Some(nachbar(image, d, false)),
         Art::NachbarGitter(d) => Some(nachbar(image, d, true)),
         Art::Median(hoechstens) => Some(median_schnitt(image, hoechstens)),
@@ -413,25 +417,25 @@ const VARIANTEN: [(&str, Art); 27] = [
     ("nl40a", Art::NahAlpha(40)),
     ("q95", Art::Vp8(95.0)),
     ("q90", Art::Vp8(90.0)),
+    ("gitter1", Art::Gitter(1)),
     ("gitter2", Art::Gitter(2)),
+    ("gitter3", Art::Gitter(3)),
     ("gitter4", Art::Gitter(4)),
+    ("gitter5", Art::Gitter(5)),
+    ("gitter6", Art::Gitter(6)),
     ("gitter8", Art::Gitter(8)),
     ("gitterpalette4", Art::GitterPalette(4)),
-    ("gitterpalette8", Art::GitterPalette(8)),
     ("zusammen2-256", Art::Zusammen(2, 256)),
     ("zusammen4-256", Art::Zusammen(4, 256)),
-    ("zusammen4-128", Art::Zusammen(4, 128)),
     ("zusammen4-64", Art::Zusammen(4, 64)),
     ("zusammen8-256", Art::Zusammen(8, 256)),
-    ("zusammen8-64", Art::Zusammen(8, 64)),
-    ("nachbar2", Art::Nachbar(2)),
+    ("zusammen2-256g", Art::ZusammenGitter(2, 256)),
+    ("zusammen4-256g", Art::ZusammenGitter(4, 256)),
+    ("zusammen8-256g", Art::ZusammenGitter(8, 256)),
     ("nachbar4", Art::Nachbar(4)),
-    ("nachbar8", Art::Nachbar(8)),
     ("nachbargitter4", Art::NachbarGitter(4)),
     ("median256", Art::Median(256)),
-    ("median128", Art::Median(128)),
     ("median64", Art::Median(64)),
-    ("median16", Art::Median(16)),
 ];
 
 fn lies(pfad: &Path) -> RgbaImage {
@@ -483,19 +487,24 @@ fn eltern(kinder: &Stufe, art: Verkleinern, tiefe: u32) -> Stufe {
     teile.into_iter().map(|(id, teile)| (id, merge(id, &teile, art, tiefe))).collect()
 }
 
-/// Jede Stufe packt wie die Basis, die Eltern entstehen aus den dekodierten
-/// Kindern.
-const LAEUFE: [(&str, Art); 10] = [
-    ("heute", Art::Heute),
-    ("nl60a", Art::NahAlpha(60)),
-    ("nl40a", Art::NahAlpha(40)),
-    ("gitter2", Art::Gitter(2)),
-    ("gitter4", Art::Gitter(4)),
-    ("gitterpalette4", Art::GitterPalette(4)),
-    ("zusammen2-256", Art::Zusammen(2, 256)),
-    ("zusammen4-256", Art::Zusammen(4, 256)),
-    ("nachbar4", Art::Nachbar(4)),
-    ("nachbargitter4", Art::NachbarGitter(4)),
+/// Name, Packung der Basis und Packung der Eltern; die Eltern entstehen aus
+/// den dekodierten Kindern.
+const LAEUFE: [(&str, Art, Art); 15] = [
+    ("heute", Art::Heute, Art::Heute),
+    ("nl60a", Art::NahAlpha(60), Art::NahAlpha(60)),
+    ("nl40a", Art::NahAlpha(40), Art::NahAlpha(40)),
+    ("q95", Art::Vp8(95.0), Art::Vp8(95.0)),
+    ("q90", Art::Vp8(90.0), Art::Vp8(90.0)),
+    ("gitter1", Art::Gitter(1), Art::Gitter(1)),
+    ("gitter2", Art::Gitter(2), Art::Gitter(2)),
+    ("gitter3", Art::Gitter(3), Art::Gitter(3)),
+    ("gitter4", Art::Gitter(4), Art::Gitter(4)),
+    ("gitter8", Art::Gitter(8), Art::Gitter(8)),
+    ("zusammen4-256", Art::Zusammen(4, 256), Art::Zusammen(4, 256)),
+    ("zusammen4-256g", Art::ZusammenGitter(4, 256), Art::ZusammenGitter(4, 256)),
+    ("gitter4-gitter2", Art::Gitter(4), Art::Gitter(2)),
+    ("gitter4-zusammen4", Art::Gitter(4), Art::Zusammen(4, 256)),
+    ("gitter4-nl40a", Art::Gitter(4), Art::NahAlpha(40)),
 ];
 
 #[test]
@@ -503,7 +512,8 @@ const LAEUFE: [(&str, Art); 10] = [
 fn probe_farben_pyramide() {
     let wurzel = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/probe-kacheln2");
     // Feinste Stufe, zugleich die Zahl der Stufen über ihr, und wie der Baum verkleinert.
-    for (baum, fein, verkleinern) in [("oben", 8u32, Verkleinern::Pixel), ("iso", 10, Verkleinern::Mitteln)] {
+    let baeume = [("oben", 8u32, Verkleinern::Pixel), ("iso", 10, Verkleinern::Mitteln), ("ohne", 10, Verkleinern::Mitteln)];
+    for (baum, fein, verkleinern) in baeume {
         for gruppe in ["wald", "wasser", "wueste", "rand"] {
             let mut bezug: Vec<Stufe> = vec![
                 std::fs::read_dir(wurzel.join(format!("{baum}-{gruppe}")))
@@ -519,12 +529,13 @@ fn probe_farben_pyramide() {
             for tiefe in 1..=fein {
                 bezug.push(eltern(&bezug[tiefe as usize - 1], verkleinern, tiefe));
             }
-            for (lauf, art) in LAEUFE {
+            for (lauf, basis, oben) in LAEUFE {
                 let mut sicht = Stufe::new();
                 for tiefe in 0..=fein {
                     let stufe = &bezug[tiefe as usize];
                     let bilder = if tiefe == 0 { stufe.clone() } else { eltern(&sicht, verkleinern, tiefe) };
                     assert!(bilder.keys().eq(stufe.keys()));
+                    let art = if tiefe == 0 { basis } else { oben };
                     let mut zahl = Zahl::default();
                     sicht = bilder.iter().map(|(id, bild)| (*id, zahl.nimm(bild, &stufe[id], art))).collect();
                     zahl.zeile(&format!("PROBE8 baum={baum} gruppe={gruppe} lauf={lauf} stufe={tiefe}"));

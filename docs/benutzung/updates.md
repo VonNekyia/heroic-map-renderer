@@ -354,6 +354,9 @@ schräger Streifen, kein Rechteck. Das Gebiet folgt ihm
 Bei 4:3, scale 24 und einem Chunk mit dem höchsten Block bei 90 sind es 141
 statt vorher 320 Basiskacheln, mit einer nativen Stufe 41 statt 99; von
 oben bei scale 8 15 statt 35 (`weg_des_schattens_kleiner_als_die_huelle`).
+Auf der Testwelt braucht ein Update im iso mit Cinematic über 16 Chunks
+damit 73,7 s statt 148,7 s, siehe
+[Update am Weg des Schattens](../messungen/2026-11-15-update-am-weg-des-schattens.md).
 `gebiet_reicht_den_weg_des_schattens` prüft je Ecke jedes Blocks am Rand
 des Kastens, über alle Höhen, dass die Kachel von Block − t · d für jedes t
 bis `sonne_weite` im Gebiet liegt. `update_mit_weit_ragendem_modell_nimmt_das_rechteck`

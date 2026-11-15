@@ -37,9 +37,9 @@ einer Stelle, `manifest::etag` in
   `--pyramid`. Getauscht wird es wie `map.json`.
 - **Ein Update ohne Änderung** lässt das Manifest liegen, Byte für Byte.
   Nur wenn es fehlt, etwa weil ein Baum neu zum Download angeboten wird,
-  sich nicht lesen lässt oder die Marke eines Prozesses liegt, der nicht
-  mehr läuft, schreibt es mit `--manifest` das Manifest aus dem ganzen
-  Baum.
+  sich nicht lesen lässt oder eine verwaiste Marke liegt, schreibt es mit
+  `--manifest` das Manifest aus dem ganzen Baum. Sonst liest es das alte
+  nur, ohne es neu zu packen.
 - **Ein voller Lauf und `--pyramid` lesen den ganzen Baum,** Grösse und
   Zeit aus dem Verzeichnis, im selben Durchgang. Ein voller Lauf fasst
   ohnehin jede Kachel an, und so stimmt das Manifest auch nach `--prune`,
@@ -58,9 +58,11 @@ einer Stelle, `manifest::etag` in
   fremde Marke vor, läuft der andere noch, etwa ein `--pyramid` neben einem Export
   ([0017](0017-pyramide-vergleicht-zeiten.md)), oder er brach ab. Dann kennt
   das Manifest vielleicht nicht jede Kachel, und er liest den Baum ganz.
-  Jeder Lauf entfernt seine eigene Marke und die eines Prozesses, der beim
-  Beginn schon nicht mehr lief. Ganz liest er auch, wenn das Manifest
-  fehlt, sich nicht entpacken lässt oder seine Zeilen nicht aufsteigen.
+  Jeder Lauf hält seine Marke offen und gesperrt; die Sperre endet mit
+  seinem Prozess, auch nach einem Abbruch. Er entfernt seine eigene Marke
+  und die, die beim Beginn niemand mehr sperrte (seit #413; vorher nach der
+  Prozessnummer). Ganz liest er auch, wenn das Manifest fehlt, sich nicht
+  entpacken lässt oder seine Zeilen nicht aufsteigen.
 - **Das ETag** aus Grösse und letzter Änderung in ns bleibt, wie an #151
   entschieden. Weil gleiche Kacheln liegen bleiben, behält eine Kachel ihr
   ETag über volle Läufe, siehe [Kacheln](../benutzung/kacheln.md), „Gleiche
@@ -108,11 +110,19 @@ einer Stelle, `manifest::etag` in
   erhalten, stimmt jedes ETag nicht mehr, das ein Update nicht anfasst, und
   der Mod lädt bei jedem Abgleich alles. Nach dem Kopieren deshalb einmal
   `--pyramid --manifest` aufrufen oder `manifest` löschen.
-- **Eine wiederverwendete Prozessnummer** lässt eine verwaiste Marke als
-  laufend gelten. Dann liest jeder Lauf mit `--manifest` ganz, bis der
-  Prozess mit dieser Nummer endet: für einen Satz zum Download rund 1,5 s
-  je Lauf. Den Beginn des Prozesses zu vergleichen, hielte das auf, kostete
-  aber je System eigenen Code.
+- **Die Sperre statt der Prozessnummer** (#413): Eine wiederverwendete
+  Nummer liess eine verwaiste Marke als laufend gelten, und jeder Lauf mit
+  `--manifest` las ganz, für einen Satz zum Download rund 1,5 s je Lauf.
+  Die Sperre gehört dem Prozess, nicht seiner Nummer, und braucht keinen
+  Code je System.
+  - Kennt ein Dateisystem keine Sperre, gilt jede fremde Marke als laufend,
+    bis ihr Lauf sie entfernt; nach einem Abbruch liest dann jeder Lauf
+    ganz.
+  - Die Marke eines älteren Renderers trägt keine Sperre und gilt als
+    verwaist, auch wenn er noch läuft.
+  - Zwischen Anlegen und Sperren sieht ein anderer Lauf die Marke kurz
+    ungesperrt und entfernt sie vielleicht. Das schadet erst einem dritten
+    Lauf, der danach beginnt.
 - **Zwei Läufe, die zugleich enden:** Liest der eine ganz und tauscht, und
   tauscht der andere Sekunden später sein nachgezogenes, das noch auf dem
   alten Manifest beruht, fehlen darin die Kacheln des ersten. Das Fenster

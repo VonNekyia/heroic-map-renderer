@@ -577,6 +577,10 @@ voller Lauf an (`pruefe_relief` in
   und derselben Zeit auf die Nanosekunde zurücklegt.** Sie bleibt stehen,
   bis sich ihre Pixel ändern, siehe „Gleiche Pixel“.
 - **Ein Stand aus einem anderen Baum,** von Hand kopiert.
+- **Ein deckender Block, den `blocks.txt` nicht kennt, nur am Rand des
+  Gebiets:** Das Update lässt dort Licht durch, wo der volle Lauf keins
+  durchlässt, siehe [Wasser und Licht](../renderer/wasser-und-licht.md),
+  „Was bleibt eine Näherung“.
 - **Ein vergessener Zeichenstand:** Zeichnet ein neuer Build anders, ohne
   dass der Zeichenstand seines Looks stieg, nimmt `--update` den alten
   Stand an. Es

@@ -37,7 +37,7 @@ enum Kachel {
 /// Hashes ab; ein neuer Aufruf erkennt daran, was schon kompakt ist, und
 /// kodiert es nicht noch einmal. Schicht und Rest des Reliefs sind je ein
 /// Baum mit eigenen Hashes und eigenem Manifest; es packt sie danach ebenso.
-/// Liegt der Stand oder das Gebiet eines abgebrochenen Laufs, legt es keine
+/// Liegt ein angefangener Stand oder ein offenes Gebiet, legt es keine
 /// Hashes ab: Ein Treffer hiesse, dass die Eltern der Kachel stimmen, und die
 /// baut erst das nächste Update.
 /// Siehe docs/entscheidungen/0124-pyramide-nur-ueber-neuen-kindern.md.

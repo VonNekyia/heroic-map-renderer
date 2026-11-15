@@ -38,8 +38,9 @@ dem Plugin-Programmierer ab.
     „Nachverdichten“. Das Plugin reiht den Aufruf wie seine Läufe ein, also
     nie neben einem anderen Lauf auf demselben Baum, wie
     [0093](entscheidungen/0093-nachverdichten.md) verlangt. Liegt im Baum
-    `stand-neu.bin` oder `gebiet-offen.bin` eines abgebrochenen Laufs,
-    packt der Aufruf wie sonst und endet mit 0, legt aber keine Hashes ab;
+    `stand-neu.bin` oder `gebiet-offen.bin`, etwa nach einem Abbruch oder
+    einem Ausschnitt, packt der Aufruf wie sonst und endet mit 0, legt aber
+    keine Hashes ab, siehe [0093](entscheidungen/0093-nachverdichten.md);
     davor steht eine Zeile `Hashes:     keine neuen, solange … liegt`.
     Das nächste Update baut die Eltern und legt die Hashes ab. Für das
     Plugin ändert sich am Ausgang nichts. Es gibt keinen

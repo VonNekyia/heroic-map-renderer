@@ -313,16 +313,17 @@ Verdichtet: 3086 Kacheln, 108.4 MB statt 154.0 MB, 0 schon kompakt, 0 übergange
   deren Hashes ab, siehe [Updates](updates.md), „Gleiche Pixel“. Ein neuer
   Aufruf nach einem Abbruch dekodiert jede Kachel, kodiert aber nur, was
   noch nicht kompakt ist.
-- **Neben einem abgebrochenen Lauf:** Liegt `stand-neu.bin` oder
-  `gebiet-offen.bin` im Baum, legt er keine Hashes ab und sagt es vor der
-  ersten Kachel:
+- **Solange ein Lauf seinen Stand nicht fertig hat:** Liegt
+  `stand-neu.bin` oder `gebiet-offen.bin` im Baum, legt er keine Hashes ab
+  und sagt es vor der ersten Kachel:
 
   ```
   Hashes:     keine neuen, solange ./tiles/2x1-se/stand-neu.bin liegt; die Eltern baut das nächste Update
   ```
 
-  Gepackt wird wie sonst, der Aufruf endet mit 0. Siehe
-  [0124](../entscheidungen/0124-pyramide-nur-ueber-neuen-kindern.md).
+  Gepackt wird wie sonst, der Aufruf endet mit 0. Wann die Dateien liegen
+  und was es kostet, steht in
+  [0093](../entscheidungen/0093-nachverdichten.md).
 - **Manifest:** Mit `--manifest` schreibt er es am Ende neu; jede Kachel hat
   ein neues ETag.
 - **Schicht des Reliefs:** In einem Baum mit `--relief` packt er danach

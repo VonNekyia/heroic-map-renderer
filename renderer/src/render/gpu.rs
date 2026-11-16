@@ -231,7 +231,11 @@ fn adapter(software: bool) -> Result<Option<(wgpu::Adapter, wgpu::AdapterInfo)>>
         wgpu::InstanceDescriptor::new_without_display_handle_from_env(),
         software,
     ));
-    for (desc, software) in versuche {
+    for (mut desc, software) in versuche {
+        // Ohne Namen für Objekte: Der Vulkan-Loader stürzt ab, wenn ein
+        // Thread ein Objekt benennt, während ein anderer ein Gerät anlegt.
+        // Siehe docs/entwicklung/tests.md, „GPU-Tests in einem Prozess“.
+        desc.flags.remove(wgpu::InstanceFlags::DEBUG);
         let instance = wgpu::Instance::new(desc);
         let bester = pollster::block_on(instance.enumerate_adapters(wgpu::Backends::all()))
             .into_iter()

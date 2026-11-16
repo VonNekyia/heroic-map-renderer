@@ -1,6 +1,7 @@
-# Probe zu #446: Wo und wann stürzt tests/gpu.rs ab? Nur auf diesem Zweig.
-# Je Variante 40 Läufe des Testprogramms, jeder unter gdb; bei SIGSEGV die
-# Stapel aller Threads.
+# Probe zu #446: Stürzt tests/gpu.rs unter Coverage mit nextest noch ab?
+# Je Variante 40 Läufe von tests/gpu.rs, instrumentiert wie im Coverage-Job:
+# einmal mit cargo llvm-cov (Threads in einem Prozess, wie heute), einmal mit
+# cargo llvm-cov nextest (ein Prozess je Test). Nur auf diesem Zweig.
 name: Probe GPU
 
 on:
@@ -30,44 +31,41 @@ jobs:
         with:
           workspaces: renderer
 
-      - name: Software-Vulkan und gdb
-        run: sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers gdb jq
+      - name: Software-Vulkan
+        run: sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers
 
       - uses: taiki-e/install-action@cargo-llvm-cov
 
-      - name: Bauen, ohne und mit Instrumentierung
+      - uses: taiki-e/install-action@nextest
+
+      # Der erste Lauf baut; er zählt nicht.
+      - name: Bauen
         timeout-minutes: 30
         run: |
-          pfad() { jq -r 'select(.profile.test == true and .target.name == "gpu") | .executable' | grep -v '^null$' | tail -1; }
-          cargo test --test gpu --no-run --message-format=json 2>/dev/null | pfad > ../ohne.txt
-          source <(cargo llvm-cov show-env --export-prefix)
-          cargo test --test gpu --no-run --message-format=json 2>/dev/null | pfad > ../mit.txt
-          cat ../ohne.txt ../mit.txt
-          vulkaninfo --summary 2>/dev/null | head -20 || true
+          cargo llvm-cov --test gpu --no-report -- --list
+          cargo llvm-cov nextest --test gpu --no-report --no-clean || true
 
       - name: Läufe
         timeout-minutes: 50
         run: |
-          ohne=$(cat ../ohne.txt); mit=$(cat ../mit.txt)
-          export LLVM_PROFILE_FILE=/tmp/probe-%p.profraw
           lauf() {
-            local name=$1 bin=$2; shift 2
-            local ab=0
+            local name=$1; shift
+            local ab=0 rot=0
             for i in $(seq 1 40); do
-              env "$@" timeout 180 gdb -q -batch -ex 'set pagination off' -ex run -ex 'thread apply all bt 40' --args "$bin" --quiet > /tmp/g.txt 2>&1 || true
-              if grep -q "SIGSEGV\|SIGABRT\|SIGBUS" /tmp/g.txt; then
-                ab=$((ab + 1))
-                if [ "$ab" -le 2 ]; then
+              if ! timeout 300 "$@" > /tmp/l.txt 2>&1; then
+                rot=$((rot + 1))
+                if grep -q "SIGSEGV\|SIGABRT\|SIGBUS\|signal: 11\|signal: 6" /tmp/l.txt; then
+                  ab=$((ab + 1))
+                fi
+                if [ "$rot" -le 2 ]; then
                   echo "::group::$name, Lauf $i"
-                  grep -v "^\[New Thread\|^\[Thread .* exited\|^\[Inferior" /tmp/g.txt | tail -400
+                  tail -60 /tmp/l.txt
                   echo "::endgroup::"
                 fi
               fi
             done
-            echo "$name: $ab von 40 abgestürzt" | tee -a ../ergebnis.txt
+            echo "$name: $rot von 40 rot, davon $ab abgestürzt" | tee -a ../ergebnis.txt
           }
-          lauf "mit Instrumentierung, 6 Threads" "$mit" X=1
-          lauf "ohne Instrumentierung, 6 Threads" "$ohne" X=1
-          lauf "mit Instrumentierung, nur Vulkan" "$mit" WGPU_BACKEND=vulkan
-          lauf "mit Instrumentierung, ein Thread" "$mit" RUST_TEST_THREADS=1
+          lauf "cargo llvm-cov, Threads" cargo llvm-cov --test gpu --no-report --no-clean
+          lauf "cargo llvm-cov nextest, Prozesse" cargo llvm-cov nextest --test gpu --no-report --no-clean
           cat ../ergebnis.txt

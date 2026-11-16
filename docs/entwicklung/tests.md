@@ -397,8 +397,10 @@ einem Prozess. Dann stürzt der Vulkan-Loader unter lavapipe ab (SIGSEGV):
   | unter gdb, 6 Threads, instrumentiert | 31 |
   | unter gdb, 6 Threads, nicht instrumentiert | 28 |
   | unter gdb, 1 Thread, instrumentiert | 0 |
-  | `cargo llvm-cov`, wie die Coverage bis dahin | 9 |
-  | `cargo llvm-cov nextest` | 0 |
+  | unter gdb, 6 Threads, instrumentiert, Instanz ohne `InstanceFlags::DEBUG` | 2 |
+  | unter gdb, nur Vulkan, instrumentiert, Instanz ohne `InstanceFlags::DEBUG` | 1 |
+  | `cargo llvm-cov`, wie die Coverage vor 0144 | 9 |
+  | `cargo llvm-cov nextest`, wie die Coverage seit 0144 | 0 |
 
 - Der Renderer öffnet in einem Lauf nur ein Gerät. Im Betrieb tritt der
   Wettlauf darum nicht auf.

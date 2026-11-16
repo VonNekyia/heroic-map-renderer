@@ -1,7 +1,7 @@
 ---
 title: "0004: Kacheln als verlustfreies WebP"
 description: Warum die Kacheln verlustfreies WebP sind und nicht PNG oder verlustbehaftetes WebP.
-status: gilt
+status: abgelöst durch 0143
 date: 2026-09-22
 issues: [5]
 code:
@@ -9,6 +9,10 @@ code:
 ---
 
 # 0004: Kacheln als verlustfreies WebP
+
+Abgelöst durch [0143](0143-stufen-farben-zusammenlegen.md): Das Format
+bleibt verlustfreies WebP, aber unter den beiden verlustfreien Stufen legt
+eine Vorstufe ähnliche Farben zusammen.
 
 ## Anlass
 

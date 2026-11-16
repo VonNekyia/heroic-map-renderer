@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::fs::File;
@@ -25,9 +26,9 @@ use heroic_map_renderer::render::{
     BLEND_DEFAULT, BLEND_MAX, BiomeTable, ChunkCache, Flaeche, Gebiet, Gpu, Kamera, MapInfo,
     Packen, Projection, ProjectionInfo, RAGT_HOECHSTENS, Reach, Relief, Reliefschicht, Richtung,
     SCHRITT_ZUR_SONNE, ScreenRect, SpriteSet, Survey, TILE, TileId, Verkleinern, ZurSonne,
-    corner_tiles, decode_webp, draw_list, encode_webp, gebiet_der_aenderungen, mit_relief, render,
-    render_area, render_area_with, streifenbreite, survey, survey_in, survey_mit_fortschritt,
-    world_box,
+    corner_tiles, decode_webp, draw_list, encode_webp, gebiet_der_aenderungen, lege_zusammen,
+    mit_relief, render, render_area, render_area_with, streifenbreite, survey, survey_in,
+    survey_mit_fortschritt, world_box,
 };
 use heroic_map_renderer::world::biomzoom::{obfuscate_seed, zoom};
 use heroic_map_renderer::world::{BlockState, Blockdaten, Generator, REGION, World};
@@ -198,12 +199,21 @@ pub struct Args {
     #[arg(long, value_name = "N", requires = "tiles")]
     native_levels: Option<u32>,
 
-    /// Mit --tiles kompakt packen: libwebp mit method 1 und ohne räumliche
-    /// Vorhersage, rund die Hälfte der Bytes für ein Mehrfaches der Zeit
-    /// beim Kodieren. Ein neuer Baum merkt es sich in map.json, jeder
-    /// spätere Lauf auf ihm packt so; ein bestehender behält seins
-    #[arg(long, requires = "tiles")]
+    /// Mit --tiles ein neuer Baum mit --quality maximal_compact: libwebp
+    /// mit method 1 und ohne räumliche Vorhersage, rund die Hälfte der Bytes
+    /// für ein Mehrfaches der Zeit beim Kodieren. Ein bestehender Baum
+    /// behält seine Stufe und sagt es
+    #[arg(long, requires = "tiles", conflicts_with = "quality")]
     compact: bool,
+
+    /// Mit --tiles, wie genau der Baum packt: `maximal` Pixel für Pixel,
+    /// `maximal_compact` ebenso, aber kompakt, `good`, `small` und
+    /// `minimal` legen vorher ähnliche Farben zusammen, je Kanal höchstens
+    /// 2, 4 und 8 daneben, Alpha Bit für Bit, und packen kompakt. Ein neuer
+    /// Baum ohne den Schalter packt `good`, ein bestehender behält seine
+    /// Stufe aus map.json; einen anderen Wert nimmt nur ein voller Lauf
+    #[arg(long, value_enum, value_name = "STUFE", requires = "tiles")]
+    quality: Option<Qualitaet>,
 
     /// Mit --tiles vorhandene Basiskacheln stehen lassen statt sie neu zu
     /// rendern: setzt einen abgebrochenen Lauf fort, und nur den. Stammt
@@ -283,7 +293,7 @@ pub struct Args {
         "serve", "web", "listen", "max_connections", "header_timeout", "max_header_bytes", "max_headers",
         "write_timeout", "exit_with_stdin", "tls_cert", "tls_key", "secret_file", "player_dir", "trusted_proxy", "recognize_origin", "recognize_url", "site_url",
         "site_title", "site_description", "site_image", "download_client_jar", "client_version",
-        "cache_dir", "compact", "compact_tree", "flat", "relief", "banners", "out",
+        "cache_dir", "compact", "quality", "compact_tree", "flat", "relief", "banners", "out",
     ])]
     pyramid: Option<PathBuf>,
 
@@ -294,7 +304,7 @@ pub struct Args {
     #[arg(long, value_name = "VERZEICHNIS", conflicts_with_all = [
         "world", "assets", "data", "at", "block", "sprite", "scale", "camera", "direction",
         "biome_blend", "render", "cinematic", "center", "area", "tiles", "size", "scan", "prune",
-        "native_levels", "resume", "update", "gpu", "progress", "estimate", "defender_exclusion", "heights",
+        "native_levels", "quality", "resume", "update", "gpu", "progress", "estimate", "defender_exclusion", "heights",
         "serve", "web", "listen", "max_connections", "header_timeout", "max_header_bytes", "max_headers",
         "write_timeout", "exit_with_stdin", "tls_cert", "tls_key", "secret_file", "player_dir", "trusted_proxy", "recognize_origin", "recognize_url", "site_url",
         "site_title", "site_description", "site_image", "download_client_jar", "client_version",
@@ -318,7 +328,7 @@ pub struct Args {
         "world", "at", "block", "sprite", "scale", "camera", "direction", "biome_blend", "render",
         "cinematic", "center", "area", "size", "scan", "prune", "native_levels", "resume", "update",
         "gpu", "progress", "estimate", "defender_exclusion", "heights", "pyramid", "compact_tree",
-        "manifest", "serve", "compact", "flat", "relief",
+        "manifest", "serve", "compact", "quality", "flat", "relief",
     ])]
     banners: Option<Vec<PathBuf>>,
 
@@ -334,7 +344,7 @@ pub struct Args {
         "world", "assets", "data", "at", "block", "sprite", "scale", "camera", "direction",
         "biome_blend", "render", "cinematic", "center", "area", "tiles", "size", "scan", "prune",
         "native_levels", "resume", "update", "gpu", "progress", "estimate", "defender_exclusion", "heights",
-        "pyramid", "manifest", "download_client_jar", "client_version", "cache_dir", "compact",
+        "pyramid", "manifest", "download_client_jar", "client_version", "cache_dir", "compact", "quality",
         "compact_tree", "flat", "relief", "banners", "out",
     ])]
     serve: Option<PathBuf>,
@@ -550,6 +560,61 @@ fn projektion_des_baums(dir: &Path, info: &MapInfo) -> Result<Projection> {
         }
     };
     Ok(Projection::mit_kamera(info.scale, kamera).aus(richtung))
+}
+
+/// Wie genau ein Baum packt, aus `--quality`, geordnet von der kleinsten
+/// zur besten Stufe.
+/// Siehe docs/entscheidungen/0143-stufen-farben-zusammenlegen.md.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
+enum Qualitaet {
+    Minimal,
+    Small,
+    Good,
+    #[value(name = "maximal_compact")]
+    MaximalCompact,
+    Maximal,
+}
+
+/// Je Stufe in der Reihenfolge von [`Qualitaet`] ihr Name und wie sie packt:
+/// mit der Stärke, mit der
+/// [`lege_zusammen`](heroic_map_renderer::render::lege_zusammen) die Farben
+/// zusammenlegt, oder verlustfrei.
+const STUFEN: [(Qualitaet, &str, Packen); 5] = [
+    (Qualitaet::Minimal, "minimal", Packen::Zusammen(8)),
+    (Qualitaet::Small, "small", Packen::Zusammen(4)),
+    (Qualitaet::Good, "good", Packen::Zusammen(2)),
+    (
+        Qualitaet::MaximalCompact,
+        "maximal_compact",
+        Packen::Kompakt,
+    ),
+    (Qualitaet::Maximal, "maximal", Packen::Schnell),
+];
+
+/// Die Stufe eines neuen Baums ohne `--quality`.
+const VORGABE: Qualitaet = Qualitaet::Good;
+
+impl Qualitaet {
+    fn name(self) -> &'static str {
+        STUFEN[self as usize].1
+    }
+
+    fn packen(self) -> Packen {
+        STUFEN[self as usize].2
+    }
+
+    /// Die Stufe zu einem Namen aus `map.json`.
+    fn aus_name(name: &str) -> Option<Qualitaet> {
+        STUFEN.iter().find(|s| s.1 == name).map(|s| s.0)
+    }
+
+    /// Die Stufe, die so packt.
+    fn von(packen: Packen) -> Qualitaet {
+        STUFEN
+            .iter()
+            .find(|s| s.2 == packen)
+            .map_or(Qualitaet::Maximal, |s| s.0)
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -1128,6 +1193,7 @@ pub fn run() -> Result<()> {
                     &gpu,
                     args.biome_blend,
                     args.compact,
+                    args.quality,
                     args.cinematic.then_some(LOOK),
                     args.relief,
                     args.manifest,
@@ -1881,6 +1947,7 @@ fn write_tiles(
     gpu: &Gpuwahl,
     blend: Option<u8>,
     kompakt: bool,
+    qualitaet: Option<Qualitaet>,
     look: Option<Look>,
     relief: Option<Relief>,
     mit_manifest: bool,
@@ -1941,7 +2008,8 @@ fn write_tiles(
     // Stufe braucht.
     let stufen = native_stufen(dir, bestand.as_ref(), native, projection, max_zoom)?;
     let blend = mischung(dir, bestand.as_ref(), blend)?;
-    let packen = packen(dir, bestand.as_ref(), kompakt);
+    let (packen, feld, qualitaet_wechselt) =
+        packen(dir, bestand.as_ref(), kompakt, qualitaet, &bereich)?;
     let (verkleinern, umstellen) =
         verkleinern(bestand.as_ref(), projection.kamera() == Kamera::ObenNord);
 
@@ -1978,7 +2046,7 @@ fn write_tiles(
         );
     }
     // Wer das Relief wechselt, zeichnet jede Kachel neu, wie ohne --resume.
-    let resume = resume && !frisch && !wechsel;
+    let resume = resume && !frisch && !wechsel && !qualitaet_wechselt;
     let fortgesetzt = match angefangen {
         Angefangen::Passend(stand, seit) => Some((stand, seit)),
         Angefangen::Keiner | Angefangen::Fremd => None,
@@ -2345,6 +2413,7 @@ fn write_tiles(
             gpu,
             blend,
             kompakt,
+            qualitaet,
             look,
             relief,
             mit_manifest,
@@ -2393,6 +2462,7 @@ fn write_tiles(
             } else {
                 verkleinern
             },
+            feld,
         ),
         kennung.as_deref(),
         look.as_ref(),
@@ -2569,14 +2639,21 @@ fn write_tiles(
         }
         _ => BTreeSet::new(),
     });
+    // Schicht und Rest sind Daten für den Mod: immer verlustfrei.
+    let daten = match packen {
+        Packen::Zusammen(_) => Packen::Kompakt,
+        verlustfrei => verlustfrei,
+    };
     let schicht = hashes_der_schicht.as_ref().map(|(schicht, rest)| Schicht {
         dir: &schicht_dir,
         ablage: Ablage {
+            packen: daten,
             hashes: Some(schicht),
             ..ablage
         },
         rest: &rest_dir,
         rest_ablage: Ablage {
+            packen: daten,
             hashes: Some(rest),
             ..ablage
         },
@@ -2623,7 +2700,14 @@ fn write_tiles(
             if let (Some(schicht), Some(bild)) = (&schicht, &bild_der_schicht) {
                 schicht.lege_ab(max_zoom, tile, bild)?;
             }
-            let (bytes, liegt) = schreibe_oder_lass(dir, max_zoom, tile, &image, ablage)?;
+            let (bytes, liegt, image) = schreibe_oder_lass(
+                dir,
+                max_zoom,
+                tile,
+                Cow::Owned(image),
+                ablage,
+                speicher.is_some(),
+            )?;
             if liegt && let Some(liegen) = &liegen {
                 liegen.liegt(tile)?;
             }
@@ -2634,7 +2718,7 @@ fn write_tiles(
                 bail!("Abbruch nach {n} neuen Basiskacheln (HEROIC_ABBRUCH)");
             }
             if let Some(speicher) = &speicher {
-                speicher.abgeben(max_zoom, tile, Some(image))?;
+                speicher.abgeben(max_zoom, tile, Some(image.into_owned()))?;
             }
             hashes.fertig(max_zoom, tile)?;
             Ok(Some((bytes, liegt)))
@@ -2889,7 +2973,7 @@ fn write_tiles(
         max_zoom,
         stufen,
         blend,
-        (packen, verkleinern),
+        (packen, verkleinern, feld),
         kennung.as_deref(),
         look.as_ref(),
         relief,
@@ -3494,10 +3578,7 @@ fn rebuild_pyramid(
         )
     })?;
     let max_zoom = alt.max_zoom;
-    let packen = match alt.compact {
-        Some(true) => Packen::Kompakt,
-        _ => Packen::Schnell,
-    };
+    let packen = packen_des_baums(dir, &alt)?;
     let nord = projektion_des_baums(dir, &alt)?.kamera() == Kamera::ObenNord;
     let (verkleinern, umstellen) = verkleinern(Some(&alt), nord);
     if umstellen {
@@ -3642,6 +3723,7 @@ fn rebuild_pyramid(
         native_levels: alt.native_levels,
         biome_blend: alt.biome_blend,
         compact: alt.compact,
+        quality: alt.quality.clone(),
         downscale: downscale(verkleinern),
         world: alt.world,
         heights: alt.heights,
@@ -3705,7 +3787,10 @@ fn baue_neu(
     if bilder.is_empty() && kaputt.is_empty() {
         return Ok(None);
     }
-    let bild = pyramid::merge(parent, &bilder, verkleinern, tiefe);
+    let mut bild = pyramid::merge(parent, &bilder, verkleinern, tiefe);
+    if let Some(staerke) = packen.staerke() {
+        lege_zusammen(&mut bild, staerke);
+    }
     let data = encode_webp(&bild, packen)?;
     // Erst jetzt, direkt vor dem Tausch: offen bleibt nur das Schreiben der
     // Nebendatei.
@@ -3906,7 +3991,7 @@ fn schreibe_map_json(
     max_zoom: u32,
     stufen: u32,
     blend: u8,
-    (packen, verkleinern): (Packen, Verkleinern),
+    (packen, verkleinern, stufe): (Packen, Verkleinern, Option<Qualitaet>),
     kennung: Option<&str>,
     look: Option<&Look>,
     relief: Option<Relief>,
@@ -3917,6 +4002,7 @@ fn schreibe_map_json(
         native_levels: Some(stufen),
         biome_blend: Some(blend),
         compact: (packen == Packen::Kompakt).then_some(true),
+        quality: stufe.map(|stufe| stufe.name().to_string()),
         downscale: downscale(verkleinern),
         sea_level: Some(welt.sea_level),
         area: welt.area,
@@ -4447,8 +4533,11 @@ impl<'a> ImSpeicher<'a> {
                 None
             } else {
                 let neu = pyramid::aus_vierteln(tile, &da);
-                let bytes = schreibe(self.dir, z, tile, &neu, self.ablage)?;
-                bild = Some(neu);
+                // Die Pixel nach der Vorstufe braucht nur ein Grosselternteil hier.
+                let weiter = z > 0 && self.erwartet.contains_key(&(z - 1, tile.parent()));
+                let (bytes, _, neu) =
+                    schreibe_oder_lass(self.dir, z, tile, Cow::Owned(neu), self.ablage, weiter)?;
+                bild = Some(neu.into_owned());
                 Some(bytes)
             };
             self.fertig
@@ -4627,27 +4716,94 @@ fn mischung(dir: &Path, bestand: Option<&MapInfo>, verlangt: Option<u8>) -> Resu
     }
 }
 
-/// Wie der Baum packt: wie seine `map.json` sagt, ein neuer nach
-/// `kompakt`. Ein bestehender Baum behält seine Packung.
-/// Siehe docs/entscheidungen/0092-kompakt-ohne-vorhersage.md.
-fn packen(dir: &Path, bestand: Option<&MapInfo>, kompakt: bool) -> Packen {
-    let packen = match bestand.map(|alt| alt.compact == Some(true)) {
-        Some(true) => Packen::Kompakt,
-        Some(false) if kompakt => {
-            println!(
-                "Packen:     {} packt schnell, --compact gilt nur für einen neuen Baum",
-                dir.join("map.json").display()
-            );
-            Packen::Schnell
+/// Wie der Baum packt, dazu die Stufe, die `map.json` nennen soll, und ob
+/// dieser Lauf sie wechselt. Ohne `qualitaet` gilt die Stufe des Baums, siehe
+/// [`qualitaet_des_baums`]; ein neuer Baum bekommt mit `kompakt`
+/// `maximal_compact`, sonst [`VORGABE`]. An einem bestehenden Baum ändert
+/// `kompakt` nichts. Einen anderen Wert nimmt nur ein voller Lauf: Er
+/// zeichnet jede Kachel neu. Ein Update und ein Ausschnitt brechen ab, mit
+/// dem Satz „dieser Lauf will“, den das Plugin liest. Ein Baum ohne das Feld
+/// bekommt es erst, wenn er wechselt.
+/// Siehe docs/benutzung/map-json.md, „Packen“.
+fn packen(
+    dir: &Path,
+    bestand: Option<&MapInfo>,
+    kompakt: bool,
+    qualitaet: Option<Qualitaet>,
+    bereich: &Bereich,
+) -> Result<(Packen, Option<Qualitaet>, bool)> {
+    let gespeichert = bestand
+        .map(|alt| qualitaet_des_baums(dir, alt))
+        .transpose()?;
+    let qualitaet = match (qualitaet, kompakt, gespeichert) {
+        (None, true, None) => Some(Qualitaet::MaximalCompact),
+        (None, true, Some(dort)) => {
+            if dort != Qualitaet::MaximalCompact {
+                println!(
+                    "Packen:     {} packt {}, --compact gilt nur für einen neuen Baum",
+                    dir.join("map.json").display(),
+                    dort.name()
+                );
+            }
+            None
         }
-        Some(false) => Packen::Schnell,
-        None if kompakt => Packen::Kompakt,
-        None => Packen::Schnell,
+        (verlangt, ..) => verlangt,
     };
-    if packen == Packen::Kompakt {
-        println!("Packen:     kompakt, ohne räumliche Vorhersage");
+    let (gilt, wechselt) = match (gespeichert, qualitaet) {
+        (Some(dort), Some(hier)) if dort != hier => {
+            let pfad = dir.join("map.json");
+            ensure!(
+                matches!(bereich, Bereich::Welt),
+                "Qualität:   {} packt {}, dieser Lauf will {}. Ein Update oder Ausschnitt stellt \
+                 nicht um, ein voller Lauf ohne --update mit --quality {} schon.",
+                pfad.display(),
+                dort.name(),
+                hier.name(),
+                hier.name()
+            );
+            println!(
+                "Qualität:   {} packt {}, dieser Lauf packt {} und jede Kachel neu",
+                pfad.display(),
+                dort.name(),
+                hier.name()
+            );
+            (hier, true)
+        }
+        (Some(dort), _) => (dort, false),
+        (None, hier) => (hier.unwrap_or(VORGABE), false),
+    };
+    let feld = (wechselt || bestand.is_none_or(|alt| alt.quality.is_some())).then_some(gilt);
+    let packen = gilt.packen();
+    match packen {
+        Packen::Zusammen(staerke) => println!(
+            "Packen:     {}, Farben je Kanal höchstens {staerke} daneben",
+            gilt.name()
+        ),
+        Packen::Kompakt => println!("Packen:     kompakt, ohne räumliche Vorhersage"),
+        Packen::Schnell => {}
     }
-    packen
+    Ok((packen, feld, wechselt))
+}
+
+/// Die Stufe, die `map.json` nennt. Ohne das Feld stammt der Baum von vor den
+/// Stufen und packt wie damals: mit `"compact": true` `maximal_compact`,
+/// sonst `maximal`.
+fn qualitaet_des_baums(dir: &Path, info: &MapInfo) -> Result<Qualitaet> {
+    match info.quality.as_deref() {
+        None if info.compact == Some(true) => Ok(Qualitaet::MaximalCompact),
+        None => Ok(Qualitaet::Maximal),
+        Some(name) => Qualitaet::aus_name(name).with_context(|| {
+            format!(
+                "{} nennt die Qualität „{name}“, die dieser Renderer nicht kennt",
+                dir.join("map.json").display()
+            )
+        }),
+    }
+}
+
+/// Wie ein bestehender Baum packt, nach seiner `map.json`.
+fn packen_des_baums(dir: &Path, info: &MapInfo) -> Result<Packen> {
+    Ok(qualitaet_des_baums(dir, info)?.packen())
 }
 
 /// Wie die Pyramide eines Baums verkleinert, siehe [`Verkleinern`]: bei
@@ -5124,9 +5280,16 @@ fn render_coarser(
                         if let (Some(schicht), Some(bild)) = (&schicht, &bild_der_schicht) {
                             schicht.lege_ab(*z, tile, bild)?;
                         }
-                        let bytes = schreibe(dir, *z, tile, &image, ablage)?;
+                        let (bytes, _, image) = schreibe_oder_lass(
+                            dir,
+                            *z,
+                            tile,
+                            Cow::Owned(image),
+                            ablage,
+                            speicher.is_some(),
+                        )?;
                         if let Some(speicher) = speicher {
-                            speicher.abgeben(*z, tile, Some(image))?;
+                            speicher.abgeben(*z, tile, Some(image.into_owned()))?;
                         }
                         out.push(((*z, tile), (zeigt, true, bytes)));
                     }
@@ -5664,35 +5827,51 @@ fn schreibe(
     image: &RgbaImage,
     ablage: Ablage<'_>,
 ) -> Result<usize> {
-    Ok(schreibe_oder_lass(dir, z, tile, image, ablage)?.0)
+    Ok(schreibe_oder_lass(dir, z, tile, Cow::Borrowed(image), ablage, false)?.0)
 }
 
 /// Wie [`schreibe`], dazu, ob die Kachel schon dieselben Bytes hatte und
 /// liegen blieb. Mit Hashes in `ablage` kodiert es keine Kachel, die schon
 /// diese Pixel zeigt, und merkt sich die Pixel jeder Kachel, die es ablegt.
 /// Siehe docs/benutzung/updates.md, „Gleiche Pixel“.
-fn schreibe_oder_lass(
+///
+/// Packt der Baum mit [`Packen::Zusammen`], gilt der Hash den Pixeln vor
+/// der Vorstufe: Bei einem Treffer läuft sie nicht. Das Bild danach zeigt
+/// die Pixel nach der Vorstufe, wenn gepackt wurde oder `pixel_danach` es
+/// verlangt; diese Pixel bekommen die Eltern im Speicher, wie von der Platte.
+/// Siehe docs/entscheidungen/0143-stufen-farben-zusammenlegen.md.
+fn schreibe_oder_lass<'b>(
     dir: &Path,
     z: u32,
     tile: TileId,
-    image: &RgbaImage,
+    mut image: Cow<'b, RgbaImage>,
     ablage: Ablage<'_>,
-) -> Result<(usize, bool)> {
+    pixel_danach: bool,
+) -> Result<(usize, bool, Cow<'b, RgbaImage>)> {
+    let vorstufe = |image: &mut Cow<'b, RgbaImage>| {
+        if let Some(staerke) = ablage.packen.staerke() {
+            lege_zusammen(image.to_mut(), staerke);
+        }
+    };
     let pfad = tile_path(dir, z, tile);
     let mit_hash = ablage
         .hashes
-        .map(|hashes| (hashes, pixel::hash(image, ablage.packen)));
+        .map(|hashes| (hashes, pixel::hash(&image, ablage.packen)));
     if let Some((hashes, hash)) = &mit_hash
         && let Some(bytes) = hashes.gleich(z, tile, hash, &pfad)
     {
-        return Ok((bytes, true));
+        if pixel_danach {
+            vorstufe(&mut image);
+        }
+        return Ok((bytes, true, image));
     }
-    let data = encode_webp(image, ablage.packen)?;
+    vorstufe(&mut image);
+    let data = encode_webp(&image, ablage.packen)?;
     let geschrieben = lege_ab(&pfad, &data, None)?;
     if let Some((hashes, hash)) = &mit_hash {
         hashes.merke(z, tile, hash, &pfad)?;
     }
-    Ok((data.len(), !geschrieben))
+    Ok((data.len(), !geschrieben, image))
 }
 
 /// Legt kodierte Bytes als Kachel ab, mit dieser Zeit als letzter Änderung
@@ -6102,6 +6281,18 @@ fn bounds(regions: &[(i32, i32)]) -> Option<(i32, i32, i32, i32)> {
 mod tests {
     use super::*;
     use clap::CommandFactory;
+
+    /// `STUFEN` steht in der Reihenfolge von [`Qualitaet`], denn
+    /// `STUFEN[self as usize]` liest danach, und mit den Namen, die clap für
+    /// `--quality` annimmt.
+    #[test]
+    fn stufen_in_der_reihenfolge_der_qualitaet() {
+        assert_eq!(Qualitaet::value_variants().len(), STUFEN.len());
+        for (i, (stufe, name, _)) in STUFEN.iter().enumerate() {
+            assert_eq!(*stufe as usize, i, "{name}");
+            assert_eq!(stufe.to_possible_value().unwrap().get_name(), *name);
+        }
+    }
 
     /// Das Protokoll liegen gelassener Kacheln nennt, was `Liegen` schrieb,
     /// auch über ein Fortsetzen hinweg; ein Eintrag aus Nullen, wie ein

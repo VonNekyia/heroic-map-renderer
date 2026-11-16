@@ -123,10 +123,16 @@ pub(super) struct Pixel {
 }
 
 /// SHA-256 über die Packung und die RGBA-Bytes, die ersten 16 Bytes: Kompakt
-/// gepackt hat dasselbe Bild andere Bytes.
+/// gepackt hat dasselbe Bild andere Bytes. Bei [`Packen::Zusammen`] sind es
+/// die Pixel vor der Vorstufe, mit ihrer Stärke; die Vorstufe hängt nur an
+/// beiden. Schnell und kompakt behalten ihr eines Byte von vorher.
 pub(super) fn hash(bild: &RgbaImage, packen: Packen) -> [u8; 16] {
     let mut sha = ring::digest::Context::new(&ring::digest::SHA256);
-    sha.update(&[packen as u8]);
+    match packen {
+        Packen::Schnell => sha.update(&[0]),
+        Packen::Kompakt => sha.update(&[1]),
+        Packen::Zusammen(staerke) => sha.update(&[2, staerke]),
+    }
     sha.update(bild.as_raw());
     let voll = sha.finish();
     voll.as_ref()[..16]

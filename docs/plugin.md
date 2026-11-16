@@ -26,8 +26,27 @@ dem Plugin-Programmierer ab.
 - **Schalter** aus `Args` in
   [`renderer/src/cli.rs`](../renderer/src/cli.rs): `--world`, `--assets`,
   `--data`, `--tiles`, `--camera`, `--direction`, `--scale`, `--cinematic`,
-  `--relief`, `--gpu`, `--update`, `--resume` und `--compact`, siehe
-  [Schalter und Beispiele](benutzung/schalter.md).
+  `--relief`, `--gpu`, `--update`, `--resume`, `--compact` und
+  `--quality`, siehe [Schalter und Beispiele](benutzung/schalter.md).
+- **Die Stufe** (Maintainer, 16.11.), siehe
+  [map.json](benutzung/map-json.md), „Die Stufe“:
+  - Ein neuer Baum ohne `--quality` packt `good`, ein bestehender behält
+    seine Stufe; ohne das Feld packt er `maximal`.
+  - Weicht `--quality` an einem Update von der Stufe des Baums ab, bricht
+    der Lauf ab. Das Plugin erkennt das in der Zeile
+    `Error:` an „dieser Lauf will“. Umstellen kann nur ein voller Lauf mit
+    `--quality`.
+  - `--compact` wählt wie bisher nur für einen neuen Baum,
+    `maximal_compact`, und ist zusammen mit `--quality` abgelehnt.
+    `--compact-tree` lehnt einen Baum unter `maximal_compact` ab.
+  - Wechselt die Stufe eines Baums zum Download, lädt jeder Spieler mit dem
+    Mod die Karte danach einmal ganz neu.
+  - Von einem Baum unter `maximal_compact` gibt es kein Zurück auf einen
+    Renderer von vor den Stufen, also auch nicht auf ein älteres Plugin. Er
+    überliest `quality`, packt in seinem Update verlustfrei schnell und
+    schreibt `map.json` ohne das Feld; danach führt nur ein voller Lauf mit
+    `--quality` zur Stufe zurück, siehe
+    [0143](entscheidungen/0143-stufen-farben-zusammenlegen.md), „Folgen“.
 - **Kompakt packen, für Plugin und CLI gleich** (Maintainer, 08.10.):
   - `--compact` bei jedem vollen Lauf, wenn `renderer.compact` in der
     `config.yml` des Plugins `true` ist; Updates bekommen ihn nicht, sie

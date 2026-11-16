@@ -107,6 +107,9 @@ Basis.
 
 - **Viertel abgeben:** Jede gerenderte Kachel gibt ihr Bild auf die halbe
   Kante verkleinert ab, 64 KiB, oder die Nachricht, dass sie nichts zeigt.
+  Mit zusammengelegten Farben ist es das Bild nach dem Zusammenlegen, so wie es auf der
+  Platte steht; eine Elternkachel wird danach selbst zusammengelegt, siehe
+  [0143](../entscheidungen/0143-stufen-farben-zusammenlegen.md).
   Wer das letzte Viertel einer Elternkachel abgibt, setzt sie zusammen
   (`aus_vierteln` in `pyramid.rs`), schreibt sie und gibt ihr Viertel eine
   Stufe höher ab. Zeigt keines ihrer Kinder etwas, bleibt sie leer wie auf

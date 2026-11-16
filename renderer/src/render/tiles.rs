@@ -18,6 +18,7 @@ use crate::world::{BlockState, Blockdaten, Chunk, REGION, World};
 
 use super::heights::{self, Heights, RegionHeights};
 use super::look::Look;
+use super::metatile::Tabelle;
 use super::stand::{Aenderung, Inhalt, Lesung, Tiefe};
 use super::{BLEED_BLOCKS, Projection, Relief, ScreenRect};
 
@@ -892,15 +893,109 @@ pub enum Packen {
     /// method 1 und quality 75, bei Bildern ohne Palette ohne räumliche
     /// Vorhersage: rund die Hälfte der Bytes für ein Mehrfaches der Zeit.
     Kompakt,
+    /// Wie kompakt, mit den Pixeln nach [`lege_zusammen`] mit dieser
+    /// Stärke.
+    /// Siehe docs/entscheidungen/0143-stufen-farben-zusammenlegen.md.
+    Zusammen(u8),
+}
+
+impl Packen {
+    /// Mit welcher Stärke [`lege_zusammen`] vor dem Packen läuft, `None`
+    /// ohne Vorstufe.
+    pub fn staerke(self) -> Option<u8> {
+        match self {
+            Packen::Zusammen(staerke) => Some(staerke),
+            Packen::Schnell | Packen::Kompakt => None,
+        }
+    }
 }
 
 /// Kodiert ein Bild als verlustfreies WebP mit libwebp, so gepackt wie
 /// `packen` sagt. `exact` behält die Farbe voll durchsichtiger Pixel, sonst
 /// setzt libwebp sie auf 0. Eigene Threads braucht libwebp nicht, die
-/// Kacheln verteilt schon `rendere`.
+/// Kacheln verteilt schon `rendere`. Bei [`Packen::Zusammen`] sind es die
+/// Pixel nach [`lege_zusammen`].
 pub fn encode_webp(image: &RgbaImage, packen: Packen) -> Result<Vec<u8>> {
     richte_libwebp_ein();
     kodiere(image, packen)
+}
+
+/// Legt ähnliche Farben einer Kachel zusammen, bevor libwebp sie
+/// verlustfrei packt. Die Farben gehen nach Häufigkeit, bei gleicher Zahl
+/// nach ihrem Wert. Jede geht auf den frühesten Vertreter, der [`vertritt`];
+/// gibt es keinen, wird sie selbst einer. Pixel mit Alpha 0 bleiben, wie sie
+/// sind. Alpha bleibt so Bit für Bit, und je Kanal weicht kein Wert mehr als
+/// `staerke` ab.
+/// Siehe docs/entscheidungen/0143-stufen-farben-zusammenlegen.md.
+pub fn lege_zusammen(bild: &mut RgbaImage, staerke: u8) {
+    let farbe = |p: &[u8; 4]| u32::from_be_bytes(*p);
+    // Zählen, Läufe gleicher Pixel am Stück.
+    let mut zahl: Tabelle<u32, u32> = Tabelle::default();
+    let mut pixel = bild.as_chunks::<4>().0.iter().map(farbe);
+    let Some(mut letzte) = pixel.next() else {
+        return;
+    };
+    let mut lauf = 1;
+    for f in pixel {
+        if f == letzte {
+            lauf += 1;
+        } else {
+            *zahl.entry(letzte).or_default() += lauf;
+            (letzte, lauf) = (f, 1);
+        }
+    }
+    *zahl.entry(letzte).or_default() += lauf;
+    let mut farben: Vec<(u32, u32)> = zahl.into_iter().collect();
+    farben.sort_unstable_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+
+    // Die Vertreter je Rot, mit ihrem Rang. Jede Liste ist nach Rang
+    // geordnet: Hinter dem besten Treffer steht kein früherer.
+    let mut je_rot: Vec<Vec<(u32, [u8; 4])>> = vec![Vec::new(); 256];
+    let mut ziel: Tabelle<u32, u32> = Tabelle::default();
+    for (rang, &(f, _)) in (0u32..).zip(&farben) {
+        let c = f.to_be_bytes();
+        if c[3] == 0 {
+            continue;
+        }
+        let mut bester: Option<(u32, [u8; 4])> = None;
+        for rot in c[0].saturating_sub(staerke)..=c[0].saturating_add(staerke) {
+            let vor = bester.map_or(u32::MAX, |(r, _)| r);
+            let fund = je_rot[usize::from(rot)]
+                .iter()
+                .take_while(|(r, _)| *r < vor)
+                .find(|(_, v)| vertritt(*v, c, staerke));
+            bester = fund.copied().or(bester);
+        }
+        match bester {
+            Some((_, v)) => {
+                ziel.insert(f, u32::from_be_bytes(v));
+            }
+            None => je_rot[usize::from(c[0])].push((rang, c)),
+        }
+    }
+    if ziel.is_empty() {
+        return;
+    }
+    let mut vorher = None;
+    for p in bild.as_chunks_mut::<4>().0 {
+        let f = farbe(p);
+        let neu = match vorher {
+            Some((alt, neu)) if alt == f => neu,
+            _ => {
+                let neu = ziel.get(&f).copied().unwrap_or(f);
+                vorher = Some((f, neu));
+                neu
+            }
+        };
+        *p = neu.to_be_bytes();
+    }
+}
+
+/// Ob `v` für `c` stehen darf: dasselbe Alpha, je Kanal höchstens `staerke`
+/// daneben, und 255 genau dort, wo `c` 255 hat. So wird kein Wert neu 255,
+/// und keiner verliert es.
+fn vertritt(v: [u8; 4], c: [u8; 4], staerke: u8) -> bool {
+    v[3] == c[3] && (0..3).all(|k| v[k].abs_diff(c[k]) <= staerke && (v[k] == 255) == (c[k] == 255))
 }
 
 /// Dekodiert ein WebP mit libwebp nach RGBA. Nennt sein Kopf eine andere
@@ -971,14 +1066,14 @@ fn kodiere(image: &RgbaImage, packen: Packen) -> Result<Vec<u8>> {
     bild.custom_ptr = (&raw mut out).cast();
     let stufe = match packen {
         Packen::Schnell => 0,
-        Packen::Kompakt => 1,
+        Packen::Kompakt | Packen::Zusammen(_) => 1,
     };
     // SAFETY: `config` hat libwebp angelegt.
     let voreinstellung = unsafe { webp::WebPConfigLosslessPreset(&mut config, stufe) != 0 };
     // Ab quality 51 sucht libwebp Rückverweise in den letzten 256 statt
     // 16 Zeilen, in einer Kachel also überall.
     config.quality = 75.0;
-    if packen == Packen::Kompakt {
+    if packen != Packen::Schnell {
         // Mit dem Patch in vendor/libwebp-sys: ohne Palette nur „subtract
         // green“, ohne räumliche Vorhersage.
         config.image_hint = webp::WebPImageHint::WEBP_HINT_GRAPH;
@@ -1020,6 +1115,115 @@ unsafe extern "C" fn anhaengen(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// [`lege_zusammen`] in der einfachsten Form: sucht den Vertreter unter
+    /// allen bisherigen, in der Reihenfolge, in der sie entstanden.
+    fn lege_zusammen_einfach(bild: &RgbaImage, staerke: u8) -> RgbaImage {
+        let mut zahl: std::collections::HashMap<[u8; 4], u32> = Default::default();
+        for p in bild.pixels() {
+            *zahl.entry(p.0).or_default() += 1;
+        }
+        let mut farben: Vec<([u8; 4], u32)> = zahl.into_iter().collect();
+        farben.sort_unstable_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+        let mut vertreter: Vec<[u8; 4]> = Vec::new();
+        let mut ziel = std::collections::HashMap::new();
+        for (c, _) in farben {
+            let v = (c[3] > 0)
+                .then(|| vertreter.iter().copied().find(|v| vertritt(*v, c, staerke)))
+                .flatten();
+            ziel.insert(c, v.unwrap_or(c));
+            if v.is_none() {
+                vertreter.push(c);
+            }
+        }
+        let mut aus = bild.clone();
+        for p in aus.pixels_mut() {
+            p.0 = ziel[&p.0];
+        }
+        aus
+    }
+
+    /// Kacheln mit vielen nahen Farben, Läufen, durchsichtigen und halb
+    /// durchsichtigen Pixeln und Kanälen nahe 255.
+    fn bunte_kacheln() -> Vec<RgbaImage> {
+        // xorshift: reproduzierbar ohne weitere Abhängigkeit.
+        let mut zustand = 0x9e37_79b9_7f4a_7c15_u64;
+        let mut zufall = move || {
+            zustand ^= zustand << 13;
+            zustand ^= zustand >> 7;
+            zustand ^= zustand << 17;
+            zustand
+        };
+        (0..6)
+            .map(|art| {
+                let mut lauf = (0u32, [0u8; 4]);
+                RgbaImage::from_fn(64, 64, |_, _| {
+                    if lauf.0 == 0 {
+                        let z = zufall();
+                        let kanal = |i: u32| -> u8 {
+                            let w = (z >> (8 * i)) as u8;
+                            match art {
+                                0 => 100 + w % 24,
+                                1 => 230 + w % 26,
+                                2 => w,
+                                _ => [0, 1, 254, 255, 127, 128][usize::from(w % 6)].max(w % 32 * 8),
+                            }
+                        };
+                        let alpha = match (z >> 40) % 5 {
+                            0 => 0,
+                            1 => 128 + (z >> 48) as u8 % 2,
+                            _ => 255,
+                        };
+                        lauf = ((z >> 56) as u32 % 9, [kanal(0), kanal(1), kanal(2), alpha]);
+                    } else {
+                        lauf.0 -= 1;
+                    }
+                    image::Rgba(lauf.1)
+                })
+            })
+            .collect()
+    }
+
+    #[test]
+    fn lege_zusammen_wie_einfach() {
+        for bild in bunte_kacheln() {
+            for staerke in [1, 2, 4, 8] {
+                let mut schnell = bild.clone();
+                lege_zusammen(&mut schnell, staerke);
+                assert!(
+                    schnell == lege_zusammen_einfach(&bild, staerke),
+                    "Stärke {staerke}: anders als die einfache Fassung"
+                );
+            }
+        }
+    }
+
+    /// Die Grenzen als Zahlen: je Kanal höchstens 2, 4 und 8 daneben, Alpha
+    /// Bit für Bit, 255 bleibt 255 und kein Wert wird neu 255, Pixel mit
+    /// Alpha 0 bleiben. Dazu: Es legt wirklich zusammen.
+    #[test]
+    fn lege_zusammen_haelt_die_grenzen() {
+        for (staerke, grenze) in [(2, 2), (4, 4), (8, 8)] {
+            let mut geaendert = 0;
+            for bild in bunte_kacheln() {
+                let mut aus = bild.clone();
+                lege_zusammen(&mut aus, staerke);
+                for (a, b) in bild.pixels().zip(aus.pixels()) {
+                    let (a, b) = (a.0, b.0);
+                    assert_eq!(a[3], b[3], "Alpha");
+                    if a[3] == 0 {
+                        assert_eq!(a, b, "durchsichtig");
+                    }
+                    for k in 0..3 {
+                        assert!(a[k].abs_diff(b[k]) <= grenze, "{a:?} → {b:?}");
+                        assert_eq!(a[k] == 255, b[k] == 255, "255 bei {a:?} → {b:?}");
+                    }
+                    geaendert += usize::from(a != b);
+                }
+            }
+            assert!(geaendert > 0, "Stärke {staerke} legt nichts zusammen");
+        }
+    }
 
     #[test]
     fn kachel_rechteck_kachelt_lueckenlos() {

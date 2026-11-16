@@ -104,7 +104,7 @@ diese Seite gilt, steht in [`AGENTS.md`](../../AGENTS.md), Regel 28.
 
 <!-- renderzeit:anfang -->
 
-**Stand:** Messung vom 13.11.2026 an `3100b1b2` (v0.20.0), Bedingungen in [Renderzeit je Funktion](../messungen/2026-11-13-renderzeit-je-funktion.md). Erzeugt von [`auswerten.py`](../../skills/renderzeit-erneuern/auswerten.py), nicht von Hand ändern.
+**Stand:** Messung vom 15.11.2026 an `51b8c144` (v0.20.2), Bedingungen in [Renderzeit je Funktion](../messungen/2026-11-15-renderzeit-je-funktion.md). Erzeugt von [`auswerten.py`](../../skills/renderzeit-erneuern/auswerten.py), nicht von Hand ändern.
 
 ### Anteile je Phase
 
@@ -112,469 +112,483 @@ Anteil an der CPU-Zeit des Laufs.
 
 | Phase | Voller Lauf von oben | Update von oben | Voller Lauf im iso mit Cinematic | Update im iso mit Cinematic |
 |---|---|---|---|---|
-| Vorlauf, Assets und Sprites | 0,4 % | 1,2 % | 0,1 % | 0,7 % |
-| Lesen und Dekodieren | 11,2 % | 14,3 % | 2,4 % | 6,8 % |
-| Licht | 18,2 % | 15,6 % | 2,1 % | 3,3 % |
-| Sammeln und Deckung | 17,9 % | 15,2 % | 10,4 % | 14,7 % |
-| Strahl zur Sonne | – | – | 27,0 % | 37,9 % |
-| Zeichnen | 2,4 % | 1,9 % | 15,8 % | 22,2 % |
-| Kodieren | 24,6 % | 10,1 % | 29,7 % | 0,8 % |
-| Pyramide | 1,5 % | 2,7 % | 1,0 % | 1,3 % |
-| Fingerabdruck und Pixel-Hash | 4,8 % | 0,9 % | 0,8 % | 0,5 % |
-| Höhen und Boden | 0,3 % | 2,9 % | – | 0,6 % |
-| Ablegen | – | 0,1 % | – | 0,1 % |
-| Allokator | 2,6 % | 3,8 % | 0,7 % | 1,6 % |
-| C-Laufzeit: Kopieren, Füllen, Rechnen | 5,4 % | 6,2 % | 3,8 % | 4,3 % |
-| Kern und Dateisystem | 10,5 % | 24,5 % | 6,2 % | 4,5 % |
-| Rest | 0,1 % | 0,5 % | – | 0,7 % |
-| **CPU-Zeit** | 2663,2 s | 13,9 s | 22796,6 s | 171,8 s |
-| **Dauer** | 149,3 s | 6,8 s und 8,2 s | 1161,5 s | 174,2 s |
+| Vorlauf, Assets und Sprites | 0,5 % | 1,5 % | 0,1 % | 1,3 % |
+| Lesen und Dekodieren | 13,7 % | 18,3 % | 2,8 % | 8,5 % |
+| Licht | 14,2 % | 12,2 % | 1,6 % | 1,9 % |
+| Sammeln und Deckung | 17,1 % | 14,8 % | 12,0 % | 14,1 % |
+| Strahl zur Sonne | – | – | 30,5 % | 35,2 % |
+| Zeichnen | 2,9 % | 2,4 % | 18,2 % | 21,4 % |
+| Kodieren | 21,8 % | 8,9 % | 20,5 % | 1,2 % |
+| Pyramide | 1,9 % | 3,3 % | 1,2 % | 1,5 % |
+| Fingerabdruck und Pixel-Hash | 5,9 % | 1,1 % | 0,9 % | 0,6 % |
+| Höhen und Boden | 0,4 % | 4,0 % | – | 1,1 % |
+| Ablegen | – | 0,2 % | – | 0,2 % |
+| Allokator | 3,0 % | 4,2 % | 0,7 % | 2,0 % |
+| C-Laufzeit: Kopieren, Füllen, Rechnen | 6,6 % | 7,3 % | 4,4 % | 4,8 % |
+| Kern und Dateisystem | 12,1 % | 21,3 % | 6,9 % | 4,6 % |
+| Rest | 0,1 % | 0,6 % | – | 1,5 % |
+| **CPU-Zeit** | 2318,0 s | 9,7 s | 20895,7 s | 70,8 s |
+| **Dauer** | 115,1 s | 6,2 s und 6,0 s | 980,4 s | 74,2 s |
 
 ### Voller Lauf von oben
 
-**Lesen und Dekodieren:** 11,2 % der CPU, 297,5 s.
+**Lesen und Dekodieren:** 13,7 % der CPU, 316,8 s.
 
 | Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
 |---|---|---|---|---|---|
-| `renderer/src/render/metatile.rs` | `Masks::of` | 2,5 | 2,6 | 65,3 | 68,7 |
-| Crate miniz_oxide | `miniz_oxide::inflate::core::decompress_fast` | 2,1 | 2,6 | 55,4 | 70,3 |
-| `renderer/src/world/chunk.rs` | `decode_section` | 1,9 | 2,3 | 50,1 | 60,4 |
-|  | übrige unter 0,5 % | 4,8 | – | 126,7 | – |
+| `renderer/src/render/metatile.rs` | `Masks::of` | 3,1 | 3,1 | 72,2 | 72,6 |
+| Crate miniz_oxide | `miniz_oxide::inflate::core::decompress_fast` | 2,5 | 3,1 | 58,8 | 71,7 |
+| `renderer/src/world/chunk.rs` | `decode_section` | 2,3 | 2,7 | 54,3 | 62,1 |
+| Crate miniz_oxide | `miniz_oxide::inflate::core::apply_match` | 0,5 | 0,6 | 12,0 | 14,5 |
+| Crate core | `core::str::converts::from_utf8` | 0,5 | 0,4 | 11,8 | 9,7 |
+|  | übrige unter 0,5 % | 4,6 | – | 107,8 | – |
 
-**Licht:** 18,2 % der CPU, 486,0 s.
-
-| Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
-|---|---|---|---|---|---|
-| `renderer/src/render/licht.rs` | `Ausbreitung::breite_aus` | 12,4 | 10,6 | 329,4 | 281,4 |
-| `renderer/src/render/licht.rs` | `Ausbreitung::chunk` | 4,6 | 15,5 | 122,0 | 412,2 |
-| `renderer/src/render/metatile.rs` | `ChunkCache::licht_slot` | 0,9 | 22,3 | 23,2 | 592,7 |
-|  | übrige unter 0,5 % | 0,4 | – | 11,4 | – |
-
-**Sammeln und Deckung:** 17,9 % der CPU, 476,1 s.
+**Licht:** 14,2 % der CPU, 328,5 s.
 
 | Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
 |---|---|---|---|---|---|
-| `renderer/src/render/metatile.rs` | `ChunkCache::zelle` | 4,4 | 26,0 | 116,6 | 692,2 |
-| `renderer/src/render/metatile.rs` | `umgebung, Closure` | 2,4 | 2,0 | 63,8 | 54,5 |
-| `renderer/src/render/metatile.rs` | `ChunkCache::sprite_at` | 1,9 | 34,0 | 50,3 | 906,1 |
-| `renderer/src/render/metatile.rs` | `von_vorn` | 1,4 | 44,0 | 36,4 | 1172,0 |
-| `renderer/src/world/biomzoom.rs` | `zoom` | 1,2 | 1,0 | 31,2 | 26,6 |
-| `renderer/src/render/metatile.rs` | `ChunkCache::biome_of` | 1,2 | 2,3 | 30,7 | 61,8 |
-| `renderer/src/render/metatile.rs` | `ChunkCache::slot` | 0,8 | 13,5 | 22,6 | 358,4 |
-| `renderer/src/render/metatile.rs` | `ecken_at, Closure` | 0,6 | 0,6 | 17,2 | 14,7 |
-| Crate core | `core::hash::sip::write<core::hash::sip::Sip13Rounds>` | 0,6 | – | 17,2 | – |
-| `renderer/src/render/metatile.rs` | `tints_at, Closure` | 0,6 | 2,8 | 16,1 | 75,6 |
-| `renderer/src/render/metatile.rs` | `ChunkCache::sorted_candidates` | 0,5 | 8,8 | 13,7 | 233,5 |
-|  | übrige unter 0,5 % | 2,3 | – | 60,3 | – |
+| `renderer/src/render/licht.rs` | `Ausbreitung::breite_aus<true>` | 7,6 | – | 175,1 | – |
+| `renderer/src/render/licht.rs` | `Ausbreitung::chunk` | 5,6 | 12,1 | 130,7 | 280,6 |
+|  | übrige unter 0,5 % | 1,0 | – | 22,8 | – |
 
-**Zeichnen:** 2,4 % der CPU, 62,9 s.
+**Sammeln und Deckung:** 17,1 % der CPU, 396,9 s.
 
 | Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
 |---|---|---|---|---|---|
-| `renderer/src/render/metatile.rs` | `mische` | 0,9 | 0,8 | 25,2 | 21,5 |
-| `renderer/src/render/metatile.rs` | `blit_sichtbar` | 0,8 | 1,5 | 21,9 | 40,2 |
-| `renderer/src/render/metatile.rs` | `mit_relief` | 0,6 | 0,7 | 14,7 | 17,7 |
-|  | übrige unter 0,5 % | 0,0 | – | 1,1 | – |
+| `renderer/src/render/metatile.rs` | `ChunkCache::zelle` | 2,3 | 21,3 | 52,4 | 493,7 |
+| `renderer/src/render/metatile.rs` | `ChunkCache::sprite_at` | 2,1 | 29,7 | 48,7 | 687,8 |
+| `renderer/src/render/metatile.rs` | `umgebung, Closure` | 1,8 | 1,5 | 41,6 | 34,6 |
+| `renderer/src/render/metatile.rs` | `von_vorn` | 1,6 | 41,5 | 37,7 | 961,9 |
+| `renderer/src/world/biomzoom.rs` | `zoom` | 1,4 | 1,2 | 33,1 | 27,5 |
+| `renderer/src/render/metatile.rs` | `ChunkCache::biome_of` | 1,4 | 2,8 | 32,5 | 64,3 |
+| Crate core | `core::hash::sip::write<core::hash::sip::Sip13Rounds>` | 0,8 | – | 19,1 | – |
+| `renderer/src/render/metatile.rs` | `ecken_aus, Closure` | 0,8 | 0,7 | 18,3 | 15,2 |
+| `renderer/src/render/metatile.rs` | `tints_at, Closure` | 0,8 | 3,4 | 17,5 | 78,9 |
+| `renderer/src/render/metatile.rs` | `ChunkCache::slot` | 0,7 | 15,7 | 17,0 | 363,7 |
+| `renderer/src/render/metatile.rs` | `ChunkCache::sorted_candidates` | 0,6 | 10,4 | 15,0 | 241,4 |
+| `renderer/src/render/metatile.rs` | `ChunkCache::expose` | 0,6 | 0,5 | 13,6 | 11,6 |
+| `renderer/src/world/chunk.rs` | `Chunk::slot` | 0,5 | 0,4 | 12,3 | 10,2 |
+|  | übrige unter 0,5 % | 1,6 | – | 38,1 | – |
 
-**Kodieren:** 24,6 % der CPU, 656,2 s.
-
-| Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
-|---|---|---|---|---|---|
-| libwebp (C) | `CalculateBestCacheSize` | 4,9 | 4,4 | 131,6 | 117,8 |
-| libwebp (C) | `VP8LHashChainFill` | 4,6 | 6,0 | 123,8 | 159,1 |
-| libwebp (C) | `BackwardReferencesHashChainDistanceOnly` | 3,0 | 3,3 | 80,0 | 87,2 |
-| libwebp (C) | `GetCombinedEntropyUnrefined_C` | 2,4 | 2,1 | 64,0 | 55,0 |
-| libwebp (C) | `VectorMismatch_AVX2` | 1,3 | 1,1 | 34,9 | 29,8 |
-| libwebp (C) | `VP8LHistogramStoreRefs` | 1,0 | 0,9 | 25,5 | 22,7 |
-| libwebp (C) | `GetBackwardReferences` | 0,9 | 11,4 | 23,8 | 304,4 |
-| libwebp (C) | `AnalyzeEntropy` | 0,8 | 0,7 | 20,9 | 18,4 |
-| libwebp (C) | `BackwardReferencesLz77` | 0,7 | 0,7 | 19,3 | 18,1 |
-| libwebp (C) | `BackwardReferencesRle` | 0,7 | 0,8 | 19,2 | 22,4 |
-| libwebp (C) | `ComputeResidualsForTile` | 0,6 | 0,6 | 15,1 | 16,1 |
-|  | übrige unter 0,5 % | 3,7 | – | 98,1 | – |
-
-**Pyramide:** 1,5 % der CPU, 39,1 s.
+**Zeichnen:** 2,9 % der CPU, 67,3 s.
 
 | Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
 |---|---|---|---|---|---|
-| libwebp (C) | `DecodeImageData` | 0,8 | 1,1 | 21,9 | 28,5 |
-|  | übrige unter 0,5 % | 0,6 | – | 17,2 | – |
+| `renderer/src/render/metatile.rs` | `mische` | 1,1 | 0,9 | 26,4 | 21,9 |
+| `renderer/src/render/metatile.rs` | `blit_sichtbar` | 1,0 | 1,8 | 23,7 | 41,6 |
+| `renderer/src/render/metatile.rs` | `mit_relief` | 0,7 | 0,8 | 15,9 | 18,4 |
+|  | übrige unter 0,5 % | 0,1 | – | 1,4 | – |
 
-**Fingerabdruck und Pixel-Hash:** 4,8 % der CPU, 129,1 s.
-
-| Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
-|---|---|---|---|---|---|
-| `renderer/src/world/chunk.rs` | `Fnv::section` | 3,7 | 3,1 | 97,4 | 82,6 |
-| `renderer/src/world/chunk.rs` | `Chunk::abdruck` | 0,8 | 2,7 | 20,1 | 71,5 |
-|  | übrige unter 0,5 % | 0,4 | – | 11,6 | – |
-
-**Allokator:** 2,6 % der CPU, 69,6 s.
+**Kodieren:** 21,8 % der CPU, 504,7 s.
 
 | Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
 |---|---|---|---|---|---|
-| mimalloc (C) | `mi_malloc_aligned` | 1,0 | 1,3 | 26,0 | 33,9 |
-|  | übrige unter 0,5 % | 1,6 | – | 43,6 | – |
+| libwebp (C) | `VP8LHashChainFill` | 5,3 | 7,0 | 123,5 | 161,8 |
+| libwebp (C) | `BackwardReferencesHashChainDistanceOnly` | 4,0 | 4,3 | 93,7 | 100,3 |
+| libwebp (C) | `GetCombinedEntropyUnrefined_C` | 3,0 | 2,5 | 70,6 | 59,1 |
+| libwebp (C) | `VectorMismatch_AVX2` | 1,5 | 1,2 | 34,5 | 28,7 |
+| libwebp (C) | `BackwardReferencesLz77` | 0,9 | 0,8 | 20,7 | 18,9 |
+| libwebp (C) | `GenerateOptimalTree` | 0,8 | 1,5 | 17,8 | 35,1 |
+| libwebp (C) | `ComputeResidualsForTile` | 0,7 | 0,7 | 16,2 | 16,8 |
+| libwebp (C) | `VP8LHistogramStoreRefs` | 0,7 | 0,6 | 15,5 | 13,7 |
+| libwebp (C) | `BackwardReferencesHashChainFollowChosenPath` | 0,6 | 0,6 | 14,2 | 13,9 |
+| libwebp (C) | `GetBackwardReferences` | 0,5 | 7,1 | 12,5 | 164,0 |
+| libwebp (C) | `StoreImageToBitMask` | 0,5 | 0,5 | 11,9 | 11,1 |
+|  | übrige unter 0,5 % | 3,2 | – | 73,5 | – |
 
-**C-Laufzeit: Kopieren, Füllen, Rechnen:** 5,4 % der CPU, 144,7 s.
+**Pyramide:** 1,9 % der CPU, 43,1 s.
 
 | Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
 |---|---|---|---|---|---|
-| C-Laufzeit | `MoveSmall4` | 1,8 | 1,6 | 47,9 | 42,9 |
-| C-Laufzeit | `SetSmall8` | 0,9 | 0,8 | 24,6 | 21,5 |
-|  | übrige unter 0,5 % | 2,7 | – | 72,2 | – |
+| libwebp (C) | `DecodeImageData` | 1,1 | 1,3 | 24,9 | 31,0 |
+|  | übrige unter 0,5 % | 0,8 | – | 18,3 | – |
 
-**Kern und Dateisystem:** 10,5 % der CPU, 280,6 s.
+**Fingerabdruck und Pixel-Hash:** 5,9 % der CPU, 136,7 s.
 
 | Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
 |---|---|---|---|---|---|
-| Kern von Windows | – | 7,9 | – | 211,0 | – |
-| Dateisystem und Platte | – | 1,7 | – | 44,1 | – |
-|  | übrige unter 0,5 % | 1,0 | – | 25,5 | – |
+| `renderer/src/world/chunk.rs` | `Fnv::section` | 4,5 | 3,7 | 105,4 | 85,6 |
+| `renderer/src/world/chunk.rs` | `Chunk::abdruck` | 0,8 | 3,2 | 19,2 | 74,9 |
+| ring (Assembler) | `L$oop_shaext` | 0,5 | 0,4 | 12,0 | 10,0 |
+|  | übrige unter 0,5 % | 0,0 | – | 0,2 | – |
+
+**Allokator:** 3,0 % der CPU, 69,1 s.
+
+| Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
+|---|---|---|---|---|---|
+| mimalloc (C) | `mi_malloc_aligned` | 1,1 | 1,4 | 25,0 | 31,8 |
+|  | übrige unter 0,5 % | 1,9 | – | 44,0 | – |
+
+**C-Laufzeit: Kopieren, Füllen, Rechnen:** 6,6 % der CPU, 152,1 s.
+
+| Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
+|---|---|---|---|---|---|
+| C-Laufzeit | `MoveSmall4` | 2,2 | 2,0 | 51,8 | 45,2 |
+| C-Laufzeit | `SetSmall8` | 1,0 | 0,9 | 23,4 | 20,0 |
+| C-Laufzeit | `memcmp` | 0,5 | 0,4 | 12,3 | 10,2 |
+| C-Laufzeit | `Mov0XmmBlocks` | 0,5 | 0,4 | 11,9 | 9,9 |
+|  | übrige unter 0,5 % | 2,3 | – | 52,7 | – |
+
+**Kern und Dateisystem:** 12,1 % der CPU, 280,9 s.
+
+| Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
+|---|---|---|---|---|---|
+| Kern von Windows | – | 9,2 | – | 212,7 | – |
+| Dateisystem und Platte | – | 1,9 | – | 44,9 | – |
+|  | übrige unter 0,5 % | 1,0 | – | 23,2 | – |
 
 
 ### Update von oben
 
-**Vorlauf, Assets und Sprites:** 1,2 % der CPU, 0,2 s.
+**Vorlauf, Assets und Sprites:** 1,5 % der CPU, 0,1 s.
 
 | Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
 |---|---|---|---|---|---|
-|  | übrige unter 0,5 % | 1,2 | – | 0,2 | – |
+|  | übrige unter 0,5 % | 1,5 | – | 0,1 | – |
 
-**Lesen und Dekodieren:** 14,3 % der CPU, 2,0 s.
-
-| Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
-|---|---|---|---|---|---|
-| Crate miniz_oxide | `miniz_oxide::inflate::core::decompress_fast` | 3,2 | 5,3 | 0,4 | 0,7 |
-| `renderer/src/render/metatile.rs` | `Masks::of` | 2,4 | 3,4 | 0,3 | 0,5 |
-| `renderer/src/world/chunk.rs` | `decode_section` | 2,0 | 3,5 | 0,3 | 0,5 |
-| Crate miniz_oxide | `miniz_oxide::inflate::core::init_tree` | 0,5 | 0,6 | 0,1 | 0,1 |
-| Crate core | `core::str::converts::from_utf8` | 0,5 | 0,6 | 0,1 | 0,1 |
-|  | übrige unter 0,5 % | 5,6 | – | 0,8 | – |
-
-**Licht:** 15,6 % der CPU, 2,2 s.
+**Lesen und Dekodieren:** 18,3 % der CPU, 1,8 s.
 
 | Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
 |---|---|---|---|---|---|
-| `renderer/src/render/licht.rs` | `Ausbreitung::breite_aus` | 10,5 | 12,1 | 1,5 | 1,7 |
-| `renderer/src/render/licht.rs` | `Ausbreitung::chunk` | 4,3 | 18,4 | 0,6 | 2,6 |
-| `renderer/src/render/metatile.rs` | `ChunkCache::licht_slot` | 0,5 | 27,2 | 0,1 | 3,8 |
-|  | übrige unter 0,5 % | 0,3 | – | 0,0 | – |
+| Crate miniz_oxide | `miniz_oxide::inflate::core::decompress_fast` | 4,3 | 6,4 | 0,4 | 0,6 |
+| `renderer/src/render/metatile.rs` | `Masks::of` | 2,9 | 3,7 | 0,3 | 0,4 |
+| `renderer/src/world/chunk.rs` | `decode_section` | 2,7 | 4,1 | 0,3 | 0,4 |
+| Crate miniz_oxide | `miniz_oxide::inflate::core::init_tree` | 0,7 | 0,7 | 0,1 | 0,1 |
+| Crate cesu8 | `cesu8::from_cesu8_internal` | 0,7 | 1,4 | 0,1 | 0,1 |
+| Crate core | `core::str::converts::from_utf8` | 0,7 | 0,7 | 0,1 | 0,1 |
+| Crate miniz_oxide | `miniz_oxide::inflate::core::apply_match` | 0,5 | 1,1 | 0,1 | 0,1 |
+| Crate serde_core | `serde_core::de::impls::deserialize::visit_seq<world::chunk::PaletteEntry,fastnbt::de::L...` | 0,5 | – | 0,0 | – |
+|  | übrige unter 0,5 % | 5,2 | – | 0,5 | – |
 
-**Sammeln und Deckung:** 15,2 % der CPU, 2,1 s.
-
-| Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
-|---|---|---|---|---|---|
-| `renderer/src/render/metatile.rs` | `ChunkCache::zelle` | 3,7 | 31,5 | 0,5 | 4,4 |
-| `renderer/src/render/metatile.rs` | `umgebung, Closure` | 1,8 | 2,1 | 0,3 | 0,3 |
-| `renderer/src/render/metatile.rs` | `ChunkCache::sprite_at` | 1,8 | 40,7 | 0,2 | 5,6 |
-| `renderer/src/render/metatile.rs` | `von_vorn` | 1,0 | 53,8 | 0,1 | 7,5 |
-| `renderer/src/world/biomzoom.rs` | `zoom` | 1,0 | 1,2 | 0,1 | 0,2 |
-| `renderer/src/render/metatile.rs` | `ChunkCache::biome_of` | 0,9 | 2,6 | 0,1 | 0,4 |
-| Crate core | `core::hash::sip::write<core::hash::sip::Sip13Rounds>` | 0,7 | – | 0,1 | – |
-| `renderer/src/render/metatile.rs` | `tints_at, Closure` | 0,7 | 3,4 | 0,1 | 0,5 |
-| `renderer/src/render/metatile.rs` | `ChunkCache::slot` | 0,6 | 18,5 | 0,1 | 2,6 |
-|  | übrige unter 0,5 % | 3,1 | – | 0,4 | – |
-
-**Zeichnen:** 1,9 % der CPU, 0,3 s.
+**Licht:** 12,2 % der CPU, 1,2 s.
 
 | Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
 |---|---|---|---|---|---|
-| `renderer/src/render/metatile.rs` | `mische` | 0,9 | 1,0 | 0,1 | 0,1 |
-| `renderer/src/render/metatile.rs` | `blit_sichtbar` | 0,6 | 1,7 | 0,1 | 0,2 |
-|  | übrige unter 0,5 % | 0,5 | – | 0,1 | – |
+| `renderer/src/render/licht.rs` | `Ausbreitung::breite_aus<true>` | 6,4 | – | 0,6 | – |
+| `renderer/src/render/licht.rs` | `Ausbreitung::chunk` | 5,3 | 13,6 | 0,5 | 1,3 |
+|  | übrige unter 0,5 % | 0,6 | – | 0,1 | – |
 
-**Kodieren:** 10,1 % der CPU, 1,4 s.
-
-| Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
-|---|---|---|---|---|---|
-| libwebp (C) | `VP8LHashChainFill` | 2,0 | 3,5 | 0,3 | 0,5 |
-| libwebp (C) | `CalculateBestCacheSize` | 1,6 | 2,0 | 0,2 | 0,3 |
-| libwebp (C) | `GetCombinedEntropyUnrefined_C` | 1,4 | 1,6 | 0,2 | 0,2 |
-| libwebp (C) | `BackwardReferencesHashChainDistanceOnly` | 0,9 | 1,5 | 0,1 | 0,2 |
-| libwebp (C) | `VectorMismatch_AVX2` | 0,6 | 0,7 | 0,1 | 0,1 |
-|  | übrige unter 0,5 % | 3,5 | – | 0,5 | – |
-
-**Pyramide:** 2,7 % der CPU, 0,4 s.
+**Sammeln und Deckung:** 14,8 % der CPU, 1,4 s.
 
 | Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
 |---|---|---|---|---|---|
-| libwebp (C) | `DecodeImageData` | 1,7 | 2,7 | 0,2 | 0,4 |
-|  | übrige unter 0,5 % | 1,0 | – | 0,1 | – |
+| `renderer/src/render/metatile.rs` | `ChunkCache::zelle` | 2,3 | 25,1 | 0,2 | 2,4 |
+| `renderer/src/render/metatile.rs` | `ChunkCache::sprite_at` | 1,7 | 33,8 | 0,2 | 3,3 |
+| `renderer/src/world/biomzoom.rs` | `zoom` | 1,4 | 1,4 | 0,1 | 0,1 |
+| `renderer/src/render/metatile.rs` | `von_vorn` | 1,3 | 48,6 | 0,1 | 4,7 |
+| `renderer/src/render/metatile.rs` | `umgebung, Closure` | 1,2 | 1,3 | 0,1 | 0,1 |
+| `renderer/src/render/metatile.rs` | `ChunkCache::biome_of` | 1,0 | 3,0 | 0,1 | 0,3 |
+| Crate core | `core::hash::sip::write<core::hash::sip::Sip13Rounds>` | 0,8 | – | 0,1 | – |
+| `renderer/src/render/metatile.rs` | `tints_at, Closure` | 0,8 | 3,8 | 0,1 | 0,4 |
+| `renderer/src/render/metatile.rs` | `ecken_aus, Closure` | 0,7 | 0,7 | 0,1 | 0,1 |
+| `renderer/src/render/metatile.rs` | `ChunkCache::sorted_candidates` | 0,6 | 13,4 | 0,1 | 1,3 |
+| `renderer/src/render/metatile.rs` | `ChunkCache::expose` | 0,5 | 0,5 | 0,0 | 0,1 |
+|  | übrige unter 0,5 % | 2,6 | – | 0,3 | – |
 
-**Fingerabdruck und Pixel-Hash:** 0,9 % der CPU, 0,1 s.
+**Zeichnen:** 2,4 % der CPU, 0,2 s.
 
 | Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
 |---|---|---|---|---|---|
-| ring (Assembler) | `L$oop_shaext` | 0,5 | 0,6 | 0,1 | 0,1 |
+| `renderer/src/render/metatile.rs` | `mische` | 1,0 | 1,1 | 0,1 | 0,1 |
+| `renderer/src/render/metatile.rs` | `blit_sichtbar` | 0,8 | 1,9 | 0,1 | 0,2 |
+| `renderer/src/render/metatile.rs` | `mit_relief` | 0,5 | 0,8 | 0,1 | 0,1 |
+|  | übrige unter 0,5 % | 0,0 | – | 0,0 | – |
+
+**Kodieren:** 8,9 % der CPU, 0,9 s.
+
+| Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
+|---|---|---|---|---|---|
+| libwebp (C) | `VP8LHashChainFill` | 2,3 | 3,7 | 0,2 | 0,4 |
+| libwebp (C) | `GetCombinedEntropyUnrefined_C` | 1,6 | 1,7 | 0,2 | 0,2 |
+| libwebp (C) | `BackwardReferencesHashChainDistanceOnly` | 1,2 | 1,7 | 0,1 | 0,2 |
+| libwebp (C) | `VectorMismatch_AVX2` | 0,7 | 0,8 | 0,1 | 0,1 |
+|  | übrige unter 0,5 % | 3,1 | – | 0,3 | – |
+
+**Pyramide:** 3,3 % der CPU, 0,3 s.
+
+| Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
+|---|---|---|---|---|---|
+| libwebp (C) | `DecodeImageData` | 2,1 | 3,0 | 0,2 | 0,3 |
+|  | übrige unter 0,5 % | 1,1 | – | 0,1 | – |
+
+**Fingerabdruck und Pixel-Hash:** 1,1 % der CPU, 0,1 s.
+
+| Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
+|---|---|---|---|---|---|
+| ring (Assembler) | `L$oop_shaext` | 0,7 | 0,8 | 0,1 | 0,1 |
 |  | übrige unter 0,5 % | 0,4 | – | 0,0 | – |
 
-**Höhen und Boden:** 2,9 % der CPU, 0,4 s.
+**Höhen und Boden:** 4,0 % der CPU, 0,4 s.
 
 | Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
 |---|---|---|---|---|---|
-| Crate miniz_oxide | `miniz_oxide::deflate::core::compress_inner` | 2,6 | 3,1 | 0,4 | 0,4 |
-|  | übrige unter 0,5 % | 0,3 | – | 0,0 | – |
+| Crate miniz_oxide | `miniz_oxide::deflate::core::compress_inner` | 3,5 | 3,8 | 0,3 | 0,4 |
+|  | übrige unter 0,5 % | 0,4 | – | 0,0 | – |
 
-**Allokator:** 3,8 % der CPU, 0,5 s.
-
-| Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
-|---|---|---|---|---|---|
-| mimalloc (C) | `mi_malloc_aligned` | 1,3 | 2,4 | 0,2 | 0,3 |
-|  | übrige unter 0,5 % | 2,5 | – | 0,3 | – |
-
-**C-Laufzeit: Kopieren, Füllen, Rechnen:** 6,2 % der CPU, 0,9 s.
+**Allokator:** 4,2 % der CPU, 0,4 s.
 
 | Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
 |---|---|---|---|---|---|
-| C-Laufzeit | `MoveSmall4` | 1,8 | 2,2 | 0,2 | 0,3 |
-| C-Laufzeit | `SetSmall8` | 1,3 | 1,5 | 0,2 | 0,2 |
-| C-Laufzeit | `memcmp` | 0,7 | 0,8 | 0,1 | 0,1 |
-|  | übrige unter 0,5 % | 2,4 | – | 0,3 | – |
+| mimalloc (C) | `mi_malloc_aligned` | 1,4 | 2,4 | 0,1 | 0,2 |
+|  | übrige unter 0,5 % | 2,8 | – | 0,3 | – |
 
-**Kern und Dateisystem:** 24,5 % der CPU, 3,4 s.
+**C-Laufzeit: Kopieren, Füllen, Rechnen:** 7,3 % der CPU, 0,7 s.
 
 | Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
 |---|---|---|---|---|---|
-| Kern von Windows | – | 17,1 | – | 2,4 | – |
-| Dateisystem und Platte | – | 5,5 | – | 0,8 | – |
-| Laufzeit von Windows | – | 1,0 | – | 0,1 | – |
-|  | übrige unter 0,5 % | 0,9 | – | 0,1 | – |
+| C-Laufzeit | `MoveSmall4` | 2,1 | 2,3 | 0,2 | 0,2 |
+| C-Laufzeit | `SetSmall8` | 1,4 | 1,5 | 0,1 | 0,1 |
+| C-Laufzeit | `memcmp` | 0,7 | 0,7 | 0,1 | 0,1 |
+| C-Laufzeit | `memcpy_repmovs` | 0,5 | 0,6 | 0,1 | 0,1 |
+|  | übrige unter 0,5 % | 2,6 | – | 0,3 | – |
 
-**Rest:** 0,5 % der CPU, 0,1 s.
+**Kern und Dateisystem:** 21,3 % der CPU, 2,1 s.
 
 | Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
 |---|---|---|---|---|---|
-|  | übrige unter 0,5 % | 0,5 | – | 0,1 | – |
+| Kern von Windows | – | 14,9 | – | 1,4 | – |
+| Dateisystem und Platte | – | 4,8 | – | 0,5 | – |
+| Laufzeit von Windows | – | 0,8 | – | 0,1 | – |
+|  | übrige unter 0,5 % | 0,7 | – | 0,1 | – |
+
+**Rest:** 0,6 % der CPU, 0,1 s.
+
+| Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
+|---|---|---|---|---|---|
+|  | übrige unter 0,5 % | 0,6 | – | 0,1 | – |
 
 
 ### Voller Lauf im iso mit Cinematic
 
-**Lesen und Dekodieren:** 2,4 % der CPU, 540,9 s.
+**Lesen und Dekodieren:** 2,8 % der CPU, 578,8 s.
 
 | Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
 |---|---|---|---|---|---|
-| `renderer/src/render/metatile.rs` | `Masks::of` | 0,6 | 0,7 | 135,4 | 163,0 |
-|  | übrige unter 0,5 % | 1,8 | – | 405,6 | – |
+| `renderer/src/render/metatile.rs` | `Masks::of` | 0,7 | 0,9 | 150,3 | 179,6 |
+|  | übrige unter 0,5 % | 2,1 | – | 428,5 | – |
 
-**Licht:** 2,1 % der CPU, 480,2 s.
-
-| Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
-|---|---|---|---|---|---|
-| `renderer/src/render/licht.rs` | `Ausbreitung::breite_aus` | 1,4 | 1,4 | 316,5 | 316,8 |
-| `renderer/src/render/licht.rs` | `Ausbreitung::chunk` | 0,5 | 2,0 | 118,2 | 466,8 |
-|  | übrige unter 0,5 % | 0,2 | – | 45,6 | – |
-
-**Sammeln und Deckung:** 10,4 % der CPU, 2372,6 s.
+**Licht:** 1,6 % der CPU, 339,1 s.
 
 | Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
 |---|---|---|---|---|---|
-| `renderer/src/render/metatile.rs` | `ChunkCache::slot` | 2,2 | 5,8 | 494,5 | 1332,4 |
-| `renderer/src/world/chunk.rs` | `Chunk::slot` | 2,0 | 2,0 | 464,8 | 465,2 |
-| `renderer/src/render/metatile.rs` | `von_vorn` | 1,5 | 9,3 | 340,9 | 2130,6 |
-| `renderer/src/render/metatile.rs` | `ChunkCache::block_at` | 0,9 | 3,2 | 214,4 | 733,1 |
-| `renderer/src/render/metatile.rs` | `ChunkCache::zelle` | 0,7 | 3,2 | 168,9 | 718,8 |
-| `renderer/src/render/metatile.rs` | `ChunkCache::biome_of` | 0,5 | 1,1 | 115,4 | 251,6 |
-|  | übrige unter 0,5 % | 2,5 | – | 573,7 | – |
+| `renderer/src/render/licht.rs` | `Ausbreitung::breite_aus<true>` | 0,8 | – | 169,2 | – |
+| `renderer/src/render/licht.rs` | `Ausbreitung::chunk` | 0,6 | 1,6 | 130,2 | 333,0 |
+|  | übrige unter 0,5 % | 0,2 | – | 39,7 | – |
 
-**Strahl zur Sonne:** 27,0 % der CPU, 6153,8 s.
+**Sammeln und Deckung:** 12,0 % der CPU, 2503,0 s.
 
 | Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
 |---|---|---|---|---|---|
-| `renderer/src/render/metatile.rs` | `ChunkCache::sonne_im_gang` | 8,8 | 27,5 | 1998,3 | 6266,9 |
-| `renderer/src/render/sonne.rs` | `Sonnenform::trifft` | 5,7 | 5,8 | 1310,0 | 1318,5 |
-| `renderer/src/render/metatile.rs` | `ChunkCache::frei_in` | 5,4 | 8,0 | 1233,9 | 1830,9 |
-| `renderer/src/render/metatile.rs` | `ChunkCache::saeule` | 1,9 | 5,6 | 438,9 | 1272,9 |
-| `renderer/src/render/metatile.rs` | `ChunkCache::sonnen_bits` | 1,8 | 1,9 | 416,5 | 423,3 |
-| `renderer/src/render/metatile.rs` | `ChunkCache::frei_zur_sonne` | 1,4 | 6,4 | 311,3 | 1462,9 |
-| `renderer/src/render/metatile.rs` | `ChunkCache::wirkung` | 0,9 | 6,7 | 201,1 | 1524,2 |
-| `renderer/src/render/metatile/strahl.rs` | `Gang::springe` | 0,9 | 0,9 | 200,7 | 200,9 |
-|  | übrige unter 0,5 % | 0,2 | – | 43,2 | – |
+| `renderer/src/render/metatile.rs` | `ChunkCache::slot` | 2,5 | 6,8 | 528,4 | 1422,6 |
+| `renderer/src/world/chunk.rs` | `Chunk::slot` | 2,4 | 2,4 | 494,7 | 495,9 |
+| `renderer/src/render/metatile.rs` | `von_vorn` | 1,8 | 9,9 | 370,2 | 2064,1 |
+| `renderer/src/render/metatile.rs` | `ChunkCache::block_at` | 1,1 | 3,8 | 237,9 | 794,1 |
+| `renderer/src/render/metatile.rs` | `ChunkCache::biome_of` | 0,6 | 1,3 | 127,9 | 276,9 |
+| `renderer/src/render/metatile.rs` | `ChunkCache::zelle` | 0,6 | 2,6 | 126,4 | 539,6 |
+| `renderer/src/render/metatile.rs` | `ChunkCache::sorted_candidates` | 0,6 | 2,8 | 118,8 | 575,5 |
+|  | übrige unter 0,5 % | 2,4 | – | 498,7 | – |
 
-**Zeichnen:** 15,8 % der CPU, 3602,2 s.
-
-| Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
-|---|---|---|---|---|---|
-| `renderer/src/render/metatile.rs` | `render_hdr` | 11,2 | 55,7 | 2549,8 | 12697,8 |
-| `renderer/src/render/pyramid.rs` | `to_srgb` | 1,7 | 1,7 | 389,4 | 389,5 |
-| `renderer/src/render/metatile.rs` | `Hdr::bild` | 1,1 | 4,6 | 246,7 | 1057,6 |
-| `renderer/src/render/kino.rs` | `Kino::ton` | 0,9 | 2,6 | 206,1 | 595,9 |
-| `renderer/src/render/kino.rs` | `Kino::bloom` | 0,8 | 0,8 | 172,7 | 178,5 |
-|  | übrige unter 0,5 % | 0,2 | – | 37,4 | – |
-
-**Kodieren:** 29,7 % der CPU, 6764,9 s.
+**Strahl zur Sonne:** 30,5 % der CPU, 6377,4 s.
 
 | Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
 |---|---|---|---|---|---|
-| libwebp (C) | `CalculateBestCacheSize` | 8,8 | 9,1 | 2017,2 | 2074,8 |
-| libwebp (C) | `GetCombinedEntropyUnrefined_C` | 4,0 | 4,0 | 906,8 | 914,3 |
-| libwebp (C) | `VP8LHashChainFill` | 3,6 | 5,1 | 827,8 | 1159,1 |
-| libwebp (C) | `BackwardReferencesHashChainDistanceOnly` | 2,6 | 3,5 | 603,2 | 787,3 |
-| libwebp (C) | `VP8LHistogramStoreRefs` | 1,6 | 1,6 | 353,6 | 359,9 |
-| libwebp (C) | `GetBackwardReferences` | 1,2 | 18,2 | 275,3 | 4148,6 |
-| libwebp (C) | `BackwardReferencesRle` | 1,1 | 1,4 | 253,5 | 327,7 |
-| libwebp (C) | `AnalyzeEntropy` | 1,0 | 1,0 | 219,1 | 224,4 |
-| libwebp (C) | `BackwardReferencesLz77` | 0,7 | 0,8 | 158,1 | 183,2 |
-| libwebp (C) | `StoreImageToBitMask` | 0,7 | 0,8 | 156,4 | 176,0 |
-| libwebp (C) | `GenerateOptimalTree` | 0,7 | 2,2 | 150,4 | 501,6 |
-| libwebp (C) | `VectorMismatch_AVX2` | 0,7 | 0,7 | 149,0 | 149,2 |
-| libwebp (C) | `BackwardReferencesHashChainFollowChosenPath` | 0,6 | 0,6 | 134,5 | 144,4 |
-|  | übrige unter 0,5 % | 2,5 | – | 559,9 | – |
+| `renderer/src/render/metatile.rs` | `ChunkCache::sonne_im_gang` | 9,4 | 31,2 | 1963,6 | 6515,0 |
+| `renderer/src/render/sonne.rs` | `Sonnenform::trifft` | 6,8 | 6,9 | 1426,3 | 1438,0 |
+| `renderer/src/render/metatile.rs` | `ChunkCache::frei_in` | 6,3 | 9,4 | 1317,7 | 1954,8 |
+| `renderer/src/render/metatile.rs` | `ChunkCache::saeule` | 2,2 | 6,4 | 461,7 | 1345,5 |
+| `renderer/src/render/metatile.rs` | `ChunkCache::sonnen_bits` | 2,1 | 2,2 | 443,6 | 451,3 |
+| `renderer/src/render/metatile.rs` | `ChunkCache::frei_zur_sonne` | 1,6 | 7,5 | 331,9 | 1557,3 |
+| `renderer/src/render/metatile/strahl.rs` | `Gang::springe` | 1,0 | 1,0 | 212,9 | 213,3 |
+| `renderer/src/render/metatile.rs` | `ChunkCache::wirkung` | 0,8 | 7,7 | 173,6 | 1617,0 |
+|  | übrige unter 0,5 % | 0,2 | – | 46,2 | – |
 
-**Pyramide:** 1,0 % der CPU, 237,2 s.
+**Zeichnen:** 18,2 % der CPU, 3796,1 s.
 
 | Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
 |---|---|---|---|---|---|
-| `renderer/src/render/pyramid.rs` | `halbiere` | 0,9 | 0,9 | 197,9 | 197,9 |
-|  | übrige unter 0,5 % | 0,2 | – | 39,3 | – |
+| `renderer/src/render/metatile.rs` | `render_hdr` | 12,8 | 62,8 | 2673,8 | 13122,1 |
+| `renderer/src/render/pyramid.rs` | `to_srgb` | 2,0 | 2,0 | 420,2 | 421,3 |
+| `renderer/src/render/metatile.rs` | `Hdr::bild` | 1,2 | 5,4 | 258,0 | 1128,3 |
+| `renderer/src/render/kino.rs` | `Kino::ton` | 1,1 | 3,1 | 221,9 | 643,7 |
+| `renderer/src/render/kino.rs` | `Kino::bloom` | 0,9 | 0,9 | 183,3 | 189,7 |
+|  | übrige unter 0,5 % | 0,2 | – | 39,0 | – |
 
-**Fingerabdruck und Pixel-Hash:** 0,8 % der CPU, 182,9 s.
-
-| Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
-|---|---|---|---|---|---|
-|  | übrige unter 0,5 % | 0,8 | – | 182,9 | – |
-
-**Allokator:** 0,7 % der CPU, 150,2 s.
+**Kodieren:** 20,5 % der CPU, 4287,7 s.
 
 | Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
 |---|---|---|---|---|---|
-|  | übrige unter 0,5 % | 0,7 | – | 150,2 | – |
+| libwebp (C) | `GetCombinedEntropyUnrefined_C` | 4,8 | 4,8 | 999,4 | 1008,7 |
+| libwebp (C) | `VP8LHashChainFill` | 3,9 | 5,8 | 821,4 | 1221,4 |
+| libwebp (C) | `BackwardReferencesHashChainDistanceOnly` | 3,1 | 4,0 | 640,4 | 844,0 |
+| libwebp (C) | `GenerateOptimalTree` | 1,4 | 3,3 | 294,4 | 687,9 |
+| libwebp (C) | `VP8LHistogramStoreRefs` | 1,0 | 1,0 | 211,3 | 217,0 |
+| libwebp (C) | `BackwardReferencesLz77` | 0,8 | 1,0 | 171,4 | 201,1 |
+| libwebp (C) | `StoreImageToBitMask` | 0,8 | 0,9 | 167,5 | 190,6 |
+| libwebp (C) | `BackwardReferencesHashChainFollowChosenPath` | 0,7 | 0,9 | 153,1 | 190,5 |
+| libwebp (C) | `VectorMismatch_AVX2` | 0,7 | 0,7 | 141,3 | 141,7 |
+| libwebp (C) | `GetBackwardReferences` | 0,6 | 7,5 | 117,6 | 1571,5 |
+|  | übrige unter 0,5 % | 2,7 | – | 569,8 | – |
 
-**C-Laufzeit: Kopieren, Füllen, Rechnen:** 3,8 % der CPU, 859,8 s.
+**Pyramide:** 1,2 % der CPU, 257,6 s.
 
 | Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
 |---|---|---|---|---|---|
-| C-Laufzeit | `Mov0XmmBlocks` | 0,7 | 0,7 | 163,3 | 163,7 |
-| C-Laufzeit | `expf` | 0,6 | 0,6 | 133,4 | 133,5 |
-|  | übrige unter 0,5 % | 2,5 | – | 563,1 | – |
+| `renderer/src/render/pyramid.rs` | `halbiere` | 1,0 | 1,0 | 214,0 | 214,7 |
+|  | übrige unter 0,5 % | 0,2 | – | 43,6 | – |
 
-**Kern und Dateisystem:** 6,2 % der CPU, 1419,1 s.
+**Fingerabdruck und Pixel-Hash:** 0,9 % der CPU, 192,0 s.
 
 | Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
 |---|---|---|---|---|---|
-| Kern von Windows | – | 4,8 | – | 1099,6 | – |
-| Dateisystem und Platte | – | 0,7 | – | 165,4 | – |
-|  | übrige unter 0,5 % | 0,7 | – | 154,1 | – |
+| `renderer/src/world/chunk.rs` | `Fnv::section` | 0,5 | 0,5 | 106,6 | 103,3 |
+|  | übrige unter 0,5 % | 0,4 | – | 85,4 | – |
+
+**Allokator:** 0,7 % der CPU, 153,9 s.
+
+| Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
+|---|---|---|---|---|---|
+|  | übrige unter 0,5 % | 0,7 | – | 153,9 | – |
+
+**C-Laufzeit: Kopieren, Füllen, Rechnen:** 4,4 % der CPU, 929,5 s.
+
+| Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
+|---|---|---|---|---|---|
+| C-Laufzeit | `Mov0XmmBlocks` | 0,9 | 0,9 | 180,8 | 181,4 |
+| C-Laufzeit | `expf` | 0,7 | 0,7 | 145,2 | 145,5 |
+| C-Laufzeit | `qsort` | 0,6 | 0,9 | 130,6 | 192,3 |
+| C-Laufzeit | `MoveSmall4` | 0,5 | 0,6 | 112,0 | 132,1 |
+|  | übrige unter 0,5 % | 1,7 | – | 360,9 | – |
+
+**Kern und Dateisystem:** 6,9 % der CPU, 1447,6 s.
+
+| Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
+|---|---|---|---|---|---|
+| Kern von Windows | – | 5,4 | – | 1137,7 | – |
+| Dateisystem und Platte | – | 0,8 | – | 175,0 | – |
+|  | übrige unter 0,5 % | 0,6 | – | 135,0 | – |
 
 
 ### Update im iso mit Cinematic
 
-**Vorlauf, Assets und Sprites:** 0,7 % der CPU, 1,2 s.
+**Vorlauf, Assets und Sprites:** 1,3 % der CPU, 0,9 s.
 
 | Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
 |---|---|---|---|---|---|
-|  | übrige unter 0,5 % | 0,7 | – | 1,2 | – |
+|  | übrige unter 0,5 % | 1,3 | – | 0,9 | – |
 
-**Lesen und Dekodieren:** 6,8 % der CPU, 11,6 s.
-
-| Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
-|---|---|---|---|---|---|
-| Crate miniz_oxide | `miniz_oxide::inflate::core::decompress_fast` | 1,5 | 2,2 | 2,6 | 3,9 |
-| `renderer/src/render/metatile.rs` | `Masks::of` | 1,4 | 1,8 | 2,4 | 3,0 |
-| `renderer/src/world/chunk.rs` | `decode_section` | 1,1 | 1,6 | 1,8 | 2,7 |
-|  | übrige unter 0,5 % | 2,8 | – | 4,9 | – |
-
-**Licht:** 3,3 % der CPU, 5,6 s.
+**Lesen und Dekodieren:** 8,5 % der CPU, 6,0 s.
 
 | Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
 |---|---|---|---|---|---|
-| `renderer/src/render/licht.rs` | `Ausbreitung::breite_aus` | 2,2 | 2,2 | 3,7 | 3,8 |
-| `renderer/src/render/licht.rs` | `Ausbreitung::chunk` | 0,9 | 3,4 | 1,5 | 5,8 |
-|  | übrige unter 0,5 % | 0,2 | – | 0,4 | – |
+| Crate miniz_oxide | `miniz_oxide::inflate::core::decompress_fast` | 2,2 | 3,2 | 1,6 | 2,3 |
+| `renderer/src/render/metatile.rs` | `Masks::of` | 1,5 | 1,8 | 1,0 | 1,3 |
+| `renderer/src/world/chunk.rs` | `decode_section` | 1,3 | 1,9 | 0,9 | 1,3 |
+|  | übrige unter 0,5 % | 3,6 | – | 2,6 | – |
 
-**Sammeln und Deckung:** 14,7 % der CPU, 25,3 s.
-
-| Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
-|---|---|---|---|---|---|
-| `renderer/src/render/metatile.rs` | `ChunkCache::slot` | 2,9 | 11,9 | 5,1 | 20,4 |
-| `renderer/src/world/chunk.rs` | `Chunk::slot` | 2,9 | 3,0 | 5,1 | 5,2 |
-| `renderer/src/render/metatile.rs` | `von_vorn` | 2,1 | 16,1 | 3,7 | 27,7 |
-| `renderer/src/render/metatile.rs` | `ChunkCache::zelle` | 1,1 | 5,0 | 1,8 | 8,6 |
-| `renderer/src/render/metatile.rs` | `ChunkCache::block_at` | 1,1 | 4,3 | 1,8 | 7,4 |
-| `renderer/src/render/metatile.rs` | `ChunkCache::sorted_candidates` | 0,8 | 5,6 | 1,3 | 9,7 |
-| `renderer/src/render/metatile.rs` | `ChunkCache::biome_of` | 0,7 | 1,6 | 1,2 | 2,7 |
-| `renderer/src/world/biomzoom.rs` | `zoom` | 0,6 | 0,6 | 1,0 | 1,0 |
-| `renderer/src/render/metatile.rs` | `ChunkCache::sprite_at` | 0,6 | 7,2 | 0,9 | 12,4 |
-|  | übrige unter 0,5 % | 2,0 | – | 3,4 | – |
-
-**Strahl zur Sonne:** 37,9 % der CPU, 65,1 s.
+**Licht:** 1,9 % der CPU, 1,4 s.
 
 | Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
 |---|---|---|---|---|---|
-| `renderer/src/render/metatile.rs` | `ChunkCache::sonne_im_gang` | 12,5 | 39,0 | 21,5 | 67,0 |
-| `renderer/src/render/sonne.rs` | `Sonnenform::trifft` | 8,2 | 8,4 | 14,1 | 14,5 |
-| `renderer/src/render/metatile.rs` | `ChunkCache::frei_in` | 7,5 | 12,8 | 12,8 | 22,1 |
-| `renderer/src/render/metatile.rs` | `ChunkCache::sonnen_bits` | 3,0 | 3,1 | 5,1 | 5,4 |
-| `renderer/src/render/metatile.rs` | `ChunkCache::saeule` | 2,2 | 8,6 | 3,8 | 14,9 |
-| `renderer/src/render/metatile.rs` | `ChunkCache::frei_zur_sonne` | 2,1 | 10,5 | 3,5 | 18,1 |
-| `renderer/src/render/metatile/strahl.rs` | `Gang::springe` | 1,3 | 1,3 | 2,2 | 2,2 |
-| `renderer/src/render/metatile.rs` | `ChunkCache::wirkung` | 1,0 | 9,4 | 1,6 | 16,2 |
-|  | übrige unter 0,5 % | 0,3 | – | 0,4 | – |
-
-**Zeichnen:** 22,2 % der CPU, 38,2 s.
-
-| Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
-|---|---|---|---|---|---|
-| `renderer/src/render/metatile.rs` | `render_hdr` | 15,5 | 83,4 | 26,7 | 143,3 |
-| `renderer/src/render/pyramid.rs` | `to_srgb` | 2,7 | 2,8 | 4,6 | 4,7 |
-| `renderer/src/render/kino.rs` | `Kino::ton` | 1,5 | 4,3 | 2,6 | 7,3 |
-| `renderer/src/render/metatile.rs` | `Hdr::bild` | 1,4 | 6,9 | 2,4 | 11,8 |
-| `renderer/src/render/kino.rs` | `Kino::bloom` | 0,9 | 0,9 | 1,6 | 1,6 |
-|  | übrige unter 0,5 % | 0,2 | – | 0,4 | – |
-
-**Kodieren:** 0,8 % der CPU, 1,3 s.
-
-| Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
-|---|---|---|---|---|---|
-|  | übrige unter 0,5 % | 0,8 | – | 1,3 | – |
-
-**Pyramide:** 1,3 % der CPU, 2,2 s.
-
-| Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
-|---|---|---|---|---|---|
-| `renderer/src/render/pyramid.rs` | `halbiere` | 1,1 | 1,1 | 1,9 | 1,9 |
-|  | übrige unter 0,5 % | 0,2 | – | 0,3 | – |
-
-**Fingerabdruck und Pixel-Hash:** 0,5 % der CPU, 0,9 s.
-
-| Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
-|---|---|---|---|---|---|
-|  | übrige unter 0,5 % | 0,5 | – | 0,9 | – |
-
-**Höhen und Boden:** 0,6 % der CPU, 1,1 s.
-
-| Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
-|---|---|---|---|---|---|
-| Crate miniz_oxide | `miniz_oxide::deflate::core::compress_inner` | 0,6 | 0,6 | 1,0 | 1,0 |
+| `renderer/src/render/licht.rs` | `Ausbreitung::breite_aus<true>` | 1,0 | – | 0,7 | – |
+| `renderer/src/render/licht.rs` | `Ausbreitung::chunk` | 0,8 | 2,0 | 0,6 | 1,4 |
 |  | übrige unter 0,5 % | 0,1 | – | 0,1 | – |
 
-**Allokator:** 1,6 % der CPU, 2,8 s.
+**Sammeln und Deckung:** 14,1 % der CPU, 10,0 s.
 
 | Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
 |---|---|---|---|---|---|
-| mimalloc (C) | `mi_malloc_aligned` | 0,7 | 1,0 | 1,1 | 1,7 |
-|  | übrige unter 0,5 % | 1,0 | – | 1,7 | – |
+| `renderer/src/world/chunk.rs` | `Chunk::slot` | 3,0 | 3,0 | 2,1 | 2,1 |
+| `renderer/src/render/metatile.rs` | `ChunkCache::slot` | 3,0 | 12,7 | 2,1 | 9,0 |
+| `renderer/src/render/metatile.rs` | `von_vorn` | 2,0 | 14,6 | 1,4 | 10,3 |
+| `renderer/src/render/metatile.rs` | `ChunkCache::block_at` | 1,0 | 4,2 | 0,7 | 3,0 |
+| `renderer/src/render/metatile.rs` | `ChunkCache::zelle` | 0,7 | 3,3 | 0,5 | 2,3 |
+| `renderer/src/render/metatile.rs` | `ChunkCache::sorted_candidates` | 0,7 | 6,3 | 0,5 | 4,4 |
+| `renderer/src/render/metatile.rs` | `ChunkCache::biome_of` | 0,6 | 1,5 | 0,4 | 1,0 |
+| `renderer/src/world/biomzoom.rs` | `zoom` | 0,6 | 0,6 | 0,4 | 0,4 |
+| `renderer/src/render/metatile.rs` | `ChunkCache::sprite_at` | 0,5 | 5,2 | 0,4 | 3,7 |
+|  | übrige unter 0,5 % | 2,0 | – | 1,4 | – |
 
-**C-Laufzeit: Kopieren, Füllen, Rechnen:** 4,3 % der CPU, 7,4 s.
-
-| Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
-|---|---|---|---|---|---|
-| C-Laufzeit | `MoveSmall4` | 0,9 | 0,9 | 1,5 | 1,6 |
-| C-Laufzeit | `expf` | 0,9 | 0,9 | 1,5 | 1,5 |
-|  | übrige unter 0,5 % | 2,5 | – | 4,4 | – |
-
-**Kern und Dateisystem:** 4,5 % der CPU, 7,7 s.
-
-| Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
-|---|---|---|---|---|---|
-| Kern von Windows | – | 3,6 | – | 6,2 | – |
-| Dateisystem und Platte | – | 0,6 | – | 1,1 | – |
-|  | übrige unter 0,5 % | 0,2 | – | 0,4 | – |
-
-**Rest:** 0,7 % der CPU, 1,2 s.
+**Strahl zur Sonne:** 35,2 % der CPU, 25,0 s.
 
 | Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
 |---|---|---|---|---|---|
-|  | übrige unter 0,5 % | 0,7 | – | 1,2 | – |
+| `renderer/src/render/metatile.rs` | `ChunkCache::sonne_im_gang` | 11,1 | 36,5 | 7,9 | 25,8 |
+| `renderer/src/render/sonne.rs` | `Sonnenform::trifft` | 8,4 | 8,6 | 6,0 | 6,1 |
+| `renderer/src/render/metatile.rs` | `ChunkCache::frei_in` | 6,9 | 12,0 | 4,9 | 8,5 |
+| `renderer/src/render/metatile.rs` | `ChunkCache::sonnen_bits` | 3,0 | 3,1 | 2,1 | 2,2 |
+| `renderer/src/render/metatile.rs` | `ChunkCache::frei_zur_sonne` | 2,0 | 9,9 | 1,4 | 7,0 |
+| `renderer/src/render/metatile.rs` | `ChunkCache::saeule` | 1,6 | 8,0 | 1,1 | 5,7 |
+| `renderer/src/render/metatile/strahl.rs` | `Gang::springe` | 1,4 | 1,4 | 1,0 | 1,0 |
+| `renderer/src/render/metatile.rs` | `ChunkCache::wirkung` | 0,7 | 9,3 | 0,5 | 6,6 |
+|  | übrige unter 0,5 % | 0,2 | – | 0,2 | – |
+
+**Zeichnen:** 21,4 % der CPU, 15,2 s.
+
+| Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
+|---|---|---|---|---|---|
+| `renderer/src/render/metatile.rs` | `render_hdr` | 14,8 | 77,8 | 10,5 | 55,1 |
+| `renderer/src/render/pyramid.rs` | `to_srgb` | 2,9 | 2,9 | 2,0 | 2,1 |
+| `renderer/src/render/kino.rs` | `Kino::ton` | 1,5 | 4,4 | 1,1 | 3,1 |
+| `renderer/src/render/metatile.rs` | `Hdr::bild` | 1,1 | 6,7 | 0,8 | 4,8 |
+| `renderer/src/render/kino.rs` | `Kino::bloom` | 0,9 | 0,9 | 0,6 | 0,7 |
+|  | übrige unter 0,5 % | 0,2 | – | 0,1 | – |
+
+**Kodieren:** 1,2 % der CPU, 0,9 s.
+
+| Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
+|---|---|---|---|---|---|
+|  | übrige unter 0,5 % | 1,2 | – | 0,9 | – |
+
+**Pyramide:** 1,5 % der CPU, 1,1 s.
+
+| Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
+|---|---|---|---|---|---|
+| `renderer/src/render/pyramid.rs` | `halbiere` | 1,1 | 1,1 | 0,8 | 0,8 |
+|  | übrige unter 0,5 % | 0,4 | – | 0,3 | – |
+
+**Fingerabdruck und Pixel-Hash:** 0,6 % der CPU, 0,4 s.
+
+| Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
+|---|---|---|---|---|---|
+| ring (Assembler) | `L$oop_shaext` | 0,6 | 0,6 | 0,4 | 0,4 |
+|  | übrige unter 0,5 % | 0,0 | – | 0,0 | – |
+
+**Höhen und Boden:** 1,1 % der CPU, 0,8 s.
+
+| Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
+|---|---|---|---|---|---|
+| Crate miniz_oxide | `miniz_oxide::deflate::core::compress_inner` | 0,9 | 1,0 | 0,7 | 0,7 |
+|  | übrige unter 0,5 % | 0,1 | – | 0,1 | – |
+
+**Allokator:** 2,0 % der CPU, 1,4 s.
+
+| Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
+|---|---|---|---|---|---|
+| mimalloc (C) | `mi_malloc_aligned` | 0,8 | 1,2 | 0,6 | 0,9 |
+|  | übrige unter 0,5 % | 1,2 | – | 0,8 | – |
+
+**C-Laufzeit: Kopieren, Füllen, Rechnen:** 4,8 % der CPU, 3,4 s.
+
+| Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
+|---|---|---|---|---|---|
+| C-Laufzeit | `MoveSmall4` | 1,0 | 1,0 | 0,7 | 0,7 |
+| C-Laufzeit | `expf` | 0,8 | 0,9 | 0,6 | 0,6 |
+|  | übrige unter 0,5 % | 3,0 | – | 2,1 | – |
+
+**Kern und Dateisystem:** 4,6 % der CPU, 3,2 s.
+
+| Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
+|---|---|---|---|---|---|
+| Kern von Windows | – | 3,2 | – | 2,3 | – |
+| Dateisystem und Platte | – | 0,9 | – | 0,6 | – |
+|  | übrige unter 0,5 % | 0,4 | – | 0,3 | – |
+
+**Rest:** 1,5 % der CPU, 1,1 s.
+
+| Datei | Symbol | eigene % | gesamt % | eigene s | gesamt s |
+|---|---|---|---|---|---|
+| Crate core | `core::iter::traits::iterator::Iterator::any::check, Closure<i32,render::tiles::beruehrt...` | 1,1 | – | 0,8 | – |
+|  | übrige unter 0,5 % | 0,4 | – | 0,3 | – |
 
 <!-- renderzeit:ende -->
 

@@ -1,0 +1,73 @@
+# Probe zu #446: Wo und wann stürzt tests/gpu.rs ab? Nur auf diesem Zweig.
+# Je Variante 40 Läufe des Testprogramms, jeder unter gdb; bei SIGSEGV die
+# Stapel aller Threads.
+name: Probe GPU
+
+on:
+  push:
+    branches: [probe/gpu-sigsegv]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      HEROIC_GPU_PFLICHT: "1"
+    defaults:
+      run:
+        working-directory: renderer
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: renderer
+
+      - name: Software-Vulkan und gdb
+        run: sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers gdb jq
+
+      - uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Bauen, ohne und mit Instrumentierung
+        timeout-minutes: 30
+        run: |
+          pfad() { jq -r 'select(.profile.test == true and .target.name == "gpu") | .executable' | grep -v '^null$' | tail -1; }
+          cargo test --test gpu --no-run --message-format=json 2>/dev/null | pfad > ../ohne.txt
+          source <(cargo llvm-cov show-env --export-prefix)
+          cargo test --test gpu --no-run --message-format=json 2>/dev/null | pfad > ../mit.txt
+          cat ../ohne.txt ../mit.txt
+          vulkaninfo --summary 2>/dev/null | head -20 || true
+
+      - name: Läufe
+        timeout-minutes: 50
+        run: |
+          ohne=$(cat ../ohne.txt); mit=$(cat ../mit.txt)
+          export LLVM_PROFILE_FILE=/tmp/probe-%p.profraw
+          lauf() {
+            local name=$1 bin=$2; shift 2
+            local ab=0
+            for i in $(seq 1 40); do
+              env "$@" timeout 180 gdb -q -batch -ex 'set pagination off' -ex run -ex 'thread apply all bt 40' --args "$bin" --quiet > /tmp/g.txt 2>&1 || true
+              if grep -q "SIGSEGV\|SIGABRT\|SIGBUS" /tmp/g.txt; then
+                ab=$((ab + 1))
+                if [ "$ab" -le 2 ]; then
+                  echo "::group::$name, Lauf $i"
+                  grep -v "^\[New Thread\|^\[Thread .* exited\|^\[Inferior" /tmp/g.txt | tail -400
+                  echo "::endgroup::"
+                fi
+              fi
+            done
+            echo "$name: $ab von 40 abgestürzt" | tee -a ../ergebnis.txt
+          }
+          lauf "mit Instrumentierung, 6 Threads" "$mit" X=1
+          lauf "ohne Instrumentierung, 6 Threads" "$ohne" X=1
+          lauf "mit Instrumentierung, nur Vulkan" "$mit" WGPU_BACKEND=vulkan
+          lauf "mit Instrumentierung, ein Thread" "$mit" RUST_TEST_THREADS=1
+          cat ../ergebnis.txt

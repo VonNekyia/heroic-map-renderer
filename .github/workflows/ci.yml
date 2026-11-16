@@ -291,9 +291,14 @@ jobs:
 
       - uses: taiki-e/install-action@cargo-llvm-cov
 
+      - uses: taiki-e/install-action@nextest
+
+      # Mit nextest, ein Prozess je Test: Als Threads in einem Prozess stürzt
+      # der Vulkan-Loader in den GPU-Tests ab. Siehe docs/entwicklung/tests.md,
+      # „GPU-Tests“.
       - name: Coverage
         timeout-minutes: 20
-        run: cargo llvm-cov --all-targets --lcov --output-path lcov.info
+        run: cargo llvm-cov nextest --all-targets --lcov --output-path lcov.info
 
       - uses: actions/upload-artifact@v4
         with:

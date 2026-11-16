@@ -1,8 +1,8 @@
 ---
 title: Farben zusammenlegen vor dem Packen
-description: Eine eigene Vorstufe, die ähnliche Farben einer Kachel zusammenlegt, bevor libwebp verlustfrei packt, gegen near-lossless und verlustbehaftet, an 563 Kacheln der Testwelt in der CI und an einer Stichprobe der grossen Welt; mit höchstens 4 Stufen Abweichung je Kanal 25 bis 30 % kleiner als near-lossless 40, an der grossen Welt 35 %; ohne den Rückfall aufs Gitter an der grossen Welt 0,7 bis 2,1 % kleiner, an der Testwelt 0,7 bis 2,4 dB mehr PSNR und mit schnellerer Suche samt dem Zuschnitt von libwebp so schnell wie kompakt heute; glatte Farben mit 2 geschont und der Rest mit 4 ist so gross wie 3 überall; nicht gebaut.
+description: Eine eigene Vorstufe, die ähnliche Farben einer Kachel zusammenlegt, bevor libwebp verlustfrei packt, gegen near-lossless und verlustbehaftet, an 563 Kacheln der Testwelt in der CI und an einer Stichprobe der grossen Welt; mit höchstens 4 Stufen Abweichung je Kanal 25 bis 30 % kleiner als near-lossless 40, an der grossen Welt 35 %; ohne den Rückfall aufs Gitter an der grossen Welt 0,7 bis 2,1 % kleiner, an der Testwelt 0,7 bis 2,4 dB mehr PSNR und mit schnellerer Suche samt dem Zuschnitt von libwebp so schnell wie kompakt heute; glatte Farben mit 2 geschont und der Rest mit 4 ist so gross wie 3 überall; ohne Rückfall bleiben mit 8 noch 23,7 bis 28,8 % von kompakt, mit 16 noch 14,5 bis 17,9 %; nicht gebaut.
 date: 2026-11-15
-commits: [cfe87ecf, 72432d32, 79817b39, 9b378406, 80facf47, ccfcfa27]
+commits: [cfe87ecf, 72432d32, 79817b39, 9b378406, 80facf47, ccfcfa27, 56adc057]
 code:
   - renderer/src/render/tiles.rs
   - renderer/src/render/pyramid.rs
@@ -83,7 +83,9 @@ ist nichts; welche Stufe gilt, entscheidet der Maintainer.
   `versuch/farben-rein-schnell`, `9b378406`; der neunte: der Tag
   `versuch/farben-schonend`, `80facf47`. Das Bild zur Einstufung „glatt“
   und sein Skript: der Tag `versuch/farben-schonend-bild`, `ccfcfa27`,
-  unter `renderer/tests/probe-bilder/`.
+  unter `renderer/tests/probe-bilder/`. Der zehnte Lauf: der Tag
+  `versuch/farben-staerken`, `56adc057`, am selben Ort mit den Bildbögen
+  der Stärken und ihrem Skript.
 - **Rechner:** die CI, `ubuntu-latest`, Release-Build, ein geteilter
   Rechner.
 
@@ -91,7 +93,8 @@ ist nichts; welche Stufe gilt, entscheidet der Maintainer.
 
 Am 15.11.2026, neun Läufe des Workflows an den Ständen `4b669a0e`,
 `7e04b9ac`, `b290d5b5`, `b64c2c2e`, `f594858a`, `7c405eae`, `6236d3d9`,
-`affd6203` und `139ba888`. Die Zahlen sind die Ausgabe des Tests im Log.
+`affd6203` und `139ba888`; am 16.11.2026 ein zehnter am Stand `41864fe5`.
+Die Zahlen sind die Ausgabe des Tests im Log.
 
 - Die Leiter und die Pyramide stammen aus dem vierten Lauf, die
   ausgeschiedenen Vorstufen aus dem zweiten und dritten, der Zuschnitt und
@@ -99,7 +102,7 @@ Am 15.11.2026, neun Läufe des Workflows an den Ständen `4b669a0e`,
   ohne Rückfall und die Zahl der Rückfälle aus dem sechsten, seine
   Pyramide und seine Zeit mit dem Zuschnitt aus dem siebten, die
   schnellere Suche aus dem achten, das Schonen glatter Farben aus dem
-  neunten.
+  neunten, die Stärken 6 bis 16 ohne Rückfall aus dem zehnten.
 - Bytes und Abweichungen jeder Packung, die in mehreren Läufen stand, sind
   in allen gleich.
 - Der sechste Lauf führt den Test einmal aus; seine Zeiten sind ein
@@ -202,7 +205,9 @@ Byte, Packen 9,01 ms und Dekodieren 0,83 ms je Kachel.
 ### Alpha und 255
 
 - Jede Vorstufe lässt Alpha an jedem Pixel und jeden Kanal mit 255 stehen
-  und macht keinen neu zu 255, auch über die Pyramide.
+  und macht keinen neu zu 255, auch über die Pyramide. Eine Ausnahme über
+  die Pyramide: ohne Rückfall mit 12 und 16 werden im iso ohne Cinematic 3
+  Kanäle neu 255, siehe „Ohne Rückfall mit 6 bis 16“.
 - near-lossless von libwebp lässt 255 stehen, macht aber von oben 873
   Kanäle (60) und 1 323 (40) neu zu 255, ohne Cinematic 201 und 353.
 - Verlustbehaftet verliert von oben 3 430 Kanäle mit 255 (95) und 3 697
@@ -737,6 +742,80 @@ Iso ohne Cinematic, 276 Kacheln:
   glatter Stein, Schnee und Wiese haben in der Testwelt keine eigene
   Gruppe. Die grosse Welt ist nicht gemessen.
 
+### Ohne Rückfall mit 6 bis 16
+
+Aus dem zehnten Lauf, für die kleinste Stufe aus #421: das Zusammenlegen
+ohne Rückfall mit 6, 8, 12 und 16, dazu 2 und 4 zum Vergleich. Die Bytes
+von 2 und 4 sind die des sechsten Laufs. Jede Zelle nennt von oben, iso
+mit Cinematic und iso ohne Cinematic.
+
+Feinste Stufe, 563 Kacheln, ein Durchgang, ohne Zuschnitt. „Eingeebnet“
+zählt Nachbarn mit demselben Alpha, die im Original 1 bis 4 Stufen
+auseinander liegen und danach gleich sind. „Mit Palette“ zählt die Kacheln
+mit höchstens 256 Farben, von 182, 227 und 154.
+
+| Stärke | Bytes von kompakt | gegen 8 | grösste Abweichung | PSNR, dB | schlechteste Kachel, dB | weiche Kanten eingeebnet | mit Palette |
+|---|---|---|---|---|---|---|---|
+| 2 | 56,1 / 47,2 / 52,0 % | +94,9 / +98,8 / +94,3 % | 2 | 48,0 / 47,8 / 47,9 | 46,5 / 46,7 / 46,3 | 43,3 / 43,7 / 52,6 % | 50 / 100 / 61 |
+| 4 | 41,8 / 35,4 / 38,9 % | +45,2 / +48,9 / +45,2 % | 4 | 42,9 / 42,8 / 42,7 | 41,2 / 41,4 / 41,1 | 72,1 / 69,5 / 71,3 % | 121 / 178 / 115 |
+| 6 | 33,9 / 27,8 / 31,2 % | +17,7 / +17,3 / +16,4 % | 6 | 40,0 / 39,8 / 39,5 | 37,9 / 37,9 / 37,8 | 79,6 / 83,2 / 81,6 % | 169 / 216 / 150 |
+| 8 | 28,8 / 23,7 / 26,8 % | – | 8 | 37,5 / 37,7 / 37,4 | 35,6 / 36,0 / 35,6 | 86,6 / 87,9 / 87,0 % | 181 / 227 / 154 |
+| 12 | 22,5 / 18,0 / 21,3 % | −21,8 / −24,2 / −20,5 % | 12 | 34,5 / 34,8 / 34,5 | 32,4 / 32,8 / 32,5 | 92,8 / 92,9 / 92,6 % | 182 / 227 / 154 |
+| 16 | 17,9 / 14,5 / 17,2 % | −37,8 / −39,1 / −35,6 % | 16 | 32,4 / 32,8 / 32,3 | 30,2 / 30,3 / 29,7 | 95,4 / 95,8 / 94,8 % | 182 / 227 / 154 |
+
+Alle Stufen der Pyramide mit dem Zuschnitt von libwebp, Median aus drei
+Durchgängen; 214, 276 und 276 Kacheln der Gruppen Wald, Wasser, Wüste und
+Rand. Die Eltern entstehen aus den dekodierten Kindern. „Schwächste Stufe“
+ist die Stufe mit der kleinsten PSNR; ab Stufe 6 haben die Ausschnitte
+unter 2 500 sichtbare Pixel.
+
+| Stärke | Bytes von kompakt | gegen 8 | grösste Abweichung | PSNR, dB | schwächste Stufe, dB | Packen gegen heute | Kanäle neu 255 |
+|---|---|---|---|---|---|---|---|
+| 2 | 56,9 / 47,1 / 52,4 % | +94,0 / +101,9 / +104,8 % | 7 / 7 / 6 | 47,8 / 47,3 / 47,3 | 47,2 / 44,2 / 43,1 | −6,2 / −6,7 / −2,4 % | 0 |
+| 4 | 42,6 / 35,1 / 38,3 % | +45,3 / +50,7 / +49,8 % | 12 / 12 / 13 | 42,6 / 42,2 / 42,1 | 41,4 / 39,2 / 38,2 | −4,0 / −0,1 / +3,5 % | 0 |
+| 6 | 34,8 / 27,6 / 30,5 % | +18,5 / +18,3 / +19,5 % | 18 / 17 / 20 | 39,8 / 39,4 / 38,9 | 38,7 / 37,1 / 35,8 | −4,0 / −2,4 / +4,1 % | 0 |
+| 8 | 29,3 / 23,3 / 25,6 % | – | 24 / 23 / 24 | 37,3 / 37,2 / 36,8 | 36,4 / 34,1 / 33,9 | −3,9 / −2,8 / +4,3 % | 0 |
+| 12 | 22,5 / 17,5 / 19,6 % | −23,4 / −25,0 / −23,3 % | 40 / 31 / 34 | 34,4 / 34,3 / 33,9 | 32,9 / 31,6 / 30,0 | −7,6 / −9,7 / +1,8 % | 0 / 0 / 3 |
+| 16 | 17,9 / 14,0 / 15,6 % | −39,2 / −40,0 / −38,8 % | 47 / 38 / 43 | 32,2 / 32,4 / 31,7 | 31,0 / 30,3 / 26,9 | −12,2 / −16,0 / −1,6 % | 0 / 0 / 3 |
+
+- **Über 8 hinaus spart jede Stufe weiter.** An der feinsten Stufe ist 12
+  um 20,5 bis 24,2 % kleiner als 8, 16 um 35,6 bis 39,1 % kleiner als 8
+  und um 19,0 bis 20,5 % kleiner als 12. In Punkten von kompakt sind es
+  von 8 auf 12 noch 5,5 bis 6,3 und von 12 auf 16 noch 3,5 bis 4,6; von 4
+  auf 8 waren es 11,7 bis 13,0.
+- **Die PSNR fällt je Schritt um 2 bis 3 dB:** 37,4 bis 37,7 dB mit 8,
+  34,5 bis 34,8 mit 12, 32,3 bis 32,8 mit 16. Die schlechteste Kachel
+  liegt ab 8 je 1,7 bis 2,6 dB darunter.
+- **Verläufe werden zu Flächen:** Mit 8 sind 87 bis 88 % der weichen
+  Kanten eingeebnet, mit 16 rund 95 %.
+- **Über die Pyramide** wächst die grösste Abweichung wie sonst auf etwa
+  das Dreifache der Grenze: 23 bis 24 mit 8, 31 bis 40 mit 12, 38 bis 47
+  mit 16. Die schwächste Stufe liegt von oben 0,7 bis 1,6 dB unter der
+  feinsten, im iso 2,4 bis 5,4 dB.
+- **Kanäle neu 255:** Mit 12 und 16 werden im iso ohne Cinematic 3 Kanäle
+  neu 255, auf der ersten Stufe über der Basis, in der Gruppe am Rand. An
+  der Basis wird keiner neu 255: Das Zusammenlegen selbst macht keinen
+  Kanal neu zu 255, neu entsteht er beim Mitteln der dekodierten Kinder.
+  Alpha bleibt überall gleich, und kein Kanal verliert 255.
+- **Palette:** Mit 8 hat von oben eine Kachel mehr als 256 Farben, im iso
+  keine; ab 12 keine mehr.
+- **Zeit:** Mit dem Zuschnitt packt jede Stärke zwischen 16,0 % schneller
+  und 4,3 % langsamer als kompakt heute, die hohen Stärken am schnellsten.
+  Die Durchgänge streuen bis 1,5 Punkte.
+- **Aussehen,** angesehen an vier Kacheln der Testwelt im iso mit
+  Cinematic, nicht gemessen: Wasser, Wiese, Wald und ein Dorf, je Stärke
+  ein Bogen im Tag `versuch/farben-staerken`.
+  - Wasser kippt zuerst. Ein weicher Verlauf zeigt mit 6 eine Kontur, mit
+    8 eine harte Kante, mit 12 und 16 Flecken.
+  - Wiese, Wald und Dorf sind mit 6 und 8 an der ganzen Kachel kaum vom
+    Original zu unterscheiden; dreifach vergrössert wird der dunkle
+    Schatten im Wald mit 8 fleckig.
+  - Mit 12 und 16 verliert die Wiese ihre Körnung, der Schatten im Wald
+    wird zur Fläche, im Dorf werden Wiese und Wasser flach. Dach, Mauer
+    und Blumen bleiben.
+- **Nicht gemessen:** die grosse Welt. Wo eine Stärke an der Karte stört,
+  entscheiden Augen.
+
 ### Ausgeschieden
 
 Bytes, grösste Abweichung und PSNR für von oben, iso mit und iso ohne
@@ -822,6 +901,17 @@ Angesehen, nicht gemessen:
   - Auf der CI im Median aus drei Durchgängen packt es mit dem Zuschnitt
     6 bis 17 % langsamer als kompakt heute.
   - Ob die Einstufung trifft, was man sieht, ist nicht gemessen.
+- **Über 8 hinaus spart jede Stufe weiter; die Grenze setzt das Aussehen,
+  nicht der Platz.**
+  - Ohne Rückfall bleiben mit 8 noch 23,7 bis 28,8 % von kompakt, mit 12
+    noch 18,0 bis 22,5 %, mit 16 noch 14,5 bis 17,9 %: 12 ist 21 bis 24 %
+    kleiner als 8, 16 ist 36 bis 39 % kleiner als 8.
+  - Die PSNR fällt dabei von 37,4 bis 37,7 dB auf 32,3 bis 32,8 dB, die
+    grösste Abweichung über die Pyramide steigt von 23 bis 24 auf 38 bis
+    47.
+  - Angesehen an vier Kacheln der Testwelt: Wasser im iso mit Cinematic
+    zeigt mit 6 eine Kontur und mit 8 eine harte Kante; Wiese, Wald und
+    Dorf kippen erst mit 12 und 16.
 - **Die grösste Abweichung gilt an der Basis.** In der Pyramide wächst sie
   bis etwa zum Dreifachen der Grenze, im iso wie bei near-lossless. Die
   PSNR bleibt nach ein bis zwei Stufen stehen.

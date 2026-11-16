@@ -129,6 +129,20 @@ maximal einfach als qualitätsstufen ein“).
   ganz neu.
 - **Ändert sich die Regel der Vorstufe,** steigt der Kodierstand, sonst
   passte der Hash nicht mehr zu den Bytes.
+- **Kein Zurück auf einen älteren Renderer** von einem Baum unter
+  `maximal_compact`:
+  - Ein Renderer von vor den Stufen kennt das Feld `quality` nicht und
+    überliest es, `MapInfo` lehnt unbekannte Felder nicht ab. Er liest einen
+    Baum mit `good` als schnell und verlustfrei.
+  - Ein Update mit ihm packt die Kacheln seines Gebiets verlustfrei schnell
+    in den Baum. Die Bilder sind gültig, aber der Baum mischt dann zwei
+    Packungen.
+  - Nichts hält ihn davon ab. Das Plugin bringt seinen Renderer selbst mit;
+    Gefahr läuft also nur, wer einen älteren Renderer von Hand oder ein
+    älteres Plugin startet.
+  - Ein neuer Renderer heilt es mit dem nächsten Update im selben Gebiet:
+    Die Hashes der älteren Kacheln gelten der schnellen Packung, er packt
+    sie darum neu.
 - **Später, nicht Teil dieser Entscheidung:**
   - Gebiete mit eigener Stufe; die höchste Stufe gewinnt.
   - `--repack` von `maximal` aus.

@@ -1406,13 +1406,23 @@ fn feine_stufen_im_speicher_wie_von_der_platte() {
         reihe[schnitt].parent(),
         "der erste Schnitt zwischen drei Threads trennt keine Geschwister"
     );
-    let ganz = ["--scale", "32", "--native-levels", "0"];
-    let nativ = ["--scale", "32", "--native-levels", "1"];
-    let zwei = ["--scale", "32", "--native-levels", "2"];
+    for stufe in ["good", "maximal_compact"] {
+        feine_stufen_im_speicher_mit(welt.path(), stufe);
+    }
+}
+
+/// [`feine_stufen_im_speicher_wie_von_der_platte`] mit dieser Stufe.
+fn feine_stufen_im_speicher_mit(welt: &Path, stufe: &str) {
+    let mit = |args: &[&'static str]| -> Vec<&str> {
+        args.iter().copied().chain(["--quality", stufe]).collect()
+    };
+    let ganz = mit(&["--scale", "32", "--native-levels", "0"]);
+    let nativ = mit(&["--scale", "32", "--native-levels", "1"]);
+    let zwei = mit(&["--scale", "32", "--native-levels", "2"]);
     for (threads, args, stufen) in [(1, &ganz, 0), (3, &ganz, 0), (1, &nativ, 1), (1, &zwei, 2)] {
-        let fall = format!("{threads} Threads, {args:?}");
+        let fall = format!("{stufe}, {threads} Threads, {args:?}");
         let out = neuer_baum("2x1-se");
-        let ausgabe = export_auf(threads, welt.path(), out.path(), args);
+        let ausgabe = export_auf(threads, welt, out.path(), args);
         let meldung = String::from_utf8_lossy(&gelungen(&ausgabe).stdout).into_owned();
         assert_eq!(
             meldung.contains(IM_SPEICHER),
@@ -1438,13 +1448,16 @@ fn feine_stufen_im_speicher_wie_von_der_platte() {
     }
 
     let out = neuer_baum("2x1-se");
-    gelungen(&export_auf(1, welt.path(), out.path(), &ganz));
+    gelungen(&export_auf(1, welt, out.path(), &ganz));
     let soll = schnappschuss(out.path());
     let ausschnitt = [&ganz[..], &["--center", "48", "48", "--size", "1536"]].concat();
-    let ausgabe = export_auf(1, welt.path(), out.path(), &ausschnitt);
+    let ausgabe = export_auf(1, welt, out.path(), &ausschnitt);
     let meldung = String::from_utf8_lossy(&gelungen(&ausgabe).stdout).into_owned();
-    assert!(meldung.contains(IM_SPEICHER), "Ausschnitt: {meldung}");
-    assert_eq!(schnappschuss(out.path()), soll, "Ausschnitt");
+    assert!(
+        meldung.contains(IM_SPEICHER),
+        "{stufe}, Ausschnitt: {meldung}"
+    );
+    assert_eq!(schnappschuss(out.path()), soll, "{stufe}, Ausschnitt");
 }
 
 /// Die nativen Stufen laufen in Bändern und teilen Chunks und Licht über
@@ -5925,16 +5938,26 @@ fn baue_aenderungen(welt: &Path) {
 /// Änderung, und ein zweites Update ohne Änderung zeichnet nichts. Danach
 /// verschwindet alles wieder, die Türme auch über der Höhe des Geländes.
 /// Bei scale 16 mit nativen Stufen, bei 12 ohne, mit Cinematic dazu die
-/// langen Schatten der Türme, und von oben mit dem nächsten Pixel.
+/// langen Schatten der Türme, und von oben mit dem nächsten Pixel. Je mit
+/// zusammengelegten Farben, `good`, und verlustfrei, `maximal_compact`.
 #[test]
 fn update_gleicht_einem_vollen_lauf() {
-    for extra in [
+    for stufe in ["good", "maximal_compact"] {
+        update_gleicht_einem_vollen_lauf_mit(stufe);
+    }
+}
+
+/// [`update_gleicht_einem_vollen_lauf`] mit dieser Stufe.
+fn update_gleicht_einem_vollen_lauf_mit(stufe: &str) {
+    for fall in [
         &["--scale", "16"][..],
         &["--scale", "12"],
         &["--scale", "16", "--cinematic"],
         &["--scale", "12", "--cinematic"],
         &["--scale", "8", "--camera", "top-north"],
     ] {
+        let extra: Vec<&str> = fall.iter().copied().chain(["--quality", stufe]).collect();
+        let extra = &extra[..];
         let welt = tempdir();
         baue_gelaende(welt.path());
         let name = baum_name(extra);

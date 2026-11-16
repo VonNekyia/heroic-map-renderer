@@ -41,6 +41,11 @@ dem Plugin-Programmierer ab.
     `--compact-tree` lehnt einen Baum unter `maximal_compact` ab.
   - Wechselt die Stufe eines Baums zum Download, lädt jeder Spieler mit dem
     Mod die Karte danach einmal ganz neu.
+  - Von einem Baum unter `maximal_compact` gibt es kein Zurück auf einen
+    Renderer von vor den Stufen, also auch nicht auf ein älteres Plugin. Er
+    überliest `quality` und packt in seinem Update verlustfrei schnell,
+    siehe [0143](entscheidungen/0143-stufen-farben-zusammenlegen.md),
+    „Folgen“.
 - **Kompakt packen, für Plugin und CLI gleich** (Maintainer, 08.10.):
   - `--compact` bei jedem vollen Lauf, wenn `renderer.compact` in der
     `config.yml` des Plugins `true` ist; Updates bekommen ihn nicht, sie

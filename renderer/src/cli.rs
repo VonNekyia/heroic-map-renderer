@@ -6282,6 +6282,18 @@ mod tests {
     use super::*;
     use clap::CommandFactory;
 
+    /// `STUFEN` steht in der Reihenfolge von [`Qualitaet`], denn
+    /// `STUFEN[self as usize]` liest danach, und mit den Namen, die clap für
+    /// `--quality` annimmt.
+    #[test]
+    fn stufen_in_der_reihenfolge_der_qualitaet() {
+        assert_eq!(Qualitaet::value_variants().len(), STUFEN.len());
+        for (i, (stufe, name, _)) in STUFEN.iter().enumerate() {
+            assert_eq!(*stufe as usize, i, "{name}");
+            assert_eq!(stufe.to_possible_value().unwrap().get_name(), *name);
+        }
+    }
+
     /// Das Protokoll liegen gelassener Kacheln nennt, was `Liegen` schrieb,
     /// auch über ein Fortsetzen hinweg; ein Eintrag aus Nullen, wie ein
     /// Stromausfall ihn hinterlassen kann, und ein halber am Ende fallen weg.

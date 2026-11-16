@@ -137,12 +137,15 @@ maximal einfach als qualitätsstufen ein“).
   - Ein Update mit ihm packt die Kacheln seines Gebiets verlustfrei schnell
     in den Baum. Die Bilder sind gültig, aber der Baum mischt dann zwei
     Packungen.
+  - Er schreibt `map.json` vor der ersten Kachel neu, nur mit den Feldern,
+    die er kennt: `quality` fällt heraus.
   - Nichts hält ihn davon ab. Das Plugin bringt seinen Renderer selbst mit;
     Gefahr läuft also nur, wer einen älteren Renderer von Hand oder ein
     älteres Plugin startet.
-  - Ein neuer Renderer heilt es mit dem nächsten Update im selben Gebiet:
-    Die Hashes der älteren Kacheln gelten der schnellen Packung, er packt
-    sie darum neu.
+  - Ein neuer Renderer liest den Baum danach als `maximal` und packt so
+    weiter; die Kacheln der Stufe bleiben, bis ein Lauf sie neu zeichnet.
+    Ein Update mit `--quality` der alten Stufe bricht ab, „dieser Lauf
+    will“. Zurück zur Stufe führt nur ein voller Lauf mit `--quality`.
 - **Später, nicht Teil dieser Entscheidung:**
   - Gebiete mit eigener Stufe; die höchste Stufe gewinnt.
   - `--repack` von `maximal` aus.

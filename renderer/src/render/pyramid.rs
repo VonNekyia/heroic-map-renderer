@@ -305,8 +305,9 @@ pub struct MapInfo {
     /// Feld, packt er schnell.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compact: Option<bool>,
-    /// Die Stufe von `--quality`: `minimal`, `small`, `good` oder `maximal`.
-    /// Fehlt das Feld, packt der Baum verlustfrei, wie `maximal`.
+    /// Die Stufe von `--quality`: `minimal`, `small`, `good`,
+    /// `maximal_compact` oder `maximal`. Fehlt das Feld, packt der Baum
+    /// verlustfrei: mit `compact` wie `maximal_compact`, sonst wie `maximal`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub quality: Option<String>,
     /// `"nearest"`, wenn die Pyramide je 2 × 2 einen Pixel nimmt, siehe

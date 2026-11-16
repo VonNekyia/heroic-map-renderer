@@ -33,8 +33,9 @@ GPU-Tests bleiben in der Coverage.
 ## Verworfene Alternativen
 
 - **Instanz ohne `InstanceFlags::DEBUG`:** wgpu benennt dann keine Objekte
-  mehr, und der eine Wettlauf fällt weg. Es bleiben 3 Abstürze in 120
-  Läufen, denn dann trifft das Aufzählen der Adapter das Anlegen eines
+  mehr, und der eine Wettlauf fällt weg. Instrumentiert und unter gdb
+  stürzten trotzdem noch 2 von 40 Läufen mit 6 Threads ab und 1 von 40 nur
+  mit Vulkan: Dann trifft das Aufzählen der Adapter das Anlegen eines
   Geräts. Dazu fehlten im Debug-Build die Namen in den Meldungen der
   Validierung.
 - **Eine Sperre um `Gpu::mit_grenze`:** Sie deckt das Anlegen ab, aber nicht

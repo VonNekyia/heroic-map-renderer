@@ -394,11 +394,11 @@ einem Prozess. Dann stürzt der Vulkan-Loader unter lavapipe ab (SIGSEGV):
 
   | Wie | Abstürze |
   |---|---|
-  | 6 Threads, instrumentiert | 31 |
-  | 6 Threads, nicht instrumentiert | 28 |
-  | 1 Thread, instrumentiert | 0 |
-  | `cargo llvm-cov` | NN |
-  | `cargo llvm-cov nextest` | NN |
+  | unter gdb, 6 Threads, instrumentiert | 31 |
+  | unter gdb, 6 Threads, nicht instrumentiert | 28 |
+  | unter gdb, 1 Thread, instrumentiert | 0 |
+  | `cargo llvm-cov`, wie die Coverage bis dahin | 9 |
+  | `cargo llvm-cov nextest` | 0 |
 
 - Der Renderer öffnet in einem Lauf nur ein Gerät. Im Betrieb tritt der
   Wettlauf darum nicht auf.

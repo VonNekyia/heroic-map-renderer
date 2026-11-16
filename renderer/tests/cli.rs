@@ -2622,14 +2622,13 @@ fn kompakt_bleibt_beim_baum() {
         .flat_map(|x| (0..4).map(move |z| (x * 3, z * 3)))
         .collect();
     common::write_world(welt.path(), &chunks, gelaende);
-    let args = [
-        "--quality",
-        "maximal",
-        "--scale",
-        "8",
-        "--native-levels",
-        "0",
-    ];
+    let args = ["--scale", "8", "--native-levels", "0"];
+    // Angelegt verlustfrei schnell; jeder Lauf danach packt mit der Stufe des Baums.
+    let erst: Vec<&str> = args
+        .iter()
+        .copied()
+        .chain(["--quality", "maximal"])
+        .collect();
     let mit: Vec<&str> = args.iter().copied().chain(["--compact"]).collect();
     let ohne_karte = |mut dateien: BTreeMap<String, Vec<u8>>| {
         dateien.remove("map.json");
@@ -2642,7 +2641,7 @@ fn kompakt_bleibt_beim_baum() {
         |ausgabe: &Output| String::from_utf8_lossy(&gelungen(ausgabe).stdout).into_owned();
 
     let schnell = neuer_baum("2x1-se");
-    gelungen(&tiles(welt.path(), schnell.path(), &args));
+    gelungen(&tiles(welt.path(), schnell.path(), &erst));
     assert_eq!(karte(schnell.path()).get("compact"), None);
     let kompakt = neuer_baum("2x1-se");
     let erster = meldung(&tiles(welt.path(), kompakt.path(), &mit));
@@ -2710,14 +2709,13 @@ fn nachverdichten_wie_kompakt() {
         .flat_map(|x| (0..4).map(move |z| (x * 3, z * 3)))
         .collect();
     common::write_world(welt.path(), &chunks, gelaende);
-    let args = [
-        "--quality",
-        "maximal",
-        "--scale",
-        "8",
-        "--native-levels",
-        "1",
-    ];
+    let args = ["--scale", "8", "--native-levels", "1"];
+    // Angelegt verlustfrei schnell; jeder Lauf danach packt mit der Stufe des Baums.
+    let erst: Vec<&str> = args
+        .iter()
+        .copied()
+        .chain(["--quality", "maximal"])
+        .collect();
     let ohne_karte = |mut dateien: BTreeMap<String, Vec<u8>>| {
         dateien.remove("map.json");
         dateien
@@ -2732,7 +2730,7 @@ fn nachverdichten_wie_kompakt() {
             .collect()
     };
     let baum = neuer_baum("2x1-se");
-    gelungen(&tiles(welt.path(), baum.path(), &args));
+    gelungen(&tiles(welt.path(), baum.path(), &erst));
     let damals = zeiten(baum.path());
     let verdichte = |extra: &[&str]| -> String {
         let mut schalter = vec![OsStr::new("--compact-tree"), baum.path().as_os_str()];
@@ -2785,16 +2783,13 @@ fn nachverdichten_wie_kompakt() {
 fn nachverdichten_mit_der_schicht() {
     let welt = tempdir();
     baue_update_welt(welt.path(), hell_am_hang, &[], 1);
-    let args = [
-        "--quality",
-        "maximal",
-        "--camera",
-        "top-north",
-        "--scale",
-        "8",
-        "--relief",
-        "slope",
-    ];
+    let args = ["--camera", "top-north", "--scale", "8", "--relief", "slope"];
+    // Angelegt verlustfrei schnell; jeder Lauf danach packt mit der Stufe des Baums.
+    let erst: Vec<&str> = args
+        .iter()
+        .copied()
+        .chain(["--quality", "maximal"])
+        .collect();
     let zeiten = |dir: &Path| -> BTreeMap<String, SystemTime> {
         dateien(dir)
             .into_iter()
@@ -2805,7 +2800,7 @@ fn nachverdichten_mit_der_schicht() {
             .collect()
     };
     let baum = neuer_baum("top-north-s");
-    gelungen(&export(welt.path(), baum.path(), &args));
+    gelungen(&export(welt.path(), baum.path(), &erst));
     let damals = zeiten(baum.path());
     assert!(
         damals.keys().any(|rel| rel.starts_with("relief/rest/")),
@@ -2851,15 +2846,14 @@ fn nachverdichten_nach_abbruch_ohne_hashes() {
         let welt = tempdir();
         baue_gelaende(welt.path());
         let baum = neuer_baum("2x1-se");
-        let extra = [
-            "--quality",
-            "maximal",
-            "--scale",
-            "16",
-            "--native-levels",
-            native,
-        ];
-        gelungen(&export(welt.path(), baum.path(), &extra));
+        let extra = ["--scale", "16", "--native-levels", native];
+        // Angelegt verlustfrei schnell; jeder Lauf danach packt mit der Stufe des Baums.
+        let erst: Vec<&str> = extra
+            .iter()
+            .copied()
+            .chain(["--quality", "maximal"])
+            .collect();
+        gelungen(&export(welt.path(), baum.path(), &erst));
         baue_aenderungen(welt.path());
         let update = [&extra[..], &["--update", "--threads", "1"]].concat();
         let abbruch = update_mit_abbruch(welt.path(), baum.path(), &update, "vor-pyramide");
@@ -9349,7 +9343,7 @@ fn ohne_map_json(dir: &Path) -> BTreeMap<String, Vec<u8>> {
 /// Wert mehr als 2 von `maximal` ab, Alpha bleibt überall Bit für Bit, und
 /// es wird wirklich zusammengelegt. Schicht und Rest des Reliefs bleiben
 /// Pixel für Pixel, sie sind Daten für den Mod.
-/// Siehe docs/entscheidungen/0143-vier-stufen-farben-zusammenlegen.md.
+/// Siehe docs/entscheidungen/0143-stufen-farben-zusammenlegen.md.
 #[test]
 fn neuer_baum_ist_good() {
     let welt = tempdir();
@@ -9402,39 +9396,70 @@ fn neuer_baum_ist_good() {
 }
 
 /// Ein Baum, dessen `map.json` keine Stufe nennt, stammt von vor den Stufen
-/// und bleibt verlustfrei: Ein voller Lauf, ein Update und `--resume` ohne
-/// `--quality` lassen ihn Byte für Byte wie einen Baum mit `--quality
-/// maximal`, und `map.json` bekommt das Feld nicht.
+/// und packt wie damals: schnell als `maximal`, mit `"compact": true` als
+/// `maximal_compact`. Ein voller Lauf, ein Update und `--resume` ohne
+/// `--quality` lassen ihn Byte für Byte wie einen neuen Baum dieser Stufe,
+/// und `map.json` bekommt das Feld nicht.
 /// Siehe docs/benutzung/map-json.md, „Packen“.
 #[test]
 fn alter_baum_bleibt_verlustfrei() {
     let welt = tempdir();
     baue_gelaende(welt.path());
-    let maximal = ["--scale", "16", "--quality", "maximal"];
-    let alt = neuer_baum("2x1-se");
-    gelungen(&export(welt.path(), alt.path(), &maximal));
-    let mut info = karte_des_baums(alt.path());
-    info.as_object_mut().unwrap().remove("quality");
-    std::fs::write(
-        alt.path().join("map.json"),
-        serde_json::to_string_pretty(&info).unwrap(),
-    )
-    .unwrap();
-    for extra in [
-        &["--scale", "16"][..],
-        &["--scale", "16", "--update"],
-        &["--scale", "16", "--resume"],
-    ] {
-        gelungen(&export(welt.path(), alt.path(), extra));
+    for stufe in ["maximal", "maximal_compact"] {
+        let anlegen = ["--scale", "16", "--quality", stufe];
+        let alt = neuer_baum("2x1-se");
+        gelungen(&export(welt.path(), alt.path(), &anlegen));
+        let mut info = karte_des_baums(alt.path());
+        info.as_object_mut().unwrap().remove("quality");
+        std::fs::write(
+            alt.path().join("map.json"),
+            serde_json::to_string_pretty(&info).unwrap(),
+        )
+        .unwrap();
+        for extra in [
+            &["--scale", "16"][..],
+            &["--scale", "16", "--update"],
+            &["--scale", "16", "--resume"],
+        ] {
+            gelungen(&export(welt.path(), alt.path(), extra));
+            let karte = karte_des_baums(alt.path());
+            assert_eq!(karte.get("quality"), None, "{stufe} {extra:?}");
+            assert_eq!(
+                karte.get("compact").is_some(),
+                stufe == "maximal_compact",
+                "{stufe} {extra:?}"
+            );
+        }
+        let soll = neuer_baum("2x1-se");
+        gelungen(&export(welt.path(), soll.path(), &anlegen));
         assert_eq!(
-            karte_des_baums(alt.path()).get("quality"),
-            None,
-            "{extra:?}"
+            ohne_map_json(alt.path()),
+            ohne_map_json(soll.path()),
+            "{stufe}"
         );
     }
-    let soll = neuer_baum("2x1-se");
-    gelungen(&export(welt.path(), soll.path(), &maximal));
-    assert_eq!(ohne_map_json(alt.path()), ohne_map_json(soll.path()));
+}
+
+/// `--compact` und `--quality` schliessen sich aus: zusammen lehnt der
+/// Renderer sie ab, bevor er etwas schreibt.
+/// Siehe docs/benutzung/map-json.md, „Die Stufe“.
+#[test]
+fn compact_und_quality_zusammen_abgelehnt() {
+    let welt = tempdir();
+    baue_gelaende(welt.path());
+    let baum = neuer_baum("2x1-se");
+    let lauf = export(
+        welt.path(),
+        baum.path(),
+        &["--scale", "16", "--compact", "--quality", "good"],
+    );
+    let fehler = String::from_utf8_lossy(&lauf.stderr);
+    assert!(!lauf.status.success(), "{fehler}");
+    assert!(
+        fehler.contains("--compact") && fehler.contains("--quality"),
+        "{fehler}"
+    );
+    assert!(!baum.path().join("map.json").exists());
 }
 
 /// Ein Lauf schreibt `map.json` vor der ersten Kachel: Bricht der erste Lauf
@@ -9471,7 +9496,7 @@ fn abbruch_nach_der_ersten_kachel_behaelt_die_stufe() {
 /// `--quality` bricht vor der ersten Kachel ab und sagt es mit dem Satz,
 /// den das Plugin liest; ohne den Schalter behält der Baum seine Stufe. Ein
 /// voller Lauf stellt um, zeichnet jede Kachel neu und gleicht danach einem
-/// neuen Baum. `--compact-tree` lehnt einen Baum unter `maximal` ab.
+/// neuen Baum. `--compact-tree` lehnt einen Baum unter `maximal_compact` ab.
 /// Siehe docs/benutzung/map-json.md, „Packen“.
 #[test]
 fn qualitaet_wechselt_nur_im_vollen_lauf() {
@@ -9524,7 +9549,7 @@ fn qualitaet_wechselt_nur_im_vollen_lauf() {
     assert!(!verdichten.status.success(), "{fehler}");
     assert!(
         fehler
-            .contains("packt good: --compact-tree verdichtet nur einen Baum mit --quality maximal"),
+            .contains("packt good: --compact-tree verdichtet nur einen Baum mit --quality maximal oder maximal_compact"),
         "{fehler}"
     );
 }

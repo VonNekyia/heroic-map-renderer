@@ -54,14 +54,20 @@ pub(super) fn verdichte(dir: &Path, mit_manifest: bool) -> Result<()> {
     // die es hier nicht mehr gibt.
     let stufe = super::qualitaet_des_baums(dir, &alt)?;
     ensure!(
-        stufe == super::Qualitaet::Maximal,
-        "{} packt {}: --compact-tree verdichtet nur einen Baum mit --quality maximal",
+        stufe >= super::Qualitaet::MaximalCompact,
+        "{} packt {}: --compact-tree verdichtet nur einen Baum mit --quality maximal oder \
+         maximal_compact",
         dir.join("map.json").display(),
         stufe.name()
     );
     if alt.compact != Some(true) {
+        // Nennt der Baum seine Stufe, heisst sie danach `maximal_compact`.
         let info = MapInfo {
             compact: Some(true),
+            quality: alt
+                .quality
+                .as_ref()
+                .map(|_| super::Qualitaet::MaximalCompact.name().to_string()),
             ..alt.clone()
         };
         schreibe_info(dir, &info, None)?;

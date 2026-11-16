@@ -10,9 +10,9 @@ code:
 
 # 0004: Kacheln als verlustfreies WebP
 
-Abgelöst durch [0143](0143-vier-stufen-farben-zusammenlegen.md): Das Format
-bleibt verlustfreies WebP, aber unter `maximal` legt eine Vorstufe ähnliche
-Farben zusammen.
+Abgelöst durch [0143](0143-stufen-farben-zusammenlegen.md): Das Format
+bleibt verlustfreies WebP, aber unter den beiden verlustfreien Stufen legt
+eine Vorstufe ähnliche Farben zusammen.
 
 ## Anlass
 

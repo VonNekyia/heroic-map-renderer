@@ -66,7 +66,7 @@ das Frontend liest die Datei in `web/src/main.ts`.
 | `nativeLevels` | Zahl der nativen Stufen | [Zoomstufen](zoomstufen.md), „Native Stufen“ |
 | `biomeBlend` | Radius der Mischung der Biomfarben, `--biome-blend` | „Radius der Mischung“ unten |
 | `compact` | `true`, wenn der Baum kompakt packt, `--compact`; fehlt sonst | „Packen“ unten |
-| `quality` | die Stufe, `--quality`: `minimal`, `small`, `good` oder `maximal`; fehlt bei einem Baum von vor den Stufen, dann `maximal` | „Packen“ unten |
+| `quality` | die Stufe, `--quality`: `minimal`, `small`, `good`, `maximal_compact` oder `maximal`; fehlt bei einem Baum von vor den Stufen | „Packen“ unten |
 | `downscale` | `"nearest"`, wenn die Pyramide je 2 × 2 einen Pixel nimmt, bei `top-north`; fehlt sonst, dann mittelt sie | „Verkleinern“ unten |
 | `world` | Kennung der Welt und Dimension, oder `null` | [Welten und Kennung](welten.md) |
 | `heights` | Pfadmuster der Höhen je Region, relativ zum Baum; fehlt es, hat der Baum keine | „Höhen“ unten |
@@ -393,27 +393,29 @@ gehört deshalb zum Baum, siehe
 ### Die Stufe
 
 `--quality` sagt, wie genau ein Baum packt, entschieden in
-[0143](../entscheidungen/0143-vier-stufen-farben-zusammenlegen.md). Alle Stufen sind verlustfreies WebP;
-unter `maximal` legt `lege_zusammen` in
-[`renderer/src/render/tiles.rs`](../../renderer/src/render/tiles.rs) vorher
-ähnliche Farben zusammen, je Kanal höchstens die Stärke daneben, Alpha Bit
-für Bit.
+[0143](../entscheidungen/0143-stufen-farben-zusammenlegen.md). Alle Stufen
+sind verlustfreies WebP. Unter den beiden verlustfreien legt `lege_zusammen`
+in [`renderer/src/render/tiles.rs`](../../renderer/src/render/tiles.rs)
+vorher ähnliche Farben zusammen, je Kanal höchstens die Stärke daneben. Das
+Alpha bleibt in jeder Stufe Bit für Bit.
 
 | Stufe | Stärke | Packung |
 |---|---|---|
-| `maximal` | – | Pixel für Pixel, schnell oder mit `--compact` kompakt |
-| `good` | 2 | zusammengelegt, dann kompakt |
-| `small` | 4 | zusammengelegt, dann kompakt |
 | `minimal` | 8 | zusammengelegt, dann kompakt |
+| `small` | 4 | zusammengelegt, dann kompakt |
+| `good` | 2 | zusammengelegt, dann kompakt |
+| `maximal_compact` | – | Pixel für Pixel, kompakt |
+| `maximal` | – | Pixel für Pixel, schnell |
 
 Was ein Lauf packt, hängt allein an `map.json` im Verzeichnis
 (`packen` in [`renderer/src/cli.rs`](../../renderer/src/cli.rs)):
 
 | Im Verzeichnis | ohne `--quality` |
 |---|---|
-| keine `map.json`: ein neuer Baum | `good`, und `map.json` nennt es |
+| keine `map.json`: ein neuer Baum | `good`, mit `--compact` `maximal_compact`; `map.json` nennt es |
 | `map.json` mit `"quality"` | diese Stufe |
-| `map.json` ohne `"quality"`: ein Baum von vor den Stufen | `maximal`; das Feld kommt nicht dazu |
+| `map.json` ohne `"quality"`, mit `"compact": true` | `maximal_compact`; das Feld kommt nicht dazu |
+| `map.json` ohne beide: ein schneller Baum von vor den Stufen | `maximal`; das Feld kommt nicht dazu |
 
 - **Ein Lauf schreibt `map.json` vor der ersten Kachel.** Bricht der erste
   Lauf eines Baums ab, steht seine Stufe also schon dort, und `--resume`
@@ -433,11 +435,17 @@ Was ein Lauf packt, hängt allein an `map.json` im Verzeichnis
   Error: Qualität:   <baum>/map.json packt maximal, dieser Lauf will good. Ein Update oder Ausschnitt stellt nicht um, ein voller Lauf ohne --update mit --quality good schon.
   ```
 
-- **`--compact`** gilt nur für `maximal`; jede andere Stufe packt kompakt
-  und sagt es, wenn der Schalter dabei ist. `--compact-tree` lehnt einen
-  Baum unter `maximal` ab.
-- **Schicht und Rest des Reliefs** packen immer verlustfrei, in einem Baum
-  unter `maximal` kompakt: Sie sind Daten für den Mod.
+- **`--compact`** gilt wie vor den Stufen nur für einen neuen Baum; an einem
+  bestehenden ändert es nichts und sagt es. Zusammen mit `--quality` lehnt
+  der Renderer es ab, bevor der Lauf beginnt.
+- **`--compact-tree`** packt einen Baum von `maximal` nach `maximal_compact`
+  und trägt die Stufe ein, wenn `map.json` eine nennt. Einen Baum darunter
+  lehnt es ab.
+- **Schicht und Rest des Reliefs** packen in jeder Stufe verlustfrei, unter
+  den beiden verlustfreien kompakt: Sie sind Daten für den Mod.
+- **Ein Baum zum Download, dessen Stufe wechselt,** bekommt neue Bytes in
+  fast jeder Kachel. Jeder Spieler mit dem Mod lädt die Karte danach einmal
+  ganz neu.
 - **`--pyramid`** packt die Eltern mit der Stufe aus `map.json`.
 
 ## Verkleinern

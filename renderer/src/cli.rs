@@ -199,19 +199,19 @@ pub struct Args {
     #[arg(long, value_name = "N", requires = "tiles")]
     native_levels: Option<u32>,
 
-    /// Mit --tiles kompakt packen: libwebp mit method 1 und ohne räumliche
-    /// Vorhersage, rund die Hälfte der Bytes für ein Mehrfaches der Zeit
-    /// beim Kodieren. Ein neuer Baum merkt es sich in map.json, jeder
-    /// spätere Lauf auf ihm packt so; ein bestehender behält seins
-    #[arg(long, requires = "tiles")]
+    /// Mit --tiles ein neuer Baum mit --quality maximal_compact: libwebp
+    /// mit method 1 und ohne räumliche Vorhersage, rund die Hälfte der Bytes
+    /// für ein Mehrfaches der Zeit beim Kodieren. Ein bestehender Baum
+    /// behält seine Stufe und sagt es
+    #[arg(long, requires = "tiles", conflicts_with = "quality")]
     compact: bool,
 
     /// Mit --tiles, wie genau der Baum packt: `maximal` Pixel für Pixel,
-    /// `good`, `small` und `minimal` legen vorher ähnliche Farben zusammen,
-    /// je Kanal höchstens 2, 4 und 8 daneben, Alpha Bit für Bit. Ein neuer
+    /// `maximal_compact` ebenso, aber kompakt, `good`, `small` und
+    /// `minimal` legen vorher ähnliche Farben zusammen, je Kanal höchstens
+    /// 2, 4 und 8 daneben, Alpha Bit für Bit, und packen kompakt. Ein neuer
     /// Baum ohne den Schalter packt `good`, ein bestehender behält seine
-    /// Stufe aus map.json, ohne das Feld `maximal`; einen anderen Wert nimmt
-    /// nur ein voller Lauf
+    /// Stufe aus map.json; einen anderen Wert nimmt nur ein voller Lauf
     #[arg(long, value_enum, value_name = "STUFE", requires = "tiles")]
     quality: Option<Qualitaet>,
 
@@ -564,23 +564,31 @@ fn projektion_des_baums(dir: &Path, info: &MapInfo) -> Result<Projection> {
 
 /// Wie genau ein Baum packt, aus `--quality`, geordnet von der kleinsten
 /// zur besten Stufe.
-/// Siehe docs/entscheidungen/0143-vier-stufen-farben-zusammenlegen.md.
+/// Siehe docs/entscheidungen/0143-stufen-farben-zusammenlegen.md.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
 enum Qualitaet {
     Minimal,
     Small,
     Good,
+    #[value(name = "maximal_compact")]
+    MaximalCompact,
     Maximal,
 }
 
-/// Je Stufe in der Reihenfolge von [`Qualitaet`] ihr Name und die Stärke, mit
-/// der [`lege_zusammen`](heroic_map_renderer::render::lege_zusammen) die
-/// Farben zusammenlegt; `None` packt verlustfrei.
-const STUFEN: [(Qualitaet, &str, Option<u8>); 4] = [
-    (Qualitaet::Minimal, "minimal", Some(8)),
-    (Qualitaet::Small, "small", Some(4)),
-    (Qualitaet::Good, "good", Some(2)),
-    (Qualitaet::Maximal, "maximal", None),
+/// Je Stufe in der Reihenfolge von [`Qualitaet`] ihr Name und wie sie packt:
+/// mit der Stärke, mit der
+/// [`lege_zusammen`](heroic_map_renderer::render::lege_zusammen) die Farben
+/// zusammenlegt, oder verlustfrei.
+const STUFEN: [(Qualitaet, &str, Packen); 5] = [
+    (Qualitaet::Minimal, "minimal", Packen::Zusammen(8)),
+    (Qualitaet::Small, "small", Packen::Zusammen(4)),
+    (Qualitaet::Good, "good", Packen::Zusammen(2)),
+    (
+        Qualitaet::MaximalCompact,
+        "maximal_compact",
+        Packen::Kompakt,
+    ),
+    (Qualitaet::Maximal, "maximal", Packen::Schnell),
 ];
 
 /// Die Stufe eines neuen Baums ohne `--quality`.
@@ -591,7 +599,7 @@ impl Qualitaet {
         STUFEN[self as usize].1
     }
 
-    fn staerke(self) -> Option<u8> {
+    fn packen(self) -> Packen {
         STUFEN[self as usize].2
     }
 
@@ -600,12 +608,11 @@ impl Qualitaet {
         STUFEN.iter().find(|s| s.1 == name).map(|s| s.0)
     }
 
-    /// Die Stufe, mit der so gepackt wird.
+    /// Die Stufe, die so packt.
     fn von(packen: Packen) -> Qualitaet {
-        let staerke = packen.staerke();
         STUFEN
             .iter()
-            .find(|s| s.2 == staerke)
+            .find(|s| s.2 == packen)
             .map_or(Qualitaet::Maximal, |s| s.0)
     }
 }
@@ -4710,11 +4717,13 @@ fn mischung(dir: &Path, bestand: Option<&MapInfo>, verlangt: Option<u8>) -> Resu
 }
 
 /// Wie der Baum packt, dazu die Stufe, die `map.json` nennen soll, und ob
-/// dieser Lauf sie wechselt. Ohne `qualitaet` gilt die Stufe des Baums, ohne
-/// das Feld `maximal`; ein neuer Baum bekommt [`VORGABE`]. Einen anderen Wert
-/// nimmt nur ein voller Lauf: Er zeichnet jede Kachel neu. Ein Update und
-/// ein Ausschnitt brechen ab, mit dem Satz „dieser Lauf will“, den das
-/// Plugin liest. Ein Baum ohne das Feld bekommt es erst, wenn er wechselt.
+/// dieser Lauf sie wechselt. Ohne `qualitaet` gilt die Stufe des Baums, siehe
+/// [`qualitaet_des_baums`]; ein neuer Baum bekommt mit `kompakt`
+/// `maximal_compact`, sonst [`VORGABE`]. An einem bestehenden Baum ändert
+/// `kompakt` nichts. Einen anderen Wert nimmt nur ein voller Lauf: Er
+/// zeichnet jede Kachel neu. Ein Update und ein Ausschnitt brechen ab, mit
+/// dem Satz „dieser Lauf will“, den das Plugin liest. Ein Baum ohne das Feld
+/// bekommt es erst, wenn er wechselt.
 /// Siehe docs/benutzung/map-json.md, „Packen“.
 fn packen(
     dir: &Path,
@@ -4726,6 +4735,20 @@ fn packen(
     let gespeichert = bestand
         .map(|alt| qualitaet_des_baums(dir, alt))
         .transpose()?;
+    let qualitaet = match (qualitaet, kompakt, gespeichert) {
+        (None, true, None) => Some(Qualitaet::MaximalCompact),
+        (None, true, Some(dort)) => {
+            if dort != Qualitaet::MaximalCompact {
+                println!(
+                    "Packen:     {} packt {}, --compact gilt nur für einen neuen Baum",
+                    dir.join("map.json").display(),
+                    dort.name()
+                );
+            }
+            None
+        }
+        (verlangt, ..) => verlangt,
+    };
     let (gilt, wechselt) = match (gespeichert, qualitaet) {
         (Some(dort), Some(hier)) if dort != hier => {
             let pfad = dir.join("map.json");
@@ -4750,26 +4773,24 @@ fn packen(
         (None, hier) => (hier.unwrap_or(VORGABE), false),
     };
     let feld = (wechselt || bestand.is_none_or(|alt| alt.quality.is_some())).then_some(gilt);
-    let packen = match gilt.staerke() {
-        Some(staerke) => {
-            if kompakt {
-                println!("Packen:     --compact gilt nur für --quality maximal");
-            }
-            println!(
-                "Packen:     {}, Farben je Kanal höchstens {staerke} daneben",
-                gilt.name()
-            );
-            Packen::Zusammen(staerke)
-        }
-        // Wer wechselt, packt wie ein neuer Baum.
-        None => verlustfrei(dir, bestand.filter(|_| !wechselt), kompakt),
-    };
+    let packen = gilt.packen();
+    match packen {
+        Packen::Zusammen(staerke) => println!(
+            "Packen:     {}, Farben je Kanal höchstens {staerke} daneben",
+            gilt.name()
+        ),
+        Packen::Kompakt => println!("Packen:     kompakt, ohne räumliche Vorhersage"),
+        Packen::Schnell => {}
+    }
     Ok((packen, feld, wechselt))
 }
 
-/// Die Stufe, die `map.json` nennt; ohne das Feld `maximal`.
+/// Die Stufe, die `map.json` nennt. Ohne das Feld stammt der Baum von vor den
+/// Stufen und packt wie damals: mit `"compact": true` `maximal_compact`,
+/// sonst `maximal`.
 fn qualitaet_des_baums(dir: &Path, info: &MapInfo) -> Result<Qualitaet> {
     match info.quality.as_deref() {
+        None if info.compact == Some(true) => Ok(Qualitaet::MaximalCompact),
         None => Ok(Qualitaet::Maximal),
         Some(name) => Qualitaet::aus_name(name).with_context(|| {
             format!(
@@ -4782,34 +4803,7 @@ fn qualitaet_des_baums(dir: &Path, info: &MapInfo) -> Result<Qualitaet> {
 
 /// Wie ein bestehender Baum packt, nach seiner `map.json`.
 fn packen_des_baums(dir: &Path, info: &MapInfo) -> Result<Packen> {
-    Ok(match qualitaet_des_baums(dir, info)?.staerke() {
-        Some(staerke) => Packen::Zusammen(staerke),
-        None if info.compact == Some(true) => Packen::Kompakt,
-        None => Packen::Schnell,
-    })
-}
-
-/// Wie ein verlustfreier Baum packt: wie seine `map.json` sagt, ein neuer
-/// nach `kompakt`. Ein bestehender Baum behält seine Packung.
-/// Siehe docs/entscheidungen/0092-kompakt-ohne-vorhersage.md.
-fn verlustfrei(dir: &Path, bestand: Option<&MapInfo>, kompakt: bool) -> Packen {
-    let packen = match bestand.map(|alt| alt.compact == Some(true)) {
-        Some(true) => Packen::Kompakt,
-        Some(false) if kompakt => {
-            println!(
-                "Packen:     {} packt schnell, --compact gilt nur für einen neuen Baum",
-                dir.join("map.json").display()
-            );
-            Packen::Schnell
-        }
-        Some(false) => Packen::Schnell,
-        None if kompakt => Packen::Kompakt,
-        None => Packen::Schnell,
-    };
-    if packen == Packen::Kompakt {
-        println!("Packen:     kompakt, ohne räumliche Vorhersage");
-    }
-    packen
+    Ok(qualitaet_des_baums(dir, info)?.packen())
 }
 
 /// Wie die Pyramide eines Baums verkleinert, siehe [`Verkleinern`]: bei
@@ -5845,7 +5839,7 @@ fn schreibe(
 /// der Vorstufe: Bei einem Treffer läuft sie nicht. Das Bild danach zeigt
 /// die Pixel nach der Vorstufe, wenn gepackt wurde oder `pixel_danach` es
 /// verlangt; diese Pixel bekommen die Eltern im Speicher, wie von der Platte.
-/// Siehe docs/entscheidungen/0143-vier-stufen-farben-zusammenlegen.md.
+/// Siehe docs/entscheidungen/0143-stufen-farben-zusammenlegen.md.
 fn schreibe_oder_lass<'b>(
     dir: &Path,
     z: u32,

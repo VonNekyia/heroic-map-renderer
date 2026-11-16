@@ -895,7 +895,7 @@ pub enum Packen {
     Kompakt,
     /// Wie kompakt, mit den Pixeln nach [`lege_zusammen`] mit dieser
     /// Stärke.
-    /// Siehe docs/entscheidungen/0143-vier-stufen-farben-zusammenlegen.md.
+    /// Siehe docs/entscheidungen/0143-stufen-farben-zusammenlegen.md.
     Zusammen(u8),
 }
 
@@ -926,7 +926,7 @@ pub fn encode_webp(image: &RgbaImage, packen: Packen) -> Result<Vec<u8>> {
 /// gibt es keinen, wird sie selbst einer. Pixel mit Alpha 0 bleiben, wie sie
 /// sind. Alpha bleibt so Bit für Bit, und je Kanal weicht kein Wert mehr als
 /// `staerke` ab.
-/// Siehe docs/entscheidungen/0143-vier-stufen-farben-zusammenlegen.md.
+/// Siehe docs/entscheidungen/0143-stufen-farben-zusammenlegen.md.
 pub fn lege_zusammen(bild: &mut RgbaImage, staerke: u8) {
     let farbe = |p: &[u8; 4]| u32::from_be_bytes(*p);
     // Zählen, Läufe gleicher Pixel am Stück.

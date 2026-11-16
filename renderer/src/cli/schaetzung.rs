@@ -505,9 +505,6 @@ fn probe_schalter(
     if args.download_client_jar {
         s.push("--download-client-jar".into());
     }
-    if einstellung.packen == Packen::Kompakt {
-        s.push("--compact".into());
-    }
     // Der Probelauf legt einen neuen Baum an: ohne den Schalter packte er die
     // Vorgabe statt wie der Baum.
     s.push("--quality".into());
@@ -720,13 +717,17 @@ mod tests {
         }
     }
 
-    /// Der Probelauf packt wie der Baum: kompakt mit `--compact`, sonst
-    /// ohne den Schalter. Kompakt kostet ein Mehrfaches beim Kodieren.
+    /// Der Probelauf packt wie der Baum, mit dessen Stufe: Kompakt kostet ein
+    /// Mehrfaches beim Kodieren, das Zusammenlegen dazu seine Vorstufe.
     #[test]
     fn probelauf_packt_wie_der_baum() {
         use clap::Parser;
         let args = Args::try_parse_from(["x", "--world", "w", "--tiles", "t"]).unwrap();
-        for (packen, soll) in [(Packen::Schnell, false), (Packen::Kompakt, true)] {
+        for (packen, soll) in [
+            (Packen::Schnell, "maximal"),
+            (Packen::Kompakt, "maximal_compact"),
+            (Packen::Zusammen(2), "good"),
+        ] {
             let einstellung = Einstellung {
                 stufen: 0,
                 blend: 2,
@@ -734,11 +735,15 @@ mod tests {
                 bereich: None,
             };
             let schalter = probe_schalter(&args, &einstellung, Path::new("p"), ([0, 0], 512));
+            let stufe = schalter.iter().position(|s| s == "--quality");
             assert_eq!(
-                schalter.iter().any(|s| s == "--compact"),
-                soll,
+                stufe
+                    .and_then(|i| schalter.get(i + 1))
+                    .and_then(|s| s.to_str()),
+                Some(soll),
                 "{packen:?}"
             );
+            assert!(!schalter.iter().any(|s| s == "--compact"), "{packen:?}");
         }
     }
 }

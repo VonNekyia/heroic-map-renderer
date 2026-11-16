@@ -36,8 +36,11 @@ dem Plugin-Programmierer ab.
     der Lauf ab. Das Plugin erkennt das in der Zeile
     `Error:` an „dieser Lauf will“. Umstellen kann nur ein voller Lauf mit
     `--quality`.
-  - `--compact` gilt nur für `maximal`, und `--compact-tree` lehnt einen
-    Baum darunter ab.
+  - `--compact` wählt wie bisher nur für einen neuen Baum,
+    `maximal_compact`, und ist zusammen mit `--quality` abgelehnt.
+    `--compact-tree` lehnt einen Baum unter `maximal_compact` ab.
+  - Wechselt die Stufe eines Baums zum Download, lädt jeder Spieler mit dem
+    Mod die Karte danach einmal ganz neu.
 - **Kompakt packen, für Plugin und CLI gleich** (Maintainer, 08.10.):
   - `--compact` bei jedem vollen Lauf, wenn `renderer.compact` in der
     `config.yml` des Plugins `true` ist; Updates bekommen ihn nicht, sie

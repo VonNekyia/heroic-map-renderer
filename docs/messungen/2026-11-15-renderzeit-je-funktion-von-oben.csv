@@ -1,0 +1,60 @@
+phase,datei,symbol,eigene_prozent,gesamt_prozent,eigene_s,gesamt_s
+"Vorlauf, Assets und Sprites",,"übrige unter 0,5 %",0.45,,10.45,
+Lesen und Dekodieren,renderer/src/render/metatile.rs,Masks::of,3.12,3.13,72.24,72.64
+Lesen und Dekodieren,Crate miniz_oxide,miniz_oxide::inflate::core::decompress_fast,2.54,3.09,58.79,71.69
+Lesen und Dekodieren,renderer/src/world/chunk.rs,decode_section,2.34,2.68,54.27,62.06
+Lesen und Dekodieren,Crate miniz_oxide,miniz_oxide::inflate::core::apply_match,0.52,0.62,11.98,14.45
+Lesen und Dekodieren,Crate core,core::str::converts::from_utf8,0.51,0.42,11.79,9.68
+Lesen und Dekodieren,,"übrige unter 0,5 %",4.65,,107.78,
+Licht,renderer/src/render/licht.rs,Ausbreitung::breite_aus<true>,7.55,,175.05,
+Licht,renderer/src/render/licht.rs,Ausbreitung::chunk,5.64,12.11,130.69,280.61
+Licht,,"übrige unter 0,5 %",0.98,,22.80,
+Sammeln und Deckung,renderer/src/render/metatile.rs,ChunkCache::zelle,2.26,21.30,52.43,493.66
+Sammeln und Deckung,renderer/src/render/metatile.rs,ChunkCache::sprite_at,2.10,29.67,48.65,687.76
+Sammeln und Deckung,renderer/src/render/metatile.rs,"umgebung, Closure",1.80,1.49,41.62,34.61
+Sammeln und Deckung,renderer/src/render/metatile.rs,von_vorn,1.62,41.50,37.66,961.86
+Sammeln und Deckung,renderer/src/world/biomzoom.rs,zoom,1.43,1.19,33.11,27.53
+Sammeln und Deckung,renderer/src/render/metatile.rs,ChunkCache::biome_of,1.40,2.77,32.47,64.31
+Sammeln und Deckung,Crate core,core::hash::sip::write<core::hash::sip::Sip13Rounds>,0.83,,19.13,
+Sammeln und Deckung,renderer/src/render/metatile.rs,"ecken_aus, Closure",0.79,0.66,18.31,15.21
+Sammeln und Deckung,renderer/src/render/metatile.rs,"tints_at, Closure",0.76,3.40,17.53,78.91
+Sammeln und Deckung,renderer/src/render/metatile.rs,ChunkCache::slot,0.73,15.69,16.96,363.74
+Sammeln und Deckung,renderer/src/render/metatile.rs,ChunkCache::sorted_candidates,0.65,10.42,15.03,241.45
+Sammeln und Deckung,renderer/src/render/metatile.rs,ChunkCache::expose,0.58,0.50,13.56,11.64
+Sammeln und Deckung,renderer/src/world/chunk.rs,Chunk::slot,0.53,0.44,12.30,10.23
+Sammeln und Deckung,,"übrige unter 0,5 %",1.65,,38.13,
+Zeichnen,renderer/src/render/metatile.rs,mische,1.14,0.95,26.35,21.92
+Zeichnen,renderer/src/render/metatile.rs,blit_sichtbar,1.02,1.80,23.71,41.64
+Zeichnen,renderer/src/render/metatile.rs,mit_relief,0.68,0.79,15.85,18.38
+Zeichnen,,"übrige unter 0,5 %",0.06,,1.40,
+Kodieren,libwebp (C),VP8LHashChainFill,5.33,6.98,123.45,161.85
+Kodieren,libwebp (C),BackwardReferencesHashChainDistanceOnly,4.04,4.33,93.74,100.26
+Kodieren,libwebp (C),GetCombinedEntropyUnrefined_C,3.05,2.55,70.64,59.06
+Kodieren,libwebp (C),VectorMismatch_AVX2,1.49,1.24,34.53,28.71
+Kodieren,libwebp (C),BackwardReferencesLz77,0.89,0.81,20.69,18.87
+Kodieren,libwebp (C),GenerateOptimalTree,0.77,1.52,17.76,35.13
+Kodieren,libwebp (C),ComputeResidualsForTile,0.70,0.72,16.23,16.79
+Kodieren,libwebp (C),VP8LHistogramStoreRefs,0.67,0.59,15.48,13.71
+Kodieren,libwebp (C),BackwardReferencesHashChainFollowChosenPath,0.61,0.60,14.25,13.93
+Kodieren,libwebp (C),GetBackwardReferences,0.54,7.07,12.49,163.98
+Kodieren,libwebp (C),StoreImageToBitMask,0.51,0.48,11.92,11.11
+Kodieren,,"übrige unter 0,5 %",3.17,,73.53,
+Pyramide,libwebp (C),DecodeImageData,1.07,1.34,24.87,30.96
+Pyramide,,"übrige unter 0,5 %",0.79,,18.25,
+Fingerabdruck und Pixel-Hash,renderer/src/world/chunk.rs,Fnv::section,4.55,3.69,105.36,85.57
+Fingerabdruck und Pixel-Hash,renderer/src/world/chunk.rs,Chunk::abdruck,0.83,3.23,19.17,74.93
+Fingerabdruck und Pixel-Hash,ring (Assembler),L$oop_shaext,0.52,0.43,12.01,9.99
+Fingerabdruck und Pixel-Hash,,"übrige unter 0,5 %",0.01,,0.18,
+Höhen und Boden,,"übrige unter 0,5 %",0.39,,9.03,
+Ablegen,,"übrige unter 0,5 %",0.04,,0.86,
+Allokator,mimalloc (C),mi_malloc_aligned,1.08,1.37,25.04,31.77
+Allokator,,"übrige unter 0,5 %",1.90,,44.04,
+"C-Laufzeit: Kopieren, Füllen, Rechnen",C-Laufzeit,MoveSmall4,2.23,1.95,51.77,45.25
+"C-Laufzeit: Kopieren, Füllen, Rechnen",C-Laufzeit,SetSmall8,1.01,0.86,23.39,19.97
+"C-Laufzeit: Kopieren, Füllen, Rechnen",C-Laufzeit,memcmp,0.53,0.44,12.29,10.20
+"C-Laufzeit: Kopieren, Füllen, Rechnen",C-Laufzeit,Mov0XmmBlocks,0.51,0.43,11.90,9.89
+"C-Laufzeit: Kopieren, Füllen, Rechnen",,"übrige unter 0,5 %",2.27,,52.72,
+Kern und Dateisystem,Kern von Windows,–,9.18,,212.73,
+Kern und Dateisystem,Dateisystem und Platte,–,1.94,,44.94,
+Kern und Dateisystem,,"übrige unter 0,5 %",1.00,,23.23,
+Rest,,"übrige unter 0,5 %",0.06,,1.47,

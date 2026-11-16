@@ -1,0 +1,57 @@
+phase,datei,symbol,eigene_prozent,gesamt_prozent,eigene_s,gesamt_s
+"Vorlauf, Assets und Sprites",,"übrige unter 0,5 %",0.08,,16.33,
+Lesen und Dekodieren,renderer/src/render/metatile.rs,Masks::of,0.72,0.86,150.26,179.58
+Lesen und Dekodieren,,"übrige unter 0,5 %",2.05,,428.53,
+Licht,renderer/src/render/licht.rs,Ausbreitung::breite_aus<true>,0.81,,169.23,
+Licht,renderer/src/render/licht.rs,Ausbreitung::chunk,0.62,1.59,130.23,332.98
+Licht,,"übrige unter 0,5 %",0.19,,39.68,
+Sammeln und Deckung,renderer/src/render/metatile.rs,ChunkCache::slot,2.53,6.81,528.38,1422.56
+Sammeln und Deckung,renderer/src/world/chunk.rs,Chunk::slot,2.37,2.37,494.72,495.89
+Sammeln und Deckung,renderer/src/render/metatile.rs,von_vorn,1.77,9.88,370.17,2064.14
+Sammeln und Deckung,renderer/src/render/metatile.rs,ChunkCache::block_at,1.14,3.80,237.91,794.06
+Sammeln und Deckung,renderer/src/render/metatile.rs,ChunkCache::biome_of,0.61,1.33,127.90,276.92
+Sammeln und Deckung,renderer/src/render/metatile.rs,ChunkCache::zelle,0.60,2.58,126.41,539.57
+Sammeln und Deckung,renderer/src/render/metatile.rs,ChunkCache::sorted_candidates,0.57,2.75,118.84,575.52
+Sammeln und Deckung,,"übrige unter 0,5 %",2.39,,498.70,
+Strahl zur Sonne,renderer/src/render/metatile.rs,ChunkCache::sonne_im_gang,9.40,31.18,1963.65,6514.98
+Strahl zur Sonne,renderer/src/render/sonne.rs,Sonnenform::trifft,6.83,6.88,1426.31,1438.03
+Strahl zur Sonne,renderer/src/render/metatile.rs,ChunkCache::frei_in,6.31,9.35,1317.67,1954.78
+Strahl zur Sonne,renderer/src/render/metatile.rs,ChunkCache::saeule,2.21,6.44,461.65,1345.54
+Strahl zur Sonne,renderer/src/render/metatile.rs,ChunkCache::sonnen_bits,2.12,2.16,443.55,451.33
+Strahl zur Sonne,renderer/src/render/metatile.rs,ChunkCache::frei_zur_sonne,1.59,7.45,331.88,1557.32
+Strahl zur Sonne,renderer/src/render/metatile/strahl.rs,Gang::springe,1.02,1.02,212.94,213.34
+Strahl zur Sonne,renderer/src/render/metatile.rs,ChunkCache::wirkung,0.83,7.74,173.61,1617.05
+Strahl zur Sonne,,"übrige unter 0,5 %",0.22,,46.15,
+Zeichnen,renderer/src/render/metatile.rs,render_hdr,12.80,62.80,2673.76,13122.09
+Zeichnen,renderer/src/render/pyramid.rs,to_srgb,2.01,2.02,420.17,421.26
+Zeichnen,renderer/src/render/metatile.rs,Hdr::bild,1.23,5.40,257.97,1128.33
+Zeichnen,renderer/src/render/kino.rs,Kino::ton,1.06,3.08,221.86,643.72
+Zeichnen,renderer/src/render/kino.rs,Kino::bloom,0.88,0.91,183.35,189.72
+Zeichnen,,"übrige unter 0,5 %",0.19,,38.99,
+Kodieren,libwebp (C),GetCombinedEntropyUnrefined_C,4.78,4.83,999.39,1008.71
+Kodieren,libwebp (C),VP8LHashChainFill,3.93,5.85,821.40,1221.39
+Kodieren,libwebp (C),BackwardReferencesHashChainDistanceOnly,3.06,4.04,640.43,844.04
+Kodieren,libwebp (C),GenerateOptimalTree,1.41,3.29,294.43,687.89
+Kodieren,libwebp (C),VP8LHistogramStoreRefs,1.01,1.04,211.34,217.03
+Kodieren,libwebp (C),BackwardReferencesLz77,0.82,0.96,171.40,201.07
+Kodieren,libwebp (C),StoreImageToBitMask,0.80,0.91,167.53,190.57
+Kodieren,libwebp (C),BackwardReferencesHashChainFollowChosenPath,0.73,0.91,153.09,190.53
+Kodieren,libwebp (C),VectorMismatch_AVX2,0.68,0.68,141.25,141.72
+Kodieren,libwebp (C),GetBackwardReferences,0.56,7.52,117.62,1571.54
+Kodieren,,"übrige unter 0,5 %",2.73,,569.85,
+Pyramide,renderer/src/render/pyramid.rs,halbiere,1.02,1.03,214.04,214.65
+Pyramide,,"übrige unter 0,5 %",0.21,,43.56,
+Fingerabdruck und Pixel-Hash,renderer/src/world/chunk.rs,Fnv::section,0.51,0.49,106.61,103.30
+Fingerabdruck und Pixel-Hash,,"übrige unter 0,5 %",0.41,,85.40,
+Höhen und Boden,,"übrige unter 0,5 %",0.04,,8.74,
+Ablegen,,"übrige unter 0,5 %",0.01,,1.97,
+Allokator,,"übrige unter 0,5 %",0.74,,153.94,
+"C-Laufzeit: Kopieren, Füllen, Rechnen",C-Laufzeit,Mov0XmmBlocks,0.87,0.87,180.81,181.36
+"C-Laufzeit: Kopieren, Füllen, Rechnen",C-Laufzeit,expf,0.69,0.70,145.17,145.53
+"C-Laufzeit: Kopieren, Füllen, Rechnen",C-Laufzeit,qsort,0.62,0.92,130.55,192.30
+"C-Laufzeit: Kopieren, Füllen, Rechnen",C-Laufzeit,MoveSmall4,0.54,0.63,112.02,132.07
+"C-Laufzeit: Kopieren, Füllen, Rechnen",,"übrige unter 0,5 %",1.73,,360.93,
+Kern und Dateisystem,Kern von Windows,–,5.44,,1137.68,
+Kern und Dateisystem,Dateisystem und Platte,–,0.84,,174.99,
+Kern und Dateisystem,,"übrige unter 0,5 %",0.65,,134.97,
+Rest,,"übrige unter 0,5 %",0.03,,5.79,

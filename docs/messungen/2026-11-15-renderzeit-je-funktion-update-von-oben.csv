@@ -1,0 +1,54 @@
+phase,datei,symbol,eigene_prozent,gesamt_prozent,eigene_s,gesamt_s
+"Vorlauf, Assets und Sprites",,"übrige unter 0,5 %",1.46,,0.14,
+Lesen und Dekodieren,Crate miniz_oxide,miniz_oxide::inflate::core::decompress_fast,4.33,6.38,0.42,0.62
+Lesen und Dekodieren,renderer/src/render/metatile.rs,Masks::of,2.93,3.70,0.28,0.36
+Lesen und Dekodieren,renderer/src/world/chunk.rs,decode_section,2.68,4.07,0.26,0.39
+Lesen und Dekodieren,Crate miniz_oxide,miniz_oxide::inflate::core::init_tree,0.71,0.74,0.07,0.07
+Lesen und Dekodieren,Crate cesu8,cesu8::from_cesu8_internal,0.70,1.40,0.07,0.14
+Lesen und Dekodieren,Crate core,core::str::converts::from_utf8,0.66,0.68,0.06,0.07
+Lesen und Dekodieren,Crate miniz_oxide,miniz_oxide::inflate::core::apply_match,0.54,1.06,0.05,0.10
+Lesen und Dekodieren,Crate serde_core,"serde_core::de::impls::deserialize::visit_seq<world::chunk::PaletteEntry,fastnbt::de::L...",0.51,,0.05,
+Lesen und Dekodieren,,"übrige unter 0,5 %",5.21,,0.50,
+Licht,renderer/src/render/licht.rs,Ausbreitung::breite_aus<true>,6.36,,0.62,
+Licht,renderer/src/render/licht.rs,Ausbreitung::chunk,5.27,13.63,0.51,1.32
+Licht,,"übrige unter 0,5 %",0.58,,0.06,
+Sammeln und Deckung,renderer/src/render/metatile.rs,ChunkCache::zelle,2.29,25.06,0.22,2.42
+Sammeln und Deckung,renderer/src/render/metatile.rs,ChunkCache::sprite_at,1.71,33.78,0.17,3.27
+Sammeln und Deckung,renderer/src/world/biomzoom.rs,zoom,1.36,1.43,0.13,0.14
+Sammeln und Deckung,renderer/src/render/metatile.rs,von_vorn,1.26,48.60,0.12,4.70
+Sammeln und Deckung,renderer/src/render/metatile.rs,"umgebung, Closure",1.23,1.30,0.12,0.13
+Sammeln und Deckung,renderer/src/render/metatile.rs,ChunkCache::biome_of,1.00,2.99,0.10,0.29
+Sammeln und Deckung,Crate core,core::hash::sip::write<core::hash::sip::Sip13Rounds>,0.85,,0.08,
+Sammeln und Deckung,renderer/src/render/metatile.rs,"tints_at, Closure",0.78,3.81,0.08,0.37
+Sammeln und Deckung,renderer/src/render/metatile.rs,"ecken_aus, Closure",0.67,0.71,0.07,0.07
+Sammeln und Deckung,renderer/src/render/metatile.rs,ChunkCache::sorted_candidates,0.56,13.41,0.05,1.30
+Sammeln und Deckung,renderer/src/render/metatile.rs,ChunkCache::expose,0.51,0.55,0.05,0.05
+Sammeln und Deckung,,"übrige unter 0,5 %",2.59,,0.25,
+Zeichnen,renderer/src/render/metatile.rs,mische,1.05,1.11,0.10,0.11
+Zeichnen,renderer/src/render/metatile.rs,blit_sichtbar,0.79,1.94,0.08,0.19
+Zeichnen,renderer/src/render/metatile.rs,mit_relief,0.54,0.81,0.05,0.08
+Zeichnen,,"übrige unter 0,5 %",0.02,,0.00,
+Kodieren,libwebp (C),VP8LHashChainFill,2.27,3.75,0.22,0.36
+Kodieren,libwebp (C),GetCombinedEntropyUnrefined_C,1.62,1.73,0.16,0.17
+Kodieren,libwebp (C),BackwardReferencesHashChainDistanceOnly,1.20,1.75,0.12,0.17
+Kodieren,libwebp (C),VectorMismatch_AVX2,0.74,0.79,0.07,0.08
+Kodieren,,"übrige unter 0,5 %",3.05,,0.30,
+Pyramide,libwebp (C),DecodeImageData,2.14,3.02,0.21,0.29
+Pyramide,,"übrige unter 0,5 %",1.12,,0.11,
+Fingerabdruck und Pixel-Hash,ring (Assembler),L$oop_shaext,0.72,0.76,0.07,0.07
+Fingerabdruck und Pixel-Hash,,"übrige unter 0,5 %",0.41,,0.04,
+Höhen und Boden,Crate miniz_oxide,miniz_oxide::deflate::core::compress_inner,3.53,3.77,0.34,0.36
+Höhen und Boden,,"übrige unter 0,5 %",0.44,,0.04,
+Ablegen,,"übrige unter 0,5 %",0.15,,0.01,
+Allokator,mimalloc (C),mi_malloc_aligned,1.39,2.38,0.13,0.23
+Allokator,,"übrige unter 0,5 %",2.83,,0.27,
+"C-Laufzeit: Kopieren, Füllen, Rechnen",C-Laufzeit,MoveSmall4,2.08,2.30,0.20,0.22
+"C-Laufzeit: Kopieren, Füllen, Rechnen",C-Laufzeit,SetSmall8,1.39,1.49,0.13,0.14
+"C-Laufzeit: Kopieren, Füllen, Rechnen",C-Laufzeit,memcmp,0.68,0.71,0.07,0.07
+"C-Laufzeit: Kopieren, Füllen, Rechnen",C-Laufzeit,memcpy_repmovs,0.54,0.60,0.05,0.06
+"C-Laufzeit: Kopieren, Füllen, Rechnen",,"übrige unter 0,5 %",2.63,,0.25,
+Kern und Dateisystem,Kern von Windows,–,14.86,,1.44,
+Kern und Dateisystem,Dateisystem und Platte,–,4.80,,0.46,
+Kern und Dateisystem,Laufzeit von Windows,–,0.85,,0.08,
+Kern und Dateisystem,,"übrige unter 0,5 %",0.74,,0.07,
+Rest,,"übrige unter 0,5 %",0.63,,0.06,

@@ -26,8 +26,18 @@ dem Plugin-Programmierer ab.
 - **Schalter** aus `Args` in
   [`renderer/src/cli.rs`](../renderer/src/cli.rs): `--world`, `--assets`,
   `--data`, `--tiles`, `--camera`, `--direction`, `--scale`, `--cinematic`,
-  `--relief`, `--gpu`, `--update`, `--resume` und `--compact`, siehe
-  [Schalter und Beispiele](benutzung/schalter.md).
+  `--relief`, `--gpu`, `--update`, `--resume`, `--compact` und
+  `--quality`, siehe [Schalter und Beispiele](benutzung/schalter.md).
+- **Die Stufe** (Maintainer, 16.11.), siehe
+  [map.json](benutzung/map-json.md), „Die Stufe“:
+  - Ein neuer Baum ohne `--quality` packt `good`, ein bestehender behält
+    seine Stufe; ohne das Feld packt er `maximal`.
+  - Weicht `--quality` an einem Update von der Stufe des Baums ab, bricht
+    der Lauf ab. Das Plugin erkennt das in der Zeile
+    `Error:` an „dieser Lauf will“. Umstellen kann nur ein voller Lauf mit
+    `--quality`.
+  - `--compact` gilt nur für `maximal`, und `--compact-tree` lehnt einen
+    Baum darunter ab.
 - **Kompakt packen, für Plugin und CLI gleich** (Maintainer, 08.10.):
   - `--compact` bei jedem vollen Lauf, wenn `renderer.compact` in der
     `config.yml` des Plugins `true` ist; Updates bekommen ihn nicht, sie

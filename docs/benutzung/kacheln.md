@@ -285,7 +285,9 @@ bestehenden Baum, etwa mit einem neuen Binär, jede Kachel ein neues ETag.
 `--compact-tree` packt einen fertigen Baum kompakt nach, wie mit
 `--compact`, ohne Welt und ohne Assets (`verdichte` in
 [`renderer/src/cli/verdichten.rs`](../../renderer/src/cli/verdichten.rs)).
-Entschieden in [0093](../entscheidungen/0093-nachverdichten.md).
+Entschieden in [0093](../entscheidungen/0093-nachverdichten.md). Einen Baum
+unter `--quality maximal` lehnt es ab: Es hätte die Pixel vor dem
+Zusammenlegen nicht, denen der Hash gilt, siehe [0143](../entscheidungen/0143-vier-stufen-farben-zusammenlegen.md).
 
 ```bash
 cargo run --release --manifest-path renderer/Cargo.toml -- --compact-tree ./tiles/2x1-se --threads 1 --low-priority

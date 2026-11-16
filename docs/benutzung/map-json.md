@@ -66,6 +66,7 @@ das Frontend liest die Datei in `web/src/main.ts`.
 | `nativeLevels` | Zahl der nativen Stufen | [Zoomstufen](zoomstufen.md), „Native Stufen“ |
 | `biomeBlend` | Radius der Mischung der Biomfarben, `--biome-blend` | „Radius der Mischung“ unten |
 | `compact` | `true`, wenn der Baum kompakt packt, `--compact`; fehlt sonst | „Packen“ unten |
+| `quality` | die Stufe, `--quality`: `minimal`, `small`, `good` oder `maximal`; fehlt bei einem Baum von vor den Stufen, dann `maximal` | „Packen“ unten |
 | `downscale` | `"nearest"`, wenn die Pyramide je 2 × 2 einen Pixel nimmt, bei `top-north`; fehlt sonst, dann mittelt sie | „Verkleinern“ unten |
 | `world` | Kennung der Welt und Dimension, oder `null` | [Welten und Kennung](welten.md) |
 | `heights` | Pfadmuster der Höhen je Region, relativ zum Baum; fehlt es, hat der Baum keine | „Höhen“ unten |
@@ -388,6 +389,56 @@ gehört deshalb zum Baum, siehe
   dabei als Erstes ein, siehe [Kacheln exportieren](kacheln.md),
   „Nachverdichten“.
 - Das Frontend liest das Feld nicht; es dekodiert beide Packungen gleich.
+
+### Die Stufe
+
+`--quality` sagt, wie genau ein Baum packt, entschieden in
+[0143](../entscheidungen/0143-vier-stufen-farben-zusammenlegen.md). Alle Stufen sind verlustfreies WebP;
+unter `maximal` legt `lege_zusammen` in
+[`renderer/src/render/tiles.rs`](../../renderer/src/render/tiles.rs) vorher
+ähnliche Farben zusammen, je Kanal höchstens die Stärke daneben, Alpha Bit
+für Bit.
+
+| Stufe | Stärke | Packung |
+|---|---|---|
+| `maximal` | – | Pixel für Pixel, schnell oder mit `--compact` kompakt |
+| `good` | 2 | zusammengelegt, dann kompakt |
+| `small` | 4 | zusammengelegt, dann kompakt |
+| `minimal` | 8 | zusammengelegt, dann kompakt |
+
+Was ein Lauf packt, hängt allein an `map.json` im Verzeichnis
+(`packen` in [`renderer/src/cli.rs`](../../renderer/src/cli.rs)):
+
+| Im Verzeichnis | ohne `--quality` |
+|---|---|
+| keine `map.json`: ein neuer Baum | `good`, und `map.json` nennt es |
+| `map.json` mit `"quality"` | diese Stufe |
+| `map.json` ohne `"quality"`: ein Baum von vor den Stufen | `maximal`; das Feld kommt nicht dazu |
+
+- **Ein Lauf schreibt `map.json` vor der ersten Kachel.** Bricht der erste
+  Lauf eines Baums ab, steht seine Stufe also schon dort, und `--resume`
+  nimmt nicht die Vorgabe.
+- **Eine andere Stufe nimmt nur ein voller Lauf** mit `--quality`. Er sagt
+  es und zeichnet jede Kachel neu:
+
+  ```
+  Qualität:   <baum>/map.json packt maximal, dieser Lauf packt good und jede Kachel neu
+  ```
+
+  Das gilt auch mit `--resume`: Er setzt dann nicht fort. Ein Update und
+  ein Ausschnitt mit einer anderen Stufe brechen vor der ersten Kachel ab.
+  Die Zeile `Error:` lautet:
+
+  ```
+  Error: Qualität:   <baum>/map.json packt maximal, dieser Lauf will good. Ein Update oder Ausschnitt stellt nicht um, ein voller Lauf ohne --update mit --quality good schon.
+  ```
+
+- **`--compact`** gilt nur für `maximal`; jede andere Stufe packt kompakt
+  und sagt es, wenn der Schalter dabei ist. `--compact-tree` lehnt einen
+  Baum unter `maximal` ab.
+- **Schicht und Rest des Reliefs** packen immer verlustfrei, in einem Baum
+  unter `maximal` kompakt: Sie sind Daten für den Mod.
+- **`--pyramid`** packt die Eltern mit der Stufe aus `map.json`.
 
 ## Verkleinern
 

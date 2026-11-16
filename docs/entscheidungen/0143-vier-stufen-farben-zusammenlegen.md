@@ -115,6 +115,7 @@ Ein Baum packt mit einer von vier Stufen, `--quality` und `"quality"` in
 - **Später, nicht Teil dieser Entscheidung:**
   - Gebiete mit eigener Stufe; die höchste Stufe gewinnt.
   - `--repack` von `maximal` aus.
-  - Eine Mindeststufe für Download-Bäume.
-- **Wasser** bekommt keine eigene Stufe; der Maintainer hat es am 16.11.2026
-  verworfen („weglassen“).
+- **Keine eigene Stufe** bekommen, beides vom Maintainer am 16.11.2026:
+  - Wasser („weglassen“);
+  - Bäume zum Download: Sie bekommen keine Mindeststufe („Download-Bäume
+    ohne Mindeststufe, good reicht“).

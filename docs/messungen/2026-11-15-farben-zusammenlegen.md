@@ -2,7 +2,7 @@
 title: Farben zusammenlegen vor dem Packen
 description: Eine eigene Vorstufe, die ähnliche Farben einer Kachel zusammenlegt, bevor libwebp verlustfrei packt, gegen near-lossless und verlustbehaftet, an 563 Kacheln der Testwelt in der CI und an einer Stichprobe der grossen Welt; mit höchstens 4 Stufen Abweichung je Kanal 25 bis 30 % kleiner als near-lossless 40, an der grossen Welt 35 %; ohne den Rückfall aufs Gitter an der grossen Welt 0,7 bis 2,1 % kleiner, an der Testwelt 0,7 bis 2,4 dB mehr PSNR und mit schnellerer Suche samt dem Zuschnitt von libwebp so schnell wie kompakt heute; glatte Farben mit 2 geschont und der Rest mit 4 ist so gross wie 3 überall; nicht gebaut.
 date: 2026-11-15
-commits: [cfe87ecf, 72432d32, 79817b39, 9b378406, 80facf47]
+commits: [cfe87ecf, 72432d32, 79817b39, 9b378406, 80facf47, ccfcfa27]
 code:
   - renderer/src/render/tiles.rs
   - renderer/src/render/pyramid.rs
@@ -81,7 +81,9 @@ ist nichts; welche Stufe gilt, entscheidet der Maintainer.
   `versuch/farben-rein`, `72432d32`; der siebte: der Tag
   `versuch/farben-rein-pyramide`, `79817b39`; der achte: der Tag
   `versuch/farben-rein-schnell`, `9b378406`; der neunte: der Tag
-  `versuch/farben-schonend`, `80facf47`.
+  `versuch/farben-schonend`, `80facf47`. Das Bild zur Einstufung „glatt“
+  und sein Skript: der Tag `versuch/farben-schonend-bild`, `ccfcfa27`,
+  unter `renderer/tests/probe-bilder/`.
 - **Rechner:** die CI, `ubuntu-latest`, Release-Build, ein geteilter
   Rechner.
 
@@ -594,6 +596,24 @@ Mit t = 4 liegen von oben 30,1 %, im iso mit Cinematic 36,5 % und im iso
 ohne 34,6 % der sichtbaren Pixel in glatten Farben: in den Gruppen mit
 Wasser 49 bis 72 %, mit Wüste 47 bis 55 %, mit Wald 1 bis 11 %.
 
+Die Gruppen heissen nach der Gegend, nicht nach dem, was eine Kachel
+zeigt. Im iso zeigen sechs der 36 Kacheln der Wüste überwiegend Sand, die
+anderen Wasser, einige dazu ein Stück Sand:
+
+- **Sand im iso gilt als unruhig:** Die sechs Kacheln mit Sand kommen auf 1
+  bis 17 % mit Cinematic und 1 bis 16 % ohne, die anderen auf 49 bis 77 %
+  und 44 bis 68 %. Den Anteil der Gruppe trägt dort das Wasser.
+- **Von oben gilt die Sandfläche als glatt,** die Kanten ihrer Stufen als
+  unruhig.
+- **Wasser** gilt im iso mit Cinematic zum grössten Teil als glatt,
+  unruhig sind die Striche seiner Textur. Im iso ohne Cinematic und von
+  oben gilt rund die Hälfte als glatt, Pixel für Pixel gemischt, ohne
+  zusammenhängende Flächen.
+
+Die Anteile je Kachel zählt eine Nachrechnung der Regel in Python; sie
+trifft die Anteile aller 14 Gruppen aus dem Lauf auf eine Nachkommastelle.
+Was eine Kachel zeigt, ist angesehen, nicht gemessen.
+
 Feinste Stufe, 563 Kacheln, ein Durchgang. „Glatt“ und „unruhig“ trennen
 die sichtbaren Pixel nach ihrer Farbe im Original, eingestuft mit t = 4.
 „Weiche Kanten hart“ zählt Nachbarn mit demselben Alpha, die im Original 1
@@ -712,7 +732,8 @@ Iso ohne Cinematic, 276 Kacheln:
   unruhige Flächen zusammen; sie trennen darum schlechter als die PSNR
   nach Farben.
 - **Nicht gemessen:** ob die Einstufung trifft, was man sieht. Gezählt ist
-  nur, dass Wasser und Wüste überwiegend als glatt gelten und Wald nicht;
+  nur, dass die Gruppen mit Wasser und Wüste überwiegend als glatt gelten,
+  die mit Wald nicht, und dass Sand im iso als unruhig gilt;
   glatter Stein, Schnee und Wiese haben in der Testwelt keine eigene
   Gruppe. Die grosse Welt ist nicht gemessen.
 

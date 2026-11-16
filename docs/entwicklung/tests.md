@@ -382,6 +382,27 @@ es. In der CI laufen sie auf Software-Adaptern, und dort ist ein fehlender
 Adapter ein Fehler, siehe [Grafikkarte](../benutzung/grafikkarte.md),
 „Adapter und Backends“.
 
+**Ein Prozess je Test.** Die GPU-Tests laufen nur mit nextest, auch in der
+Coverage, siehe [0144](../entscheidungen/0144-coverage-mit-nextest.md). Mit
+`cargo test` oder `cargo llvm-cov` ohne `nextest` laufen sie als Threads in
+einem Prozess. Dann stürzt der Vulkan-Loader unter lavapipe ab (SIGSEGV):
+
+- Ein Thread legt ein Gerät an (`vkCreateDevice`), während ein anderer
+  ein Objekt benennt (`vkSetDebugUtilsObjectNameEXT`) oder die Adapter
+  aufzählt (`vkEnumeratePhysicalDevices`).
+- `tests/gpu.rs`, je 40 Läufe unter Ubuntu in der CI, Stand 16.11.2026:
+
+  | Wie | Abstürze |
+  |---|---|
+  | 6 Threads, instrumentiert | 31 |
+  | 6 Threads, nicht instrumentiert | 28 |
+  | 1 Thread, instrumentiert | 0 |
+  | `cargo llvm-cov` | NN |
+  | `cargo llvm-cov nextest` | NN |
+
+- Der Renderer öffnet in einem Lauf nur ein Gerät. Im Betrieb tritt der
+  Wettlauf darum nicht auf.
+
 ## Sollwerte aus dem Spiel
 
 Ein Test, der Verhalten des Spiels festschreibt, nennt die Herkunft des

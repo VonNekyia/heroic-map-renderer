@@ -25,7 +25,7 @@ Dieselben Befehle lokal: [Tests](tests.md), „Laufen lassen“.
 | Frontend | Ubuntu | `npm run check`, `npm run lint`, der Build mit einer Attrappe unter `public/tiles`, der Smoke-Test mit Playwright |
 | Lighthouse | Ubuntu | Lighthouse gegen den Build, mit Schwellen, siehe unten |
 | Dependencies | Ubuntu | `cargo deny check` mit [`renderer/deny.toml`](../../renderer/deny.toml), die Lizenzen der Abhängigkeiten und der eigenen Crate, siehe [0078](../entscheidungen/0078-apache-2-0.md); dazu `renderer/drittlizenzen.py`, siehe [Drittlizenzen](drittlizenzen.md) |
-| Coverage | Ubuntu | `cargo llvm-cov --all-targets` |
+| Coverage | Ubuntu | `cargo llvm-cov nextest --all-targets`, ein Prozess je Test wie im Rust-Job, siehe [0144](../entscheidungen/0144-coverage-mit-nextest.md) |
 | Doku | Ubuntu | `bash .github/pruefe-doku.sh`, dazu eine Probe, dass sie anschlägt |
 
 Die Schritte, die unseren Code laufen lassen, haben ein Zeitlimit

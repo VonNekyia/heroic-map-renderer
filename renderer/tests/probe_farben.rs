@@ -631,19 +631,14 @@ impl Zahl {
     }
 }
 
-const VARIANTEN: [(&str, Art); 12] = [
+const VARIANTEN: [(&str, Art); 7] = [
     ("heute", Art::Heute),
-    ("rein1", Art::Schonend(1, 1, 0)),
     ("rein2", Art::Schonend(2, 2, 0)),
-    ("rein3", Art::Schonend(3, 3, 0)),
     ("rein4", Art::Schonend(4, 4, 0)),
-    ("schon0-4-t4", Art::Schonend(0, 4, 4)),
-    ("schon1-4-t4", Art::Schonend(1, 4, 4)),
-    ("schon2-4-t4", Art::Schonend(2, 4, 4)),
-    ("schon0-4-t2", Art::Schonend(0, 4, 2)),
-    ("schon1-4-t2", Art::Schonend(1, 4, 2)),
-    ("schon0-4-t8", Art::Schonend(0, 4, 8)),
-    ("schon1-4-t8", Art::Schonend(1, 4, 8)),
+    ("rein6", Art::Schonend(6, 6, 0)),
+    ("rein8", Art::Schonend(8, 8, 0)),
+    ("rein12", Art::Schonend(12, 12, 0)),
+    ("rein16", Art::Schonend(16, 16, 0)),
 ];
 
 fn lies(pfad: &Path) -> RgbaImage {
@@ -700,16 +695,15 @@ fn eltern(kinder: &Stufe, art: Verkleinern, tiefe: u32) -> Stufe {
 /// `HEROIC_PROBE` für die Kopie von libwebp: „cra“ ist Farb-Cache fest, ohne
 /// RLE, ohne Analyse der Entropie. Die Eltern entstehen aus den dekodierten
 /// Kindern.
-const LAEUFE: [(&str, Art, Art, &str); 9] = [
+const LAEUFE: [(&str, Art, Art, &str); 8] = [
     ("heute", Art::Heute, Art::Heute, ""),
     ("heute-s4", Art::Heute, Art::Heute, "cra"),
     ("rein2-s4", Art::Schonend(2, 2, 0), Art::Schonend(2, 2, 0), "cra"),
     ("rein4-s4", Art::Schonend(4, 4, 0), Art::Schonend(4, 4, 0), "cra"),
-    ("schon0-4-t4-s4", Art::Schonend(0, 4, 4), Art::Schonend(0, 4, 4), "cra"),
-    ("schon1-4-t4-s4", Art::Schonend(1, 4, 4), Art::Schonend(1, 4, 4), "cra"),
-    ("schon2-4-t4-s4", Art::Schonend(2, 4, 4), Art::Schonend(2, 4, 4), "cra"),
-    ("schon1-4-t2-s4", Art::Schonend(1, 4, 2), Art::Schonend(1, 4, 2), "cra"),
-    ("schon1-4-t4", Art::Schonend(1, 4, 4), Art::Schonend(1, 4, 4), ""),
+    ("rein6-s4", Art::Schonend(6, 6, 0), Art::Schonend(6, 6, 0), "cra"),
+    ("rein8-s4", Art::Schonend(8, 8, 0), Art::Schonend(8, 8, 0), "cra"),
+    ("rein12-s4", Art::Schonend(12, 12, 0), Art::Schonend(12, 12, 0), "cra"),
+    ("rein16-s4", Art::Schonend(16, 16, 0), Art::Schonend(16, 16, 0), "cra"),
 ];
 
 #[test]
@@ -737,7 +731,7 @@ fn probe_farben_pyramide() {
             // Mit derselben Grenze für alle Farben legt die schnelle Suche
             // genau so zusammen wie die einfache.
             for bild in bezug.iter().flat_map(|stufe| stufe.values()) {
-                for d in [1, 2, 3, 4, 8] {
+                for d in [2, 4, 6, 8, 12, 16] {
                     assert!(zusammenlegen(bild, d, usize::MAX, true).unwrap() == zusammenlegen_schonend(bild, d, d, 0), "{baum}-{gruppe} d={d}");
                 }
             }

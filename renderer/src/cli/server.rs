@@ -1607,6 +1607,8 @@ mod tests {
             "t/stand.bin",
             "t/stand-neu.bin",
             "t/stand-neu-liegen.bin",
+            "t/gebiete.json",
+            "t/gebiete-neu.json",
             "t/stand/0.0.bin",
             "t/stand/-1.-1.bin",
             "t/stand-neu/0.0.bin",

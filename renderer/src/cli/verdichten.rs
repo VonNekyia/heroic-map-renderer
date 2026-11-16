@@ -60,6 +60,15 @@ pub(super) fn verdichte(dir: &Path, mit_manifest: bool) -> Result<()> {
         dir.join("map.json").display(),
         stufe.name()
     );
+    // Kacheln eines Gebiets mit `maximal` packte es sonst kompakt.
+    // Siehe docs/entscheidungen/0145-gebiete-mit-eigener-stufe.md.
+    for name in [super::gebiete::GEBIETE, super::gebiete::GEBIETE_NEU] {
+        ensure!(
+            !dir.join(name).exists(),
+            "{} liegt da: --compact-tree verdichtet nur einen Baum ohne Gebiete mit eigener Stufe",
+            dir.join(name).display()
+        );
+    }
     if alt.compact != Some(true) {
         // Nennt der Baum seine Stufe, heisst sie danach `maximal_compact`.
         let info = MapInfo {

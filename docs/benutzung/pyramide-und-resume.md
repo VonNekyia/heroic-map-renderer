@@ -127,6 +127,11 @@ gröberen Stufen löschen, und `--pyramid` baut sie ganz neu. Bei einem Baum
 mit nativen Stufen sind die danach verkleinert, bis ein Export sie wieder
 rendert.
 
+In einem Baum mit Gebieten packt `--pyramid` die Eltern mit deren Stufe.
+Um einen Chunk, den der Server während des letzten Laufs schrieb, und ohne
+`stand.bin` hebt es mehr Kacheln als der Lauf, siehe
+[Gebiete mit eigener Stufe](gebiete.md), „`--pyramid`“.
+
 Die Schicht des Reliefs, `relief/` und `relief/rest/`, fasst `--pyramid`
 nicht an, weder ihre Stufen noch mit `--manifest` ihre Manifeste (#410).
 Was nach dem Kopieren eines Baums mit Relief zu tun ist, steht in

@@ -26,16 +26,16 @@ dem Plugin-Programmierer ab.
 - **Schalter** aus `Args` in
   [`renderer/src/cli.rs`](../renderer/src/cli.rs): `--world`, `--assets`,
   `--data`, `--tiles`, `--camera`, `--direction`, `--scale`, `--cinematic`,
-  `--relief`, `--gpu`, `--update`, `--resume`, `--compact` und
-  `--quality`, siehe [Schalter und Beispiele](benutzung/schalter.md).
+  `--relief`, `--gpu`, `--update`, `--resume`, `--compact`, `--quality`
+  und `--quality-areas`, siehe [Schalter und Beispiele](benutzung/schalter.md).
 - **Die Stufe** (Maintainer, 16.11.), siehe
   [map.json](benutzung/map-json.md), „Die Stufe“:
   - Ein neuer Baum ohne `--quality` packt `good`, ein bestehender behält
     seine Stufe; ohne das Feld packt er `maximal`.
   - Weicht `--quality` an einem Update von der Stufe des Baums ab, bricht
-    der Lauf ab. Das Plugin erkennt das in der Zeile
-    `Error:` an „dieser Lauf will“. Umstellen kann nur ein voller Lauf mit
-    `--quality`.
+    der Lauf mit „dieser Lauf will“ in der Zeile `Error:` ab. Das Plugin
+    wertet die Zeile nicht aus, weil seine Updates nie `--quality` tragen.
+    Umstellen kann nur ein voller Lauf mit `--quality`.
   - `--compact` wählt wie bisher nur für einen neuen Baum,
     `maximal_compact`, und ist zusammen mit `--quality` abgelehnt.
     `--compact-tree` lehnt einen Baum unter `maximal_compact` ab.
@@ -47,6 +47,16 @@ dem Plugin-Programmierer ab.
     schreibt `map.json` ohne das Feld; danach führt nur ein voller Lauf mit
     `--quality` zur Stufe zurück, siehe
     [0143](entscheidungen/0143-stufen-farben-zusammenlegen.md), „Folgen“.
+- **Gebiete mit eigener Stufe,** siehe
+  [Gebiete mit eigener Stufe](benutzung/gebiete.md):
+  - Das Plugin schreibt die Gebiete der anderen Plugins in eine Datei und
+    gibt sie mit `--quality-areas` an jeden Lauf. Es tauscht die Datei, eine
+    halbe liest der Renderer also nie; fehlt sie oder ist sie kaputt, bricht
+    der Lauf ab.
+  - Ändert sich nur die Datei, reicht ein Update: Es zeichnet die Kacheln,
+    deren Stufe sich ändert.
+  - Ohne den Schalter gelten die Gebiete, die der Baum sich gemerkt hat; eine
+    leere Liste lässt ihn sie vergessen.
 - **Kompakt packen, für Plugin und CLI gleich** (Maintainer, 08.10.):
   - `--compact` bei jedem vollen Lauf, wenn `renderer.compact` in der
     `config.yml` des Plugins `true` ist; Updates bekommen ihn nicht, sie

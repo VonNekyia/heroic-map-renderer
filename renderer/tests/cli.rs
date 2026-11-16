@@ -1317,8 +1317,9 @@ fn von_grund_auf(dir: &Path) -> BTreeMap<String, Vec<u8>> {
 }
 
 /// Was `--pyramid` über den Stufen ab `ab` dieses Baums baut, samt seiner
-/// `map.json` und seinen Höhen. Jede Stufe ist eine Minute jünger als die
-/// darunter, so nimmt es native Stufen, wie sie sind.
+/// `map.json` und seinen Höhen; mit seinen Gebieten und seinem Stand, aus
+/// denen es die Stufen der Kacheln kennt. Jede Stufe ist eine Minute
+/// jünger als die darunter, so nimmt es native Stufen, wie sie sind.
 fn von_der_platte(dir: &Path, ab: u32) -> BTreeMap<String, Vec<u8>> {
     let basis = max_zoom(dir);
     // Ein Baum mit eigener Wurzel: die Höhen liegen über ihm.
@@ -1337,6 +1338,18 @@ fn von_der_platte(dir: &Path, ab: u32) -> BTreeMap<String, Vec<u8>> {
                 &pfad,
                 damals + Duration::from_secs(60 * u64::from(basis - z)),
             );
+        }
+    }
+    for name in ["gebiete.json", "stand.bin"] {
+        if dir.join(name).exists() {
+            std::fs::copy(dir.join(name), frisch.path().join(name)).unwrap();
+        }
+    }
+    if let Ok(regionen) = std::fs::read_dir(dir.join("stand")) {
+        std::fs::create_dir_all(frisch.path().join("stand")).unwrap();
+        for region in regionen.flatten() {
+            std::fs::copy(region.path(), frisch.path().join("stand").join(region.file_name()))
+                .unwrap();
         }
     }
     gelungen(&pyramide(frisch.path()));
@@ -9575,4 +9588,333 @@ fn qualitaet_wechselt_nur_im_vollen_lauf() {
             .contains("packt good: --compact-tree verdichtet nur einen Baum mit --quality maximal oder maximal_compact"),
         "{fehler}"
     );
+}
+
+/// Die Stadt: Sie packt die Chunks am Ursprung mit `maximal_compact`, mit
+/// einem Loch über dem fernen Chunk (28, 0); so, wie das Plugin sie schreibt.
+const STADT: &str = r#"{"id":"test:staedte/stadt","quality":"maximal_compact","polygons":[{"outer":[[0,0],[464,0],[464,32],[0,32]],"holes":[[[448,0],[464,0],[464,16],[448,16]]]}]}"#;
+
+/// Ein Vorort in der Stadt, über dem Chunk (0, 1), mit `good`; sortiert
+/// steht er vor der Stadt.
+const VORORT: &str = r#"{"id":"test:staedte/vorort","quality":"good","polygons":[{"outer":[[0,16],[16,16],[16,32],[0,32]]}]}"#;
+
+/// Derselbe Vorort mit `small`; sortiert steht er hinter der Stadt.
+const VORORT_KLEIN: &str = r#"{"id":"test:staedte/klein","quality":"small","polygons":[{"outer":[[0,16],[16,16],[16,32],[0,32]]}]}"#;
+
+/// Die Stadt, verschoben auf den fernen Chunk.
+const VERSCHOBEN: &str = r#"{"id":"test:staedte/stadt","quality":"maximal_compact","polygons":[{"outer":[[448,0],[464,0],[464,16],[448,16]]}]}"#;
+
+/// Legt in `dir` eine Datei mit diesen Gebieten an.
+fn gebiete_datei(dir: &Path, name: &str, gebiete: &[&str]) -> String {
+    let pfad = dir.join(name);
+    std::fs::write(&pfad, format!(r#"{{"v":1,"areas":[{}]}}"#, gebiete.join(","))).unwrap();
+    pfad.to_str().unwrap().to_string()
+}
+
+/// Ein Gebiet hebt die Kacheln, die es zeigen, auf seine Stufe, je Kachel
+/// die höchste: In einem Baum `minimal` mit der Stadt und zwei Vororten
+/// darin, einer sortiert davor und einer dahinter, gleicht jede Kachel der
+/// Basis und der nativen Stufen der eines Baums ganz in `maximal_compact`
+/// oder ganz in `minimal`, keine einem in `good` oder `small`.
+/// Die Kacheln des fernen Chunks im Loch packen wie der Baum. Eine Kachel
+/// der nativen Stufen packt wie die höchste Basiskachel unter ihr. Im iso
+/// und von oben.
+/// Siehe docs/entscheidungen/0145-gebiete-mit-eigener-stufe.md.
+#[test]
+fn gebiet_packt_mit_seiner_stufe() {
+    let welt = tempdir();
+    baue_gelaende(welt.path());
+    let fern = tempdir();
+    common::write_world_sections(fern.path(), &[(28, 0)], 0..=7, mit_dach, |_, _| None);
+    let ablage = tempdir();
+    let datei = gebiete_datei(ablage.path(), "gebiete.json", &[VORORT_KLEIN, STADT, VORORT]);
+    for kamera in [&["--scale", "16"][..], &["--scale", "8", "--camera", "top-north"]] {
+        let mit = |stufe: &'static str| -> Vec<&str> {
+            kamera.iter().copied().chain(["--quality", stufe]).collect()
+        };
+        let name = baum_name(kamera);
+        let baum = neuer_baum(&name);
+        let mut args = mit("minimal");
+        args.extend(["--quality-areas", datei.as_str()]);
+        let log = String::from_utf8_lossy(&gelungen(&tiles(welt.path(), baum.path(), &args)).stdout)
+            .into_owned();
+        assert!(log.contains("Basiskacheln packen besser als minimal"), "{log}");
+        let soll = |welt: &Path, stufe| {
+            let b = neuer_baum(&name);
+            gelungen(&tiles(welt, b.path(), &mit(stufe)));
+            b
+        };
+        let kompakt = soll(welt.path(), "maximal_compact");
+        let klein = soll(welt.path(), "minimal");
+        let nur_fern = soll(fern.path(), "minimal");
+        let basis = max_zoom(baum.path());
+        let nativ = karte_des_baums(baum.path())["nativeLevels"].as_u64().unwrap() as u32;
+        assert!(nativ > 0, "{name}: keine native Stufe zu prüfen");
+        let alle: Vec<TileId> = kacheln(baum.path(), basis).into_keys().collect();
+        let (mut gehoben, mut nicht) = (Vec::new(), Vec::new());
+        for z in (basis - nativ..=basis).rev() {
+            let auf = |menge: &[TileId]| -> std::collections::BTreeSet<TileId> {
+                menge
+                    .iter()
+                    .map(|t| (z..basis).fold(*t, |t, _| t.parent()))
+                    .collect()
+            };
+            let hoch = auf(&gehoben);
+            let offen: Vec<TileId> = alle.iter().filter(|t| !nicht.contains(*t)).copied().collect();
+            let offen = auf(&offen);
+            let (k, s) = (kacheln(kompakt.path(), z), kacheln(klein.path(), z));
+            for (tile, pfad) in kacheln(baum.path(), z) {
+                let bytes = std::fs::read(&pfad).unwrap();
+                let wie = |soll: &BTreeMap<TileId, PathBuf>| {
+                    soll.get(&tile).is_some_and(|p| std::fs::read(p).unwrap() == bytes)
+                };
+                let (wie_k, wie_s) = (wie(&k), wie(&s));
+                assert!(
+                    wie_k || wie_s,
+                    "{name}: Zoom {z}, {tile:?} packt weder wie maximal_compact noch wie minimal"
+                );
+                if z == basis {
+                    if !wie_s {
+                        gehoben.push(tile);
+                    } else if !wie_k {
+                        nicht.push(tile);
+                    }
+                } else {
+                    assert!(!hoch.contains(&tile) || wie_k, "{name}: Zoom {z}, {tile:?} nicht gehoben");
+                    assert!(offen.contains(&tile) || wie_s, "{name}: Zoom {z}, {tile:?} gehoben");
+                }
+            }
+        }
+        assert!(!gehoben.is_empty(), "{name}: nichts gehoben");
+        assert!(!nicht.is_empty(), "{name}: alles gehoben");
+        for tile in kacheln(nur_fern.path(), basis).keys() {
+            assert!(!gehoben.contains(tile), "{name}: {tile:?} im Loch gehoben");
+        }
+    }
+}
+
+/// Ein Update mit Gebieten gleicht Byte für Byte einem vollen Lauf mit
+/// denselben Gebieten: wenn sich die Stadt verschiebt, wenn sie wegfällt,
+/// wenn sie neu kommt, wenn sich Chunks in ihr ändern, und ohne den
+/// Schalter mit den gemerkten Gebieten. Ändert sich nur die Datei, zeichnet
+/// das Update nur die Kacheln mit neuer Stufe. Die Kopie im Baum hat keine
+/// `id`; ohne Gebiete fällt sie weg. Im iso und von oben.
+/// Siehe docs/entscheidungen/0145-gebiete-mit-eigener-stufe.md.
+#[test]
+fn update_mit_gebieten_gleicht_einem_vollen_lauf() {
+    let ablage = tempdir();
+    let stadt = gebiete_datei(ablage.path(), "stadt.json", &[STADT]);
+    let verschoben = gebiete_datei(ablage.path(), "verschoben.json", &[VERSCHOBEN]);
+    let keine = gebiete_datei(ablage.path(), "keine.json", &[]);
+    for kamera in [&["--scale", "16"][..], &["--scale", "8", "--camera", "top-north"]] {
+        let welt = tempdir();
+        baue_gelaende(welt.path());
+        let name = baum_name(kamera);
+        fn mit<'a>(kamera: &[&'a str], datei: Option<&'a str>, update: bool) -> Vec<&'a str> {
+            let mut args: Vec<&str> = kamera.iter().copied().chain(["--quality", "small"]).collect();
+            args.extend(datei.into_iter().flat_map(|d| ["--quality-areas", d]));
+            args.extend(update.then_some("--update"));
+            args
+        }
+        let voll = |welt: &Path, datei: Option<&str>| {
+            let b = neuer_baum(&name);
+            gelungen(&tiles(welt, b.path(), &mit(kamera, datei, false)));
+            b
+        };
+        let baum = neuer_baum(&name);
+        gelungen(&tiles(welt.path(), baum.path(), &mit(kamera, Some(&stadt), false)));
+        let kopie = std::fs::read_to_string(baum.path().join("gebiete.json")).unwrap();
+        assert!(!kopie.contains("id") && kopie.contains("maximal_compact"), "{kopie}");
+
+        for (datei, was) in [(&verschoben, "verschoben"), (&keine, "weg"), (&stadt, "neu")] {
+            let log = String::from_utf8_lossy(
+                &gelungen(&tiles(welt.path(), baum.path(), &mit(kamera, Some(datei), true))).stdout,
+            )
+            .into_owned();
+            assert!(
+                log.contains("Update:     0 Chunks geändert, dazu ")
+                    && log.contains("Basiskacheln mit neuer Stufe aus den Gebieten"),
+                "{name}, {was}: {log}"
+            );
+            let soll = voll(welt.path(), Some(datei.as_str()).filter(|_| was != "weg"));
+            gleiche_baeume(baum.path(), soll.path(), &format!("{name}, {was}"));
+            assert_eq!(baum.path().join("gebiete.json").exists(), was != "weg", "{name}, {was}");
+        }
+
+        baue_aenderungen(welt.path());
+        gelungen(&tiles(welt.path(), baum.path(), &mit(kamera, None, true)));
+        let soll = voll(welt.path(), Some(&stadt));
+        gleiche_baeume(baum.path(), soll.path(), &format!("{name}, Chunks geändert"));
+        let log = String::from_utf8_lossy(
+            &gelungen(&tiles(welt.path(), baum.path(), &mit(kamera, Some(&stadt), true))).stdout,
+        )
+        .into_owned();
+        assert!(log.contains("Update:     nichts zu zeichnen"), "{name}: {log}");
+        gleiche_baeume(baum.path(), soll.path(), &format!("{name}, gleiche Gebiete"));
+    }
+}
+
+/// Ohne Gebiete tut ein Lauf nichts dafür: Er legt keine `gebiete*.json` an
+/// und nennt keine Gebiete, im vollen Lauf wie im Update.
+#[test]
+fn ohne_gebiete_nichts_dafuer() {
+    let welt = tempdir();
+    baue_gelaende(welt.path());
+    let baum = neuer_baum("2x1-se");
+    for extra in [&["--scale", "16"][..], &["--scale", "16", "--update"]] {
+        let log = String::from_utf8_lossy(&gelungen(&export(welt.path(), baum.path(), extra)).stdout)
+            .into_owned();
+        assert!(!log.contains("Gebiete:"), "{extra:?}: {log}");
+        baue_aenderungen(welt.path());
+    }
+    let namen: Vec<String> = std::fs::read_dir(baum.path())
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    assert!(!namen.iter().any(|n| n.starts_with("gebiete")), "{namen:?}");
+}
+
+/// Ein abgebrochener Lauf hält seine Gebiete fest: `--resume` ohne den
+/// Schalter setzt mit ihnen fort, mit anderen setzt er nicht fort und
+/// zeichnet wie ohne `--resume`. Ein abgebrochenes Update hinterlässt seine
+/// Kacheln mit neuer Stufe im offenen Gebiet; das nächste Update ohne
+/// Schalter nimmt die Gebiete des abgebrochenen. Danach gleicht der Baum
+/// jeweils einem vollen Lauf mit den Gebieten, die zuletzt galten.
+#[test]
+fn gebiete_nach_abbruch() {
+    let welt = tempdir();
+    baue_gelaende(welt.path());
+    let ablage = tempdir();
+    let stadt = gebiete_datei(ablage.path(), "stadt.json", &[STADT]);
+    let verschoben = gebiete_datei(ablage.path(), "verschoben.json", &[VERSCHOBEN]);
+    fn mit<'a>(datei: Option<&'a str>, weiter: &[&'a str]) -> Vec<&'a str> {
+        let mut args = vec!["--scale", "16", "--quality", "small"];
+        args.extend(datei.into_iter().flat_map(|d| ["--quality-areas", d]));
+        args.extend(weiter);
+        args
+    }
+    let voll = |datei: &str| {
+        let b = neuer_baum("2x1-se");
+        gelungen(&export(welt.path(), b.path(), &mit(Some(datei), &[])));
+        b
+    };
+    let abbrechen = |baum: &Path, args: &[&str]| {
+        let aus = update_mit_abbruch(welt.path(), baum, args, "basis-1");
+        assert!(!aus.status.success(), "{}", String::from_utf8_lossy(&aus.stdout));
+        assert!(baum.join("gebiete-neu.json").exists());
+    };
+
+    let baum = neuer_baum("2x1-se");
+    abbrechen(baum.path(), &mit(Some(&stadt), &[]));
+    gelungen(&export(welt.path(), baum.path(), &mit(None, &["--resume"])));
+    gleiche_baeume(baum.path(), voll(&stadt).path(), "fortgesetzt ohne Schalter");
+    assert!(!baum.path().join("gebiete-neu.json").exists());
+
+    let baum = neuer_baum("2x1-se");
+    abbrechen(baum.path(), &mit(Some(&stadt), &[]));
+    let log = String::from_utf8_lossy(
+        &gelungen(&export(welt.path(), baum.path(), &mit(Some(&verschoben), &["--resume"]))).stdout,
+    )
+    .into_owned();
+    assert!(log.contains("nennt andere Gebiete als der abgebrochene Lauf"), "{log}");
+    gleiche_baeume(baum.path(), voll(&verschoben).path(), "fortgesetzt mit anderen");
+
+    let baum = voll(&stadt);
+    abbrechen(baum.path(), &mit(Some(&verschoben), &["--update"]));
+    gelungen(&export(welt.path(), baum.path(), &mit(None, &["--update"])));
+    gleiche_baeume(baum.path(), voll(&verschoben).path(), "Update nach Abbruch");
+}
+
+/// Fehlt die Datei mit Gebieten, ist sie kaputt, grösser als 64 MiB oder
+/// nennt sie eine Stufe, die es nicht gibt, bricht der Lauf ab, bevor er
+/// etwas schreibt. `--compact-tree` lehnt einen Baum mit Gebieten ab.
+#[test]
+fn gebiete_datei_bricht_ab() {
+    let welt = tempdir();
+    baue_gelaende(welt.path());
+    let ablage = tempdir();
+    let kaputt = ablage.path().join("kaputt.json");
+    std::fs::write(&kaputt, b"{\"v\":1,\"areas\":[").unwrap();
+    let gross = ablage.path().join("gross.json");
+    std::fs::File::create(&gross)
+        .unwrap()
+        .set_len((64 << 20) + 1)
+        .unwrap();
+    let unbekannt = gebiete_datei(
+        ablage.path(),
+        "unbekannt.json",
+        &[r#"{"id":"x","quality":"besser","polygons":[]}"#],
+    );
+    let fehlt = ablage.path().join("fehlt.json");
+    for (datei, grund) in [
+        (fehlt.to_str().unwrap(), "lesen"),
+        (kaputt.to_str().unwrap(), "ist keine Datei mit Gebieten"),
+        (gross.to_str().unwrap(), "mehr als 64 MiB"),
+        (unbekannt.as_str(), "die Stufe „besser“ gibt es nicht"),
+    ] {
+        let baum = neuer_baum("2x1-se");
+        let aus = export(welt.path(), baum.path(), &["--scale", "16", "--quality-areas", datei]);
+        let fehler = String::from_utf8_lossy(&aus.stderr);
+        assert!(!aus.status.success(), "{datei}: {fehler}");
+        assert!(fehler.contains("Error: Gebiete:") && fehler.contains(grund), "{datei}: {fehler}");
+        assert!(!baum.path().exists(), "{datei}: geschrieben");
+    }
+
+    let stadt = gebiete_datei(ablage.path(), "stadt.json", &[STADT.replace("maximal_compact", "maximal").as_str()]);
+    let baum = neuer_baum("2x1-se");
+    gelungen(&export(
+        welt.path(),
+        baum.path(),
+        &["--scale", "16", "--quality", "maximal_compact", "--quality-areas", &stadt],
+    ));
+    let verdichten = cli(&[OsStr::new("--compact-tree"), baum.path().as_os_str()]);
+    let fehler = String::from_utf8_lossy(&verdichten.stderr);
+    assert!(!verdichten.status.success(), "{fehler}");
+    assert!(fehler.contains("verdichtet nur einen Baum ohne Gebiete"), "{fehler}");
+}
+
+/// Auch mit einem Gebiet ist, was im Speicher entsteht, Byte für Byte, was
+/// `--pyramid` von der Platte baut: Es kennt die Stufen aus `gebiete.json`
+/// und dem Stand.
+#[test]
+fn feine_stufen_im_speicher_mit_gebiet() {
+    let welt = weite_welt();
+    let ablage = tempdir();
+    let stadt = gebiete_datei(
+        ablage.path(),
+        "stadt.json",
+        &[r#"{"quality":"maximal_compact","polygons":[{"outer":[[0,0],[40,0],[40,40],[0,40]]}]}"#],
+    );
+    let args = ["--scale", "32", "--native-levels", "0", "--quality", "small", "--quality-areas", &stadt];
+    let out = neuer_baum("2x1-se");
+    let meldung = String::from_utf8_lossy(&gelungen(&export_auf(1, welt.path(), out.path(), &args)).stdout)
+        .into_owned();
+    assert!(meldung.contains(IM_SPEICHER), "{meldung}");
+    assert!(meldung.contains("Basiskacheln packen besser als small"), "{meldung}");
+    assert_eq!(schnappschuss(out.path()), von_der_platte(out.path(), max_zoom(out.path())));
+}
+
+/// Schicht und Rest des Reliefs bleiben auch in einem Gebiet, wie sie ohne
+/// wären: In einem Baum `small` mit der Stadt in `maximal` gleichen sie Byte
+/// für Byte denen desselben Baums ohne Gebiet, die Basis nicht.
+#[test]
+fn schicht_bleibt_in_gebieten_wie_ohne() {
+    let welt = tempdir();
+    baue_gelaende(welt.path());
+    let ablage = tempdir();
+    let maximal = STADT.replace("maximal_compact", "maximal");
+    let stadt = gebiete_datei(ablage.path(), "stadt.json", &[maximal.as_str()]);
+    let extra = ["--scale", "8", "--camera", "top-north", "--relief", "slope", "--quality", "small"];
+    let mit: Vec<&str> = extra.iter().copied().chain(["--quality-areas", stadt.as_str()]).collect();
+    let (baum, ohne) = (neuer_baum("top-north-s"), neuer_baum("top-north-s"));
+    gelungen(&tiles(welt.path(), baum.path(), &mit));
+    gelungen(&tiles(welt.path(), ohne.path(), &extra));
+    let teile = |b: &Path| -> (BTreeMap<String, Vec<u8>>, BTreeMap<String, Vec<u8>>) {
+        schnappschuss(b).into_iter().partition(|(rel, _)| rel.starts_with("relief/"))
+    };
+    let ((schicht, basis), (schicht_ohne, basis_ohne)) = (teile(baum.path()), teile(ohne.path()));
+    assert!(!schicht.is_empty());
+    assert_eq!(schicht, schicht_ohne);
+    assert_ne!(basis, basis_ohne);
 }

@@ -47,6 +47,7 @@ Texte. Ohne Schalter startet unter Windows an einer Konsole der
 | `--native-levels N` | mit `--tiles`: so viele gröbere Stufen aus der Welt rendern, Vorgabe 0 | [Zoomstufen](zoomstufen.md) |
 | `--compact` | mit `--tiles`: ein neuer Baum mit `--quality maximal_compact`, rund die Hälfte der Bytes für ein Mehrfaches der Zeit beim Kodieren; ein bestehender behält seine Stufe; nicht mit `--quality` | [map.json](map-json.md), „Packen“ |
 | `--quality STUFE` | mit `--tiles`: `maximal` Pixel für Pixel, `maximal_compact` ebenso und kompakt, `good`, `small` oder `minimal` mit zusammengelegten Farben, je Kanal höchstens 2, 4 oder 8 daneben; ein neuer Baum ohne den Schalter packt `good`, ein bestehender behält seine Stufe; eine andere nimmt nur ein voller Lauf | [map.json](map-json.md), „Die Stufe“ |
+| `--quality-areas DATEI` | mit `--tiles`: Gebiete, die besser packen als der Baum, je Kachel die höchste Stufe; der Baum merkt sie sich, ohne den Schalter gelten die gemerkten; fehlt die Datei oder ist sie kaputt, bricht der Lauf ab | [Gebiete mit eigener Stufe](gebiete.md) |
 | `--resume` | mit `--tiles`: einen abgebrochenen Lauf fortsetzen | [Pyramide und Fortsetzen](pyramide-und-resume.md) |
 | `--update` | mit `--tiles`, ohne `--size`: nur zeichnen, wo sich die Welt seit dem letzten vollen Lauf oder Update geändert hat | [Updates](updates.md) |
 | `--gpu auto\|on\|off` | mit `--tiles`: die Grafikkarte zeichnet, Vorgabe `auto`; mit `--cinematic` und `--flat` immer die CPU; mit `--threads` nie ein Software-Adapter | [Grafikkarte](grafikkarte.md) |

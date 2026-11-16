@@ -147,7 +147,8 @@ maximal einfach als qualitätsstufen ein“).
     Ein Update mit `--quality` der alten Stufe bricht ab, „dieser Lauf
     will“. Zurück zur Stufe führt nur ein voller Lauf mit `--quality`.
 - **Später, nicht Teil dieser Entscheidung:**
-  - Gebiete mit eigener Stufe; die höchste Stufe gewinnt.
+  - Gebiete mit eigener Stufe; die höchste Stufe gewinnt. Entschieden in
+    [0145](0145-gebiete-mit-eigener-stufe.md).
   - `--repack` von `maximal` aus.
 - **Keine eigene Stufe** bekommen, beides vom Maintainer am 16.11.2026:
   - Wasser („weglassen“);

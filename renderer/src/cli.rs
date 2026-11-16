@@ -2038,12 +2038,14 @@ fn write_tiles(
     let gebiete_angefangen = gebiete::angefangen(dir)?;
     let gebiete = match gebiete_datei {
         Some(datei) => Some(datei.clone()),
-        None => gebiete_angefangen.clone().or_else(|| gebiete_fertig.clone()),
+        None => gebiete_angefangen
+            .clone()
+            .or_else(|| gebiete_fertig.clone()),
     };
     let tabelle_aus = |eintrag: &(dyn Fn(i32, i32) -> Option<Eintrag> + Sync)| {
-        gebiete.as_ref().and_then(|g| {
-            gebiete::Stufen::neu(g, stufe_des_baums, projection, max_zoom, eintrag)
-        })
+        gebiete
+            .as_ref()
+            .and_then(|g| gebiete::Stufen::neu(g, stufe_des_baums, projection, max_zoom, eintrag))
     };
 
     let ecke = ecke(dir, bestand.as_ref(), world)?;
@@ -2106,7 +2108,13 @@ fn write_tiles(
                 None => None,
             };
             let tabelle = tabelle_aus(&|cx, cz| alt.as_ref().map(|s| s.eintrag(cx, cz)));
-            (Some(Gebiet::rechteck(rect, stufen)), None, None, None, tabelle)
+            (
+                Some(Gebiet::rechteck(rect, stufen)),
+                None,
+                None,
+                None,
+                tabelle,
+            )
         }
         Bereich::Update => {
             let started = Instant::now();

@@ -109,8 +109,12 @@ pub(super) fn lies(pfad: &Path) -> Result<Gebiete> {
     );
     let text =
         std::fs::read(pfad).with_context(|| format!("Gebiete:    {} lesen", pfad.display()))?;
-    let datei: Datei = serde_json::from_slice(&text)
-        .with_context(|| format!("Gebiete:    {} ist keine Datei mit Gebieten", pfad.display()))?;
+    let datei: Datei = serde_json::from_slice(&text).with_context(|| {
+        format!(
+            "Gebiete:    {} ist keine Datei mit Gebieten",
+            pfad.display()
+        )
+    })?;
     ensure!(
         datei.v == 1,
         "Gebiete:    {} hat Fassung {}, dieser Renderer kennt 1",
@@ -123,7 +127,9 @@ pub(super) fn lies(pfad: &Path) -> Result<Gebiete> {
         .enumerate()
         .map(|(i, eingang)| {
             let stufe = Qualitaet::aus_name(&eingang.quality).with_context(|| {
-                let welches = eingang.id.map_or_else(|| format!("Nr. {}", i + 1), |id| id.to_string());
+                let welches = eingang
+                    .id
+                    .map_or_else(|| format!("Nr. {}", i + 1), |id| id.to_string());
                 format!(
                     "Gebiete:    {}, Gebiet {welches}: die Stufe „{}“ gibt es nicht",
                     pfad.display(),
@@ -192,7 +198,9 @@ fn chunks_im(vieleck: &Vieleck, chunks: &mut BTreeSet<[i32; 2]>) {
         .filter(|ring| ring.len() >= 3)
         .collect();
     let zs = ringe.iter().flat_map(|ring| ring.iter().map(|p| p[1]));
-    let (z0, z1) = zs.fold((f64::INFINITY, f64::NEG_INFINITY), |(a, b), z| (a.min(z), b.max(z)));
+    let (z0, z1) = zs.fold((f64::INFINITY, f64::NEG_INFINITY), |(a, b), z| {
+        (a.min(z), b.max(z))
+    });
     if z0 > z1 {
         return;
     }
@@ -337,8 +345,12 @@ pub(super) fn mit_neuer_stufe(
     max_zoom: u32,
 ) -> BTreeSet<TileId> {
     let leer = HashMap::new();
-    let alt = alt.and_then(|s| s.0.get(max_zoom as usize)).unwrap_or(&leer);
-    let neu = neu.and_then(|s| s.0.get(max_zoom as usize)).unwrap_or(&leer);
+    let alt = alt
+        .and_then(|s| s.0.get(max_zoom as usize))
+        .unwrap_or(&leer);
+    let neu = neu
+        .and_then(|s| s.0.get(max_zoom as usize))
+        .unwrap_or(&leer);
     alt.keys()
         .chain(neu.keys())
         .filter(|tile| alt.get(tile) != neu.get(tile))
@@ -491,12 +503,20 @@ mod tests {
             }
         };
         let alt = Gebiete((0..500).map(|i| stadt(i, 0.0)).collect());
-        let neu = Gebiete((0..500).map(|i| stadt(i, if i == 0 { 50.0 } else { 0.0 })).collect());
+        let neu = Gebiete(
+            (0..500)
+                .map(|i| stadt(i, if i == 0 { 50.0 } else { 0.0 }))
+                .collect(),
+        );
         let eintrag = |_: i32, _: i32| fertig(90, Some(4));
         let projection = Projection::new(16);
         let a = Stufen::neu(&alt, Qualitaet::Good, projection, 14, eintrag).unwrap();
         let b = Stufen::neu(&neu, Qualitaet::Good, projection, 14, eintrag).unwrap();
         let anders = mit_neuer_stufe(Some(&a), Some(&b), 14);
-        assert!(!anders.is_empty() && anders.len() < a.basis(), "{}", anders.len());
+        assert!(
+            !anders.is_empty() && anders.len() < a.basis(),
+            "{}",
+            anders.len()
+        );
     }
 }

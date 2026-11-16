@@ -106,15 +106,15 @@ Die Zahlen sind die Ausgabe des Tests im Log.
 - Bytes und Abweichungen jeder Packung, die in mehreren Läufen stand, sind
   in allen gleich.
 - Der sechste Lauf führt den Test einmal aus; seine Zeiten sind ein
-  Anhalt, kein Median. Der neunte misst die feinste Stufe einmal und die
-  Pyramide dreimal.
+  Anhalt, kein Median. Der neunte und der zehnte messen die feinste Stufe
+  einmal und die Pyramide dreimal.
 - Jeder andere Lauf führt den Test dreimal aus. Für die Zeiten der
   Median der drei; gegen kompakt im selben Durchgang liegen die drei
   höchstens 0,9 Prozentpunkte auseinander, im fünften Lauf von oben und
   im iso mit Cinematic höchstens 1,2, im iso ohne Cinematic bis 3,3, im
   achten bis 3,8.
 - Die grosse Welt: lokal, vier Threads mit niedrigster Priorität; die
-  Zeiten dort zählen nicht.
+  Zeiten dort zählen nicht. Mit 8 ohne Rückfall am 16.11.2026 gepackt.
 - Das Aussehen ist keine Messung: Die Ausschnitte unten hat der Researcher
   angesehen.
 
@@ -778,11 +778,25 @@ unter 2 500 sichtbare Pixel.
 | 12 | 22,5 / 17,5 / 19,6 % | −23,4 / −25,0 / −23,3 % | 40 / 31 / 34 | 34,4 / 34,3 / 33,9 | 32,9 / 31,6 / 30,0 | −7,6 / −9,7 / +1,8 % | 0 / 0 / 3 |
 | 16 | 17,9 / 14,0 / 15,6 % | −39,2 / −40,0 / −38,8 % | 47 / 38 / 43 | 32,2 / 32,4 / 31,7 | 31,0 / 30,3 / 26,9 | −12,2 / −16,0 / −1,6 % | 0 / 0 / 3 |
 
+Grosse Welt mit 8, dieselbe Stichprobe wie in „Grosse Welt“, lokal
+gepackt: Bytes in Prozent von kompakt verlustfrei, grösste Abweichung 8.
+Die PSNR ist dort nicht gemessen.
+
+| Packung | iso mit Cinematic | aufs Gitter gefallen | von oben | aufs Gitter gefallen |
+|---|---|---|---|---|
+| Zusammenlegen 8 | 26,9 % | 110 von 3 415 | 29,9 % | 34 von 2 132 |
+| Zusammenlegen 8 ohne Rückfall | 26,9 % | – | 29,8 % | – |
+
 - **Über 8 hinaus spart jede Stufe weiter.** An der feinsten Stufe ist 12
   um 20,5 bis 24,2 % kleiner als 8, 16 um 35,6 bis 39,1 % kleiner als 8
   und um 19,0 bis 20,5 % kleiner als 12. In Punkten von kompakt sind es
   von 8 auf 12 noch 5,5 bis 6,3 und von 12 auf 16 noch 3,5 bis 4,6; von 4
   auf 8 waren es 11,7 bis 13,0.
+- **Grosse Welt:** Mit 8 ohne Rückfall bleiben 26,9 % im iso mit
+  Cinematic und 29,8 % von oben. Das sind 34 % weniger als mit 4 und 50
+  bis 51 % weniger als mit 2. Gegen 8 mit Rückfall ist es im iso 0,1 %
+  grösser und von oben 0,3 % kleiner; aufs Gitter fielen dort nur noch 3,2
+  und 1,6 % der Kacheln.
 - **Die PSNR fällt je Schritt um 2 bis 3 dB:** 37,4 bis 37,7 dB mit 8,
   34,5 bis 34,8 mit 12, 32,3 bis 32,8 mit 16. Die schlechteste Kachel
   liegt ab 8 je 1,7 bis 2,6 dB darunter.
@@ -813,8 +827,9 @@ unter 2 500 sichtbare Pixel.
   - Mit 12 und 16 verliert die Wiese ihre Körnung, der Schatten im Wald
     wird zur Fläche, im Dorf werden Wiese und Wasser flach. Dach, Mauer
     und Blumen bleiben.
-- **Nicht gemessen:** die grosse Welt. Wo eine Stärke an der Karte stört,
-  entscheiden Augen.
+- **Nicht gemessen:** an der grossen Welt 6, 12 und 16, dort auch mit 8
+  weder PSNR noch Pyramide. Wo eine Stärke an der Karte stört, entscheiden
+  Augen.
 
 ### Ausgeschieden
 
@@ -903,12 +918,16 @@ Angesehen, nicht gemessen:
   - Ob die Einstufung trifft, was man sieht, ist nicht gemessen.
 - **Über 8 hinaus spart jede Stufe weiter; die Grenze setzt das Aussehen,
   nicht der Platz.**
-  - Ohne Rückfall bleiben mit 8 noch 23,7 bis 28,8 % von kompakt, mit 12
+  - An der Testwelt bleiben ohne Rückfall mit 8 noch 23,7 bis 28,8 % von
+    kompakt, mit 12
     noch 18,0 bis 22,5 %, mit 16 noch 14,5 bis 17,9 %: 12 ist 21 bis 24 %
     kleiner als 8, 16 ist 36 bis 39 % kleiner als 8.
-  - Die PSNR fällt dabei von 37,4 bis 37,7 dB auf 32,3 bis 32,8 dB, die
-    grösste Abweichung über die Pyramide steigt von 23 bis 24 auf 38 bis
-    47.
+  - An der grossen Welt bleiben ohne Rückfall im iso mit Cinematic und von
+    oben mit 2 noch 53,6 und 61,0 %, mit 4 noch 41,0 und 44,9 %, mit 8
+    noch 26,9 und 29,8 %.
+  - Von 8 auf 16 fällt die PSNR an der Testwelt von 37,4 bis 37,7 dB auf
+    32,3 bis 32,8 dB, die grösste Abweichung über die Pyramide steigt von
+    23 bis 24 auf 38 bis 47.
   - Angesehen an vier Kacheln der Testwelt: Wasser im iso mit Cinematic
     zeigt mit 6 eine Kontur und mit 8 eine harte Kante; Wiese, Wald und
     Dorf kippen erst mit 12 und 16.

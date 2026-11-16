@@ -559,8 +559,14 @@ Ein Beispiel aus dem Testvektor, entpackt:
   sein als ihre Zeile; der Mod speichert deshalb das ETag aus der Antwort
   (#154).
 - **`manifest-offen-<pid>-<ns>`** liegt daneben, je Lauf, solange er
-  schreibt, auch ohne `--manifest`, offen und gesperrt. Das Plugin braucht
-  es nicht; siehe [0083](entscheidungen/0083-manifest-je-baum.md).
+  schreibt, auch ohne `--manifest`, offen und gesperrt; siehe
+  [0083](entscheidungen/0083-manifest-je-baum.md). Das Plugin prüft im
+  Leerlauf, ob im Ordner eines Baums mit `download: true` eine Datei liegt,
+  deren Name mit `manifest-offen-` beginnt, mit Relief auch in `relief/` und
+  `relief/rest/`: Dann ruht der Baum nicht, und der Takt startet ein Update.
+  Es liest nur den Anfang des Namens, weder Nummer noch Inhalt noch Sperre.
+  Ein anderer Name oder eine Marke, die ein Update ohne Änderung liegen
+  lässt, hielte einen solchen Baum dauernd wach.
 - **Nach dem Kopieren** eines Baums ohne genaue Zeiten einmal
   `--pyramid --manifest` aufrufen oder `manifest` löschen. Sonst stimmt jedes
   ETag nicht mehr, das kein Update anfasst, und der Mod lädt bei jedem

@@ -1938,6 +1938,10 @@ impl Hasher for Streuer {
         self.0 = (self.0.rotate_left(5) ^ n).wrapping_mul(0xf135_7aea_2e62_a9c5);
     }
 
+    fn write_u32(&mut self, n: u32) {
+        self.write_u64(u64::from(n));
+    }
+
     fn write_i32(&mut self, n: i32) {
         self.write_u64(u64::from(n as u32));
     }

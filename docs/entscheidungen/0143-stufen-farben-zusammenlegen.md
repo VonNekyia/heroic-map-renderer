@@ -1,0 +1,155 @@
+---
+title: "0143: Fünf Stufen, Farben zusammenlegen vor dem verlustfreien Packen"
+description: Warum ein Baum mit einer von fünf Stufen packt, alle als verlustfreies WebP, unter den beiden verlustfreien mit vorher zusammengelegten Farben; warum near-lossless, verlustbehaftetes WebP, Stärke 3 und der Rückfall aufs Gitter verworfen sind.
+status: gilt
+date: 2026-11-16
+issues: [421]
+code:
+  - renderer/src/render/tiles.rs
+  - renderer/src/cli.rs
+  - renderer/src/cli/pixel.rs
+---
+
+# 0143: Fünf Stufen, Farben zusammenlegen vor dem verlustfreien Packen
+
+Löst [0004](0004-webp-verlustfrei.md) ab: Das Format bleibt verlustfreies
+WebP, aber die Pixel müssen nicht mehr überall stimmen.
+
+## Anlass
+
+Die Kacheln sind der grösste Teil eines Kartenbaums und dessen, was die
+Webkarte und der Mod laden. #421 sucht kleinere Kacheln, deren Unterschied
+man nicht sieht. Der Maintainer hat am 16.11.2026 entschieden, nachdem er
+die Varianten selbst angesehen und eine Umfrage ausgewertet hatte. Die
+Zahlen stehen in
+[Farben zusammenlegen vor dem Packen](../messungen/2026-11-15-farben-zusammenlegen.md).
+
+## Entscheidung
+
+Ein Baum packt mit einer von fünf Stufen, `--quality` und `"quality"` in
+`map.json`, geordnet von der kleinsten zur besten:
+
+| Stufe | Packung |
+|---|---|
+| `minimal` | Farben zusammenlegen mit Stärke 8, dann kompakt |
+| `small` | dasselbe mit Stärke 4 |
+| `good` | dasselbe mit Stärke 2 |
+| `maximal_compact` | verlustfrei, Pixel für Pixel, kompakt |
+| `maximal` | verlustfrei, Pixel für Pixel, schnell |
+
+Kompakt ist eine eigene Stufe, nicht ein Schalter neben `maximal`; so hat es
+der Maintainer am 16.11.2026 entschieden („wir bauen maximal_compact und
+maximal einfach als qualitätsstufen ein“).
+
+- **Die Vorstufe** `lege_zusammen` in
+  [`tiles.rs`](../../renderer/src/render/tiles.rs) ist „Zusammenlegen ohne
+  Rückfall“ der Messseite, mit der schnellen Suche:
+  - Die Farben einer Kachel werden nach Häufigkeit geordnet, bei gleicher
+    Zahl nach ihrem Wert.
+  - Jede geht auf den frühesten Vertreter mit demselben Alpha, der je Kanal
+    höchstens die Stärke daneben liegt und 255 genau dort hat, wo sie
+    selbst 255 hat. Gibt es keinen, wird sie selbst Vertreter.
+  - Pixel mit Alpha 0 bleiben, wie sie sind.
+  - Alpha bleibt damit Bit für Bit, 255 bleibt 255, und kein Wert wird neu
+    255.
+  - Danach packt libwebp verlustfrei kompakt, mit dem Zuschnitt aus
+    [0142](0142-kompakt-ohne-suche-rle-und-analyse.md).
+- **Wie jede Stufe packt,** steht an einer Stelle, `STUFEN` in
+  [`cli.rs`](../../renderer/src/cli.rs).
+- **Die Vorgabe:**
+  - Ein neuer Baum ohne `--quality` packt `good`, mit `--compact`
+    `maximal_compact`.
+  - Ein Baum mit `map.json` behält seine Stufe, auch in einem vollen Lauf.
+    Fehlt das Feld, stammt er von vor den Stufen und packt wie damals: mit
+    `"compact": true` `maximal_compact`, sonst `maximal`.
+  - Eine andere Stufe nimmt nur ein voller Lauf mit `--quality`. Siehe
+    [`map.json`](../benutzung/map-json.md), „Packen“.
+- **`--compact`** behält seine Bedeutung von vorher: Es gilt nur für einen
+  neuen Baum. Wäre es ein zweiter Name für `--quality maximal_compact`,
+  stellte ein voller Lauf des Plugins, das `--compact` mitgibt, einen
+  schnellen Baum um. Zusammen mit `--quality` ist es abgelehnt.
+- **Die Pyramide:**
+  - Eltern entstehen aus den Pixeln nach der Vorstufe, im Speicher wie von
+    der Platte, denn das Format ist verlustfrei.
+  - Ein Elternteil wird gemittelt, dann selbst zusammengelegt und gepackt.
+- **Der Hash der Pixel** gilt den Pixeln vor der Vorstufe samt Stufe. Bei
+  einem Treffer läuft die Vorstufe nicht, ausser ein Elternteil im Speicher
+  braucht die Pixel.
+- **Verlustfrei bleiben in jeder Stufe** Schicht und Rest des Reliefs, Höhen
+  und Boden, denn sie sind Daten für den Mod. Ebenso bleibt das Alpha jeder
+  Kachel Bit für Bit.
+
+## Verworfene Alternativen
+
+- **near-lossless 60 und 40 von libwebp.**
+  - Stärke 2 fällt so selten auf wie near-lossless 60, braucht an der
+    grossen Welt aber 54 und 61 % statt 72 und 77 % von kompakt verlustfrei,
+    im iso mit Cinematic und von oben.
+  - near-lossless 40 ist grösser als jede Stärke des Zusammenlegens und
+    fällt öfter auf als Stärke 3.
+- **Verlustbehaftetes WebP, quality 95 und 90.**
+  - Nur von oben ist quality 90 kleiner als Stärke 4.
+  - Dafür bräuchte es ein zweites Format und einen eigenen Weg im Mod.
+  - Es lässt Alpha nicht stehen und verliert Kanäle mit 255, an einzelnen
+    Pixeln um weit über 100 Stufen.
+- **Stärke 3:** Sie liegt zu nah an 2 und 4, um eine eigene Stufe zu
+  tragen.
+- **Zusammenlegen mit Rückfall aufs Gitter**, wenn mehr als 256 Farben
+  bleiben. Ohne Rückfall sind die Kacheln an der grossen Welt 0,7 bis 2,1 %
+  kleiner und an der Testwelt 0,7 bis 2,4 dB genauer, bei gleicher grösster
+  Abweichung.
+- **Fünf Stufen** aus near-lossless und verlustbehaftet, der Plan vom
+  14.11.2026 in #421. Sie sind durch die Stufen hier abgelöst.
+
+## Folgen
+
+- **Platz:** an der grossen Welt mit `good` rund 54 bis 61 % der Bytes von
+  kompakt verlustfrei, mit `small` und `minimal` weniger, siehe die
+  Messseite.
+- **Zeit:**
+  - Mit der schnellen Suche und dem Zuschnitt packt das Zusammenlegen auf
+    der CI zwischen 8,4 % schneller und 1,4 % langsamer als kompakt vor
+    0142.
+  - Die Vorstufe braucht 0,6 bis 1,1 ms je Kachel.
+  - Wie viel ein ganzer Lauf und ein Update kosten, misst eine Messung
+    nach dieser Änderung.
+- **Abweichung:**
+  - An der Basis je Kanal höchstens die Stärke.
+  - In der Pyramide wächst sie bis etwa zum Dreifachen, wie auf der
+    Messseite beschrieben.
+- **Kein Zeichenstand steigt, der Kodierstand bleibt.** Die Stufe steckt in
+  `Packen` und geht so in den Hash der Pixel ein. Ein bestehender Baum ohne
+  das Feld packt Byte für Byte wie vorher.
+- **`--compact-tree`** packt einen Baum von `maximal` nach
+  `maximal_compact`. Einen Baum darunter lehnt es ab: Es hätte die Pixel vor
+  der Vorstufe nicht. Mit `--repack` wird es der Name für `--repack
+  maximal_compact`; im Code bleibt es ein Weg.
+- **Ein Baum zum Download, dessen Stufe wechselt,** bekommt neue Bytes in
+  fast jeder Kachel: Jeder Spieler mit dem Mod lädt die Karte danach einmal
+  ganz neu.
+- **Ändert sich die Regel der Vorstufe,** steigt der Kodierstand, sonst
+  passte der Hash nicht mehr zu den Bytes.
+- **Kein Zurück auf einen älteren Renderer** von einem Baum unter
+  `maximal_compact`:
+  - Ein Renderer von vor den Stufen kennt das Feld `quality` nicht und
+    überliest es, `MapInfo` lehnt unbekannte Felder nicht ab. Er liest einen
+    Baum mit `good` als schnell und verlustfrei.
+  - Ein Update mit ihm packt die Kacheln seines Gebiets verlustfrei schnell
+    in den Baum. Die Bilder sind gültig, aber der Baum mischt dann zwei
+    Packungen.
+  - Er schreibt `map.json` vor der ersten Kachel neu, nur mit den Feldern,
+    die er kennt: `quality` fällt heraus.
+  - Nichts hält ihn davon ab. Das Plugin bringt seinen Renderer selbst mit;
+    Gefahr läuft also nur, wer einen älteren Renderer von Hand oder ein
+    älteres Plugin startet.
+  - Ein neuer Renderer liest den Baum danach als `maximal` und packt so
+    weiter; die Kacheln der Stufe bleiben, bis ein Lauf sie neu zeichnet.
+    Ein Update mit `--quality` der alten Stufe bricht ab, „dieser Lauf
+    will“. Zurück zur Stufe führt nur ein voller Lauf mit `--quality`.
+- **Später, nicht Teil dieser Entscheidung:**
+  - Gebiete mit eigener Stufe; die höchste Stufe gewinnt.
+  - `--repack` von `maximal` aus.
+- **Keine eigene Stufe** bekommen, beides vom Maintainer am 16.11.2026:
+  - Wasser („weglassen“);
+  - Bäume zum Download: Sie bekommen keine Mindeststufe („Download-Bäume
+    ohne Mindeststufe, good reicht“).

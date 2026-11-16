@@ -7,7 +7,7 @@ use std::ops::RangeInclusive;
 use std::path::Path;
 use std::time::{Instant, SystemTime};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, ensure};
 use heroic_map_renderer::render::{MapInfo, Packen, TILE, TileId, decode_webp, encode_webp};
 use rayon::prelude::*;
 
@@ -50,9 +50,24 @@ pub(super) fn verdichte(dir: &Path, mit_manifest: bool) -> Result<()> {
             dir.join("map.json").display()
         )
     })?;
+    // Mit zusammengelegten Farben gälte der Hash den Pixeln vor der Vorstufe,
+    // die es hier nicht mehr gibt.
+    let stufe = super::qualitaet_des_baums(dir, &alt)?;
+    ensure!(
+        stufe >= super::Qualitaet::MaximalCompact,
+        "{} packt {}: --compact-tree verdichtet nur einen Baum mit --quality maximal oder \
+         maximal_compact",
+        dir.join("map.json").display(),
+        stufe.name()
+    );
     if alt.compact != Some(true) {
+        // Nennt der Baum seine Stufe, heisst sie danach `maximal_compact`.
         let info = MapInfo {
             compact: Some(true),
+            quality: alt
+                .quality
+                .as_ref()
+                .map(|_| super::Qualitaet::MaximalCompact.name().to_string()),
             ..alt.clone()
         };
         schreibe_info(dir, &info, None)?;

@@ -439,8 +439,10 @@ ETag, siehe [Kacheln exportieren](kacheln.md), „Gleiche Bytes bleiben
 liegen“. Entschieden in
 [0091](../entscheidungen/0091-gleiche-pixel-nicht-kodieren.md).
 
-- **Der Hash:** SHA-256 über die RGBA-Bytes der Kachel, davon die ersten 16
-  Bytes.
+- **Der Hash:** SHA-256 über die Packung und die RGBA-Bytes der Kachel,
+  davon die ersten 16 Bytes (`pixel::hash`). Mit zusammengelegten
+  Farben sind es die Pixel vor dem Zusammenlegen, mit seiner Stärke: Bei einem Treffer läuft
+  die Vorstufe nicht, siehe [0143](../entscheidungen/0143-stufen-farben-zusammenlegen.md).
 - **Wann er gilt:**
   - nur für die Datei, wie ein Lauf sie hinterliess, mit derselben Grösse
     und derselben Zeit der letzten Änderung auf die Nanosekunde;

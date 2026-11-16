@@ -43,7 +43,7 @@ jobs:
         timeout-minutes: 30
         run: |
           cargo llvm-cov --test gpu --no-report -- --list
-          cargo llvm-cov nextest --test gpu --no-report --no-clean || true
+          cargo llvm-cov nextest --test gpu --no-report || true
 
       - name: Läufe
         timeout-minutes: 50
@@ -66,6 +66,6 @@ jobs:
             done
             echo "$name: $rot von 40 rot, davon $ab abgestürzt" | tee -a ../ergebnis.txt
           }
-          lauf "cargo llvm-cov, Threads" cargo llvm-cov --test gpu --no-report --no-clean
-          lauf "cargo llvm-cov nextest, Prozesse" cargo llvm-cov nextest --test gpu --no-report --no-clean
+          lauf "cargo llvm-cov, Threads" cargo llvm-cov --test gpu --no-report
+          lauf "cargo llvm-cov nextest, Prozesse" cargo llvm-cov nextest --test gpu --no-report
           cat ../ergebnis.txt

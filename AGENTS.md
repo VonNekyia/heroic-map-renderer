@@ -125,7 +125,7 @@ Vor dem Arbeitsschritt die `SKILL.md` ganz lesen und ihr folgen.
       `README.md` und `NOTICE`, weil die Usage Guidelines von Mojang einen
       Kontakt verlangen;
     - eine Benchmark-Seite in `docs/messungen/` darf den Messrechner
-      nennen: CPU-Modell, Kerne, RAM, Platte, Betriebssystem und
+      nennen: CPU-Modell, Kerne, RAM, Platte, Grafikkarte, Betriebssystem und
       Java/Paper. Ebenso ihr Diagramm in `docs/bilder/` und im README, mit
       dem Messrechner als Fussnote. Sonst gilt alles in dieser Regel weiter.
 21. Deutsch, kurze Sätze. Frontmatter-Schlüssel englisch, wie in Agent

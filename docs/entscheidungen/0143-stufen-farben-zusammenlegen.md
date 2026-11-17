@@ -111,8 +111,12 @@ maximal einfach als qualitätsstufen ein“).
     der CI zwischen 8,4 % schneller und 1,4 % langsamer als kompakt vor
     0142.
   - Die Vorstufe braucht 0,6 bis 1,1 ms je Kachel.
-  - Wie viel ein ganzer Lauf und ein Update kosten, misst eine Messung
-    nach dieser Änderung.
+  - Ein ganzer Lauf auf der Testwelt dauert gegen `maximal_compact` mit
+    `good` von oben 0,6 % und im iso 3,4 % länger, mit `small` von oben
+    3,7 %; ein Update mit einem Thread gleich lang. Unterschiede von 3 bis
+    4 % können dort Rauschen sein. Der Baum braucht mit `good` von oben
+    64,9 % und im iso 52,0 % der Bytes, mit `small` von oben 52,0 %. Siehe
+    [Stufen am Baum](../messungen/2026-11-17-stufen-am-baum.md).
 - **Abweichung:**
   - An der Basis je Kanal höchstens die Stärke.
   - In der Pyramide wächst sie bis etwa zum Dreifachen, wie auf der

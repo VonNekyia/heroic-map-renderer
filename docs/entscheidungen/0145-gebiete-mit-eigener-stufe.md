@@ -58,7 +58,8 @@ Packung stehen in [0143](0143-stufen-farben-zusammenlegen.md).
 - **Im Update nur die Gebiete nahe der Änderung:** Eine Elternkachel bis
   Zoom 0 hat die höchste Stufe aller Kinder, auch ferner. Ein Update, das
   ferne Gebiete auslässt, packte grobe Kacheln anders als ein voller Lauf.
-  Die Tabelle über alle Gebiete kostet für 500 Städte in der CI ZAHL, siehe
+  Die Tabelle über alle Gebiete kostet für 500 Städte in der CI rund
+  0,04 s im Release-Build, siehe
   [Gebiete mit eigener Stufe](../benutzung/gebiete.md), „Was es kostet“.
 - **Die Tabelle je Zoomstufe im Baum ablegen:** Ein Update müsste sie
   fortschreiben, und sie bräuchte einen eigenen Weg bei Abbruch und

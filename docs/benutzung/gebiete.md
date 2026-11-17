@@ -177,5 +177,7 @@ Liegt `gebiete.json` oder `gebiete-neu.json` im Baum, lehnt
 - **Mit Gebieten** rechnet jeder Lauf die Tabelle einmal, ein Update mit
   neuer Datei zweimal. `tabelle_fuer_500_vielecke` rechnet sie für 500
   Städte mit je 50 Ecken und 200 Blöcken Durchmesser zweimal und
-  vergleicht; in der CI unter Ubuntu ZAHL.
+  vergleicht. In der CI unter Ubuntu dauert das im Release-Build 0,086 s,
+  also rund 0,04 s je Tabelle; im Testprofil 0,19 s, unter Windows 0,15 s
+  (Lauf 43943548766, Stand 17.11.2026).
 - **Im Speicher** hält die Tabelle je Zoomstufe nur die gehobenen Kacheln.

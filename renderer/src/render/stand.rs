@@ -232,6 +232,11 @@ impl Stand {
         self.regionen.contains_key(&region)
     }
 
+    /// Die Regionen im Stand, aufsteigend.
+    pub fn regionen(&self) -> impl Iterator<Item = (i32, i32)> + '_ {
+        self.regionen.keys().copied()
+    }
+
     /// Alle Einträge, Region für Region.
     pub fn eintraege(&self) -> impl Iterator<Item = Eintrag> + '_ {
         self.regionen.values().flatten().map(entpacke)

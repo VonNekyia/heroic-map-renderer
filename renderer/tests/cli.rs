@@ -9607,6 +9607,24 @@ const VORORT_KLEIN: &str = r#"{"id":"test:staedte/klein","quality":"small","poly
 /// Die Stadt, verschoben auf den fernen Chunk.
 const VERSCHOBEN: &str = r#"{"id":"test:staedte/stadt","quality":"maximal_compact","polygons":[{"outer":[[448,0],[464,0],[464,16],[448,16]]}]}"#;
 
+/// Ein Gebiet nur über dem Chunk (0, 0).
+const ECKE: &str = r#"{"id":"test:staedte/ecke","quality":"maximal_compact","polygons":[{"outer":[[0,0],[16,0],[16,16],[0,16]]}]}"#;
+
+/// Die Welt aus [`baue_gelaende`] mit einem Schacht in (1, 0), neben der
+/// Ecke und neben dem Dach, bis auf Stein bei y = −10: Das K des Chunks
+/// sinkt von 0 auf −1.
+fn baue_schacht(welt: &Path) {
+    fn mit_schacht(x: i32, y: i32, z: i32) -> &'static str {
+        match (x, y, z) {
+            (30, -10, 8) => "minecraft:stone",
+            (30, -9.., 8) | (_, ..0, _) => "minecraft:air",
+            _ => mit_dach(x, y, z),
+        }
+    }
+    common::write_world_sections(welt, &UPDATE_CHUNKS, -1..=7, mit_schacht, |_, _| None);
+    common::setze_stempel(welt, 1, 0, 2);
+}
+
 /// Legt in `dir` eine Datei mit diesen Gebieten an.
 fn gebiete_datei(dir: &Path, name: &str, gebiete: &[&str]) -> String {
     let pfad = dir.join(name);
@@ -9726,8 +9744,9 @@ fn gebiet_packt_mit_seiner_stufe() {
 
 /// Ein Update mit Gebieten gleicht Byte für Byte einem vollen Lauf mit
 /// denselben Gebieten: wenn sich die Stadt verschiebt, wenn sie wegfällt,
-/// wenn sie neu kommt, wenn sich Chunks in ihr ändern, und ohne den
-/// Schalter mit den gemerkten Gebieten. Ändert sich nur die Datei, zeichnet
+/// wenn sie neu kommt, wenn sich Chunks in ihr ändern, ohne den Schalter
+/// mit den gemerkten Gebieten, und wenn ein Chunk neben einem Gebiet tiefer
+/// wird und dessen Kasten mitzieht. Ändert sich nur die Datei, zeichnet
 /// das Update nur die Kacheln mit neuer Stufe. Die Kopie im Baum hat keine
 /// `id`; ohne Gebiete fällt sie weg. Im iso und von oben.
 /// Siehe docs/entscheidungen/0145-gebiete-mit-eigener-stufe.md.
@@ -9737,6 +9756,7 @@ fn update_mit_gebieten_gleicht_einem_vollen_lauf() {
     let stadt = gebiete_datei(ablage.path(), "stadt.json", &[STADT]);
     let verschoben = gebiete_datei(ablage.path(), "verschoben.json", &[VERSCHOBEN]);
     let keine = gebiete_datei(ablage.path(), "keine.json", &[]);
+    let ecke = gebiete_datei(ablage.path(), "ecke.json", &[ECKE]);
     for kamera in [
         &["--scale", "16"][..],
         &["--scale", "8", "--camera", "top-north"],
@@ -9824,6 +9844,26 @@ fn update_mit_gebieten_gleicht_einem_vollen_lauf() {
             baum.path(),
             soll.path(),
             &format!("{name}, gleiche Gebiete"),
+        );
+
+        // Ein Chunk neben dem Gebiet wird tiefer: Sein K sinkt, und der
+        // Kasten über (0, 0) reicht tiefer. Das Update gleicht einem vollen
+        // Lauf, denn sein Gebiet fasst die Kästen der Nachbarn.
+        let tief = tempdir();
+        baue_gelaende(tief.path());
+        let baum = neuer_baum(&name);
+        gelungen(&tiles(
+            tief.path(),
+            baum.path(),
+            &mit(kamera, Some(&ecke), false),
+        ));
+        baue_schacht(tief.path());
+        gelungen(&tiles(tief.path(), baum.path(), &mit(kamera, None, true)));
+        let soll = voll(tief.path(), Some(&ecke));
+        gleiche_baeume(
+            baum.path(),
+            soll.path(),
+            &format!("{name}, Nachbar tiefer"),
         );
     }
 }
@@ -9923,7 +9963,8 @@ fn gebiete_nach_abbruch() {
 
 /// Fehlt die Datei mit Gebieten, ist sie kaputt, grösser als 64 MiB oder
 /// nennt sie eine Stufe, die es nicht gibt, bricht der Lauf ab, bevor er
-/// etwas schreibt. `--compact-tree` lehnt einen Baum mit Gebieten ab.
+/// etwas schreibt. `--compact-tree` lehnt einen Baum mit Gebieten ab,
+/// `--pyramid` einen mit Gebieten ohne `stand.bin`.
 #[test]
 fn gebiete_datei_bricht_ab() {
     let welt = tempdir();
@@ -9986,6 +10027,14 @@ fn gebiete_datei_bricht_ab() {
     assert!(!verdichten.status.success(), "{fehler}");
     assert!(
         fehler.contains("verdichtet nur einen Baum ohne Gebiete"),
+        "{fehler}"
+    );
+    std::fs::remove_file(baum.path().join("stand.bin")).unwrap();
+    let pyramide = cli(&[OsStr::new("--pyramid"), baum.path().as_os_str()]);
+    let fehler = String::from_utf8_lossy(&pyramide.stderr);
+    assert!(!pyramide.status.success(), "{fehler}");
+    assert!(
+        fehler.contains("Error: Gebiete:") && fehler.contains("--pyramid kennt ohne Stand"),
         "{fehler}"
     );
 }

@@ -26,13 +26,20 @@ Packung stehen in [0143](0143-stufen-farben-zusammenlegen.md).
   den Schalter gelten die Gebiete, die der Baum sich gemerkt hat. Fehlt die
   Datei, ist sie kaputt oder grösser als 64 MiB, bricht der Lauf ab: Das
   Plugin tauscht die Datei, eine halbe gibt es von ihm nicht.
-- **Spalte im Gebiet,** wenn ihre Mitte im Vieleck liegt, gerade/ungerade.
+- **Spalte im Gebiet,** wenn ihre Mitte im Vieleck liegt, gerade/ungerade,
+  und nur in der Hülle der Chunks, die der Lauf kennt: im Rechteck um die
+  Regionen der Welt und des Baums, für `--pyramid` um die des Stands.
 - **Kasten je Chunk** mit mindestens einer Spalte im Gebiet, ohne die Ränder
   eines Updates. In der Höhe von der Section des tiefsten ersten dichten
   Blocks im Chunk und seinen Nachbarn bis über seinen höchsten Block, beides
   aus dem Stand des Laufs.
 - **Je Kachel die höchste Stufe** aus Baum und Gebieten; eine Elternkachel
   hat die höchste ihrer Kinder.
+- **Ändert sich ein Chunk neben einem Gebiet,** ändert sich auch der Kasten
+  des Gebiets, wenn das K des Chunks sinkt. Das Gebiet eines Updates fasst
+  ihn: Es nimmt um jeden geänderten Chunk dieselben acht Nachbarn wie der
+  Kasten, von der Grenze nach unten bis über den höchsten Block. Was sich am
+  Kasten eines Nachbarn ändert, liegt also im Gebiet des Updates.
 - **Ein Update rechnet die Tabelle über alle Gebiete,** nach seinem neuen
   Stand. Ändern sich die Gebiete, zeichnet es dazu die Kacheln mit neuer
   Stufe.
@@ -43,6 +50,10 @@ Packung stehen in [0143](0143-stufen-farben-zusammenlegen.md).
 
 ## Verworfene Alternativen
 
+- **Ohne Hülle:** Die Spalten liefen über die ganze Fläche des Vielecks.
+  Ein Gebiet bis an die Weltgrenze, etwa „die ganze Welt“ eines fremden
+  Plugins, hätte rund 14 Billionen Chunks und hinge jeden Lauf auf, auch
+  jedes Update. Ohne Stand bekäme jeder davon Kacheln über die ganze Höhe.
 - **Ein Kasten je Spalte:** Er hebt höchstens einen Chunk Rand weniger, auf
   der ganzen Karte höchstens rund 0,5 % der Kacheln. Dafür bräuchte er
   Läufe je Zeile statt eines Kastens je Chunk, wie ihn das Gebiet eines
@@ -77,9 +88,14 @@ Packung stehen in [0143](0143-stufen-farben-zusammenlegen.md).
 - Die groben Stufen packen mit der höchsten Stufe aller Gebiete darunter
   und werden dadurch grösser.
 - `--pyramid` hebt mehr als der Lauf um Chunks, die der Server während des
-  Laufs schrieb, und ohne Stand über die ganze Höhe, siehe
+  Laufs schrieb, und lehnt einen Baum mit Gebieten ohne Stand ab, siehe
   [Gebiete mit eigener Stufe](../benutzung/gebiete.md), „`--pyramid`“.
 - Ein Ausschnitt merkt sich keine Gebiete; seine Kacheln packt das nächste
   Update wie ein voller Lauf.
-- Ein Renderer von vor den Gebieten kennt `gebiete.json` nicht und packt
-  einen Baum wieder ganz mit seiner Stufe.
+- **Ein Renderer ohne Gebiete** kennt `gebiete.json` nicht. Sein Update
+  packt die Kacheln, die es zeichnet, mit der Stufe des Baums, und lässt
+  `gebiete.json` liegen. Ein Renderer mit Gebieten sieht danach dieselben
+  Gebiete wie vorher und zeichnet diese Kacheln nicht neu; sie bleiben mit
+  der Stufe des Baums gepackt, bis ein voller Lauf sie neu packt. Stufen und
+  Gebiete kommen darum im selben Release: Einen Renderer mit Stufen ohne
+  Gebiete gibt es nicht.

@@ -2042,10 +2042,15 @@ fn write_tiles(
             .clone()
             .or_else(|| gebiete_fertig.clone()),
     };
+    // Nur die Chunks der Welt zählen; die Regionen liest es nur mit Gebieten.
+    let huelle = match gebiete {
+        Some(_) => gebiete::huelle(world.regions()?, world.bereich()),
+        None => [0; 4],
+    };
     let tabelle_aus = |eintrag: &(dyn Fn(i32, i32) -> Option<Eintrag> + Sync)| {
-        gebiete
-            .as_ref()
-            .and_then(|g| gebiete::Stufen::neu(g, stufe_des_baums, projection, max_zoom, eintrag))
+        gebiete.as_ref().and_then(|g| {
+            gebiete::Stufen::neu(g, stufe_des_baums, projection, max_zoom, huelle, eintrag)
+        })
     };
 
     let ecke = ecke(dir, bestand.as_ref(), world)?;
@@ -2148,9 +2153,14 @@ fn write_tiles(
                 true => BTreeSet::new(),
                 false => {
                     let vorher = gebiete_fertig.as_ref().and_then(|g| {
-                        gebiete::Stufen::neu(g, stufe_des_baums, projection, max_zoom, |cx, cz| {
-                            Some(neu.eintrag(cx, cz))
-                        })
+                        gebiete::Stufen::neu(
+                            g,
+                            stufe_des_baums,
+                            projection,
+                            max_zoom,
+                            huelle,
+                            |cx, cz| Some(neu.eintrag(cx, cz)),
+                        )
                     });
                     gebiete::mit_neuer_stufe(vorher.as_ref(), tabelle.as_ref(), max_zoom)
                 }
@@ -3698,18 +3708,26 @@ fn rebuild_pyramid(
     let packen = packen_des_baums(dir, &alt)?;
     let projektion = projektion_des_baums(dir, &alt)?;
     let nord = projektion.kamera() == Kamera::ObenNord;
-    // Die gemerkten Gebiete, mit den Höhen aus dem Stand; ohne ihn über die
-    // ganze Höhe.
+    // Die gemerkten Gebiete, mit Hülle und Höhen aus dem Stand. Ohne ihn
+    // kennt es die Chunks der Welt nicht.
     // Siehe docs/entscheidungen/0145-gebiete-mit-eigener-stufe.md.
     let tabelle = match gebiete::fertig(dir)? {
         Some(gebiete) => {
-            let stand = lies_stand(dir, STAND).ok().flatten();
+            let stand = lies_stand(dir, STAND)?.with_context(|| {
+                format!(
+                    "Gebiete:    {} liegt da, {} nicht: --pyramid kennt ohne Stand die Chunks \
+                     der Welt nicht; ein voller Lauf baut den Baum neu",
+                    dir.join(gebiete::GEBIETE).display(),
+                    dir.join(STAND).display()
+                )
+            })?;
             gebiete::Stufen::neu(
                 &gebiete,
                 Qualitaet::von(packen),
                 projektion,
                 max_zoom,
-                |cx, cz| stand.as_ref().map(|s| s.eintrag(cx, cz)),
+                gebiete::huelle(stand.regionen(), None),
+                |cx, cz| Some(stand.eintrag(cx, cz)),
             )
         }
         None => None,

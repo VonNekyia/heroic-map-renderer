@@ -49,6 +49,9 @@ vom Renderer nutzt“:
   Baum die gemerkten.
 - `--quality-areas` gibt es nur mit `--tiles`, nicht mit `--pyramid`,
   `--compact-tree` oder `--serve`.
+- **`--estimate`** schätzt mit der Stufe des Baums, ohne Gebiete; mit
+  `--quality-areas` schätzt es zu wenig Platz, siehe
+  [Kosten](kosten.md), „Schätzen: `--estimate`“.
 
 ## Welche Kacheln ein Gebiet hebt
 
@@ -58,6 +61,11 @@ vom Renderer nutzt“:
    [`renderer/src/cli/gebiete.rs`](../../renderer/src/cli/gebiete.rs)).
    Eine Mitte genau auf einem linken Schnittpunkt gehört dazu, eine auf
    einem rechten nicht.
+   - **Nur in der Hülle:** Es zählt nur Zeilen und Spalten im Rechteck um
+     die Regionen der Welt, geschnitten mit dem Rechteck des Baums aus
+     `--area` (`huelle`); `--pyramid` nimmt die Regionen des Stands. Ein
+     Vieleck bis an die Weltgrenze kostet so nur die Fläche der Welt
+     (`riesig_wie_knapp_um_die_welt`).
 2. **Kasten je Chunk:** Jeder Chunk mit mindestens einer solchen Spalte
    gibt einen Kasten über seine 16 × 16 Spalten. In der Höhe reicht er bis
    über seinen höchsten Block und hinunter bis zur Section des tiefsten
@@ -152,18 +160,23 @@ im iso und von oben. Schicht und Rest prüft `schicht_bleibt_in_gebieten_wie_ohn
 ## `--pyramid`
 
 `--pyramid` kennt die Stufen aus `gebiete.json` und dem Stand und baut damit
-dieselben Bytes wie der Lauf (`feine_stufen_im_speicher_mit_gebiet`). Mehr
-heben als der Lauf kann es in zwei Fällen:
+dieselben Bytes wie der Lauf (`feine_stufen_im_speicher_mit_gebiet`).
 
 - **Ein Chunk, den der Server während des Laufs schrieb,** steht bis zum
   nächsten Update als unbekannt im Stand. Um ihn hebt `--pyramid` über die
-  ganze Höhe.
-- **Ohne `stand.bin`** hebt es um jeden Chunk eines Gebiets über die ganze
-  Höhe. Ein Baum mit `gebiete.json` hat immer einen Stand, beide schreibt
-  das Ende desselben Laufs; fehlen kann er nur, wenn jemand ihn löscht.
+  ganze Höhe, mehr als der Lauf. Das nächste Update baut die Eltern über
+  seinen Kacheln wieder wie ein voller Lauf.
+- **Ohne `stand.bin`** kennt es die Chunks der Welt nicht und lehnt den
+  Baum ab:
 
-Das nächste Update baut die Eltern über seinen Kacheln wieder wie ein
-voller Lauf.
+  ```
+  Error: Gebiete:    <baum>/gebiete.json liegt da, <baum>/stand.bin nicht: --pyramid kennt ohne Stand die Chunks der Welt nicht; ein voller Lauf baut den Baum neu
+  ```
+
+  Ein Baum mit `gebiete.json` hat immer einen Stand, beide schreibt das
+  Ende desselben Laufs; fehlen kann er nur, wenn jemand ihn löscht. Ohne
+  Stand braucht auch ein Update einen vollen Lauf, siehe
+  [Updates](updates.md), „Abbruch und `--resume`“.
 
 ## `--compact-tree`
 

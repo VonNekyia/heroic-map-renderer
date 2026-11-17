@@ -9,7 +9,7 @@ use std::path::Path;
 use anyhow::{Context, Result, ensure};
 use heroic_map_renderer::render::stand::{Eintrag, Inhalt};
 use heroic_map_renderer::render::{Projection, TileId, kacheln_des_chunks};
-use heroic_map_renderer::world::Abdruck;
+use heroic_map_renderer::world::{Abdruck, REGION};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -188,11 +188,39 @@ pub(super) fn merke(dir: &Path, gebiete: Option<&Gebiete>) -> Result<()> {
     }
 }
 
-/// Die Chunks mit mindestens einer Spalte, deren Mitte im Vieleck liegt.
-/// Je Blockzeile die Schnittpunkte ihrer Mitte mit allen Kanten, gerade/
-/// ungerade; eine Mitte genau auf einem linken Schnittpunkt gehört dazu,
-/// eine auf einem rechten nicht.
-fn chunks_im(vieleck: &Vieleck, chunks: &mut BTreeSet<[i32; 2]>) {
+/// Das Rechteck der Chunks, die ein Lauf kennt, halb offen
+/// `[x0, z0, x1, z1]`: die Regionen, geschnitten mit dem Rechteck des
+/// Baums. Ohne Regionen leer.
+pub(super) fn huelle(
+    regionen: impl IntoIterator<Item = (i32, i32)>,
+    bereich: Option<[i32; 4]>,
+) -> [i32; 4] {
+    let [x0, z0, x1, z1] = regionen.into_iter().fold(
+        [i32::MAX, i32::MAX, i32::MIN, i32::MIN],
+        |[x0, z0, x1, z1], (rx, rz)| {
+            [
+                x0.min(rx * REGION),
+                z0.min(rz * REGION),
+                x1.max((rx + 1) * REGION),
+                z1.max((rz + 1) * REGION),
+            ]
+        },
+    );
+    if x0 > x1 {
+        return [0; 4];
+    }
+    let [bx0, bz0, bx1, bz1] = bereich.unwrap_or([i32::MIN, i32::MIN, i32::MAX, i32::MAX]);
+    [x0.max(bx0), z0.max(bz0), x1.min(bx1), z1.min(bz1)]
+}
+
+/// Die Chunks in `huelle` mit mindestens einer Spalte, deren Mitte im
+/// Vieleck liegt. Je Blockzeile die Schnittpunkte ihrer Mitte mit allen
+/// Kanten, gerade/ungerade; eine Mitte genau auf einem linken Schnittpunkt
+/// gehört dazu, eine auf einem rechten nicht. Zeilen und Spalten ausserhalb
+/// der Hülle zählt es nicht: Ein Vieleck bis an die Weltgrenze kostet so
+/// nur die Fläche der Welt.
+fn chunks_im(vieleck: &Vieleck, huelle: [i32; 4], chunks: &mut BTreeSet<[i32; 2]>) {
+    let [hx0, hz0, hx1, hz1] = huelle.map(|c| f64::from(c) * 16.0);
     let ringe: Vec<&[[f64; 2]]> = std::iter::once(&vieleck.outer[..])
         .chain(vieleck.holes.iter().map(|h| &h[..]))
         .filter(|ring| ring.len() >= 3)
@@ -205,7 +233,8 @@ fn chunks_im(vieleck: &Vieleck, chunks: &mut BTreeSet<[i32; 2]>) {
         return;
     }
     let mut xs = Vec::new();
-    for z in (z0 - 0.5).ceil() as i32..(z1 - 0.5).ceil() as i32 {
+    let (von_z, bis_z) = ((z0 - 0.5).ceil().max(hz0), (z1 - 0.5).ceil().min(hz1));
+    for z in von_z as i32..bis_z as i32 {
         let mitte = f64::from(z) + 0.5;
         xs.clear();
         for ring in &ringe {
@@ -218,9 +247,10 @@ fn chunks_im(vieleck: &Vieleck, chunks: &mut BTreeSet<[i32; 2]>) {
         }
         xs.sort_by(f64::total_cmp);
         for [links, rechts] in xs.as_chunks::<2>().0 {
-            // Die Spalten x mit x + 0.5 in [links, rechts).
-            let (von, bis) = ((links - 0.5).ceil() as i32, (rechts - 0.5).ceil() as i32);
+            // Die Spalten x mit x + 0.5 in [links, rechts), in der Hülle.
+            let (von, bis) = ((links - 0.5).ceil().max(hx0), (rechts - 0.5).ceil().min(hx1));
             if von < bis {
+                let (von, bis) = (von as i32, bis as i32);
                 for cx in von.div_euclid(16)..=(bis - 1).div_euclid(16) {
                     chunks.insert([cx, z.div_euclid(16)]);
                 }
@@ -275,13 +305,14 @@ pub(super) struct Stufen(Vec<HashMap<TileId, Qualitaet>>);
 
 impl Stufen {
     /// Die Stufen nach diesen Gebieten über einem Baum mit der Stufe `baum`,
-    /// mit `eintrag` aus dem Stand des Laufs; `None` ohne ein Gebiet, das
-    /// eine Kachel hebt.
+    /// in der [`huelle`] des Laufs, mit `eintrag` aus seinem Stand; `None`
+    /// ohne ein Gebiet, das eine Kachel hebt.
     pub(super) fn neu(
         gebiete: &Gebiete,
         baum: Qualitaet,
         projection: Projection,
         max_zoom: u32,
+        huelle: [i32; 4],
         eintrag: impl Fn(i32, i32) -> Option<Eintrag> + Sync,
     ) -> Option<Stufen> {
         let mit_max = |mut a: HashMap<TileId, Qualitaet>, b: HashMap<TileId, Qualitaet>| {
@@ -298,7 +329,7 @@ impl Stufen {
             .map(|areal| {
                 let mut chunks = BTreeSet::new();
                 for vieleck in &areal.vielecke {
-                    chunks_im(vieleck, &mut chunks);
+                    chunks_im(vieleck, huelle, &mut chunks);
                 }
                 let mut kacheln = HashMap::new();
                 for chunk in chunks {
@@ -369,9 +400,12 @@ mod tests {
         }
     }
 
+    /// Eine Hülle, die jedes Vieleck dieser Tests ganz fasst.
+    const WEIT: [i32; 4] = [-1000, -1000, 1000, 1000];
+
     fn chunks(vieleck: &Vieleck) -> BTreeSet<[i32; 2]> {
         let mut aus = BTreeSet::new();
-        chunks_im(vieleck, &mut aus);
+        chunks_im(vieleck, WEIT, &mut aus);
         aus
     }
 
@@ -434,6 +468,44 @@ mod tests {
         assert!(chunks(&eckig(&[])).is_empty());
     }
 
+    /// Ein Vieleck bis an die Weltgrenze zählt nur die Chunks der Hülle: Es
+    /// hebt dieselben Kacheln wie eines knapp um die Welt, auch mit Zahlen
+    /// jenseits von i32.
+    #[test]
+    fn riesig_wie_knapp_um_die_welt() {
+        // Zwei Regionen nebeneinander: Chunks −32 bis 31 in x, 0 bis 31 in z.
+        let welt = huelle([(-1, 0), (0, 0)], None);
+        assert_eq!(welt, [-32, 0, 32, 32]);
+        // Ein Rechteck des Baums schneidet sie weiter.
+        assert_eq!(huelle([(-1, 0), (0, 0)], Some([-4, 2, 100, 3])), [-4, 2, 32, 3]);
+        assert_eq!(huelle([], None), [0; 4]);
+        let quadrat = |a: f64, b: f64| eckig(&[[a, a], [b, a], [b, b], [a, b]]);
+        let im = |vieleck: &Vieleck| {
+            let mut aus = BTreeSet::new();
+            chunks_im(vieleck, welt, &mut aus);
+            aus
+        };
+        let knapp = im(&quadrat(-513.0, 513.0));
+        assert_eq!(knapp.len(), 64 * 32);
+        assert_eq!(im(&quadrat(-30_000_000.0, 30_000_000.0)), knapp);
+        assert_eq!(im(&quadrat(-1e300, 1e300)), knapp);
+        let stufen = |vieleck: Vieleck| {
+            let gebiete = Gebiete(vec![Areal {
+                stufe: Qualitaet::MaximalCompact,
+                vielecke: vec![vieleck],
+            }]);
+            Stufen::neu(&gebiete, Qualitaet::Good, Projection::new(16), 14, welt, |_, _| {
+                fertig(90, Some(4))
+            })
+            .unwrap()
+            .0
+        };
+        assert_eq!(
+            stufen(quadrat(-30_000_000.0, 30_000_000.0)),
+            stufen(quadrat(-513.0, 513.0))
+        );
+    }
+
     fn fertig(oben: i32, k: Option<i8>) -> Option<Eintrag> {
         Some(Eintrag {
             stempel: None,
@@ -481,9 +553,12 @@ mod tests {
         assert_eq!(hoehe(&|_, _| Some(Eintrag::default()), [0, 0]), None);
     }
 
-    /// 500 Vielecke mit je 50 Ecken, je eine Stadt von 200 Blöcken: Wie
-    /// lange die Tabelle und der Vergleich zweier Dateien brauchen, steht in
-    /// der Zeile von nextest. Der Test prüft nur, dass sie entstehen.
+    /// 500 Vielecke mit je 50 Ecken, je eine Stadt von 200 Blöcken, dazu
+    /// ein Land bis an die Weltgrenze über einer Welt von 21 × 17 Regionen:
+    /// Wie lange die Tabelle und der Vergleich zweier Dateien brauchen, steht
+    /// in der Zeile von nextest. Gezählt sind die Chunks in Gebieten und die
+    /// Einträge der Tabelle, für die Kosten je 1000 Chunks.
+    /// Siehe docs/benutzung/gebiete.md, „Was es kostet“.
     #[test]
     fn tabelle_fuer_500_vielecke() {
         let stadt = |i: usize, versatz: f64| {
@@ -502,21 +577,47 @@ mod tests {
                 }],
             }
         };
-        let alt = Gebiete((0..500).map(|i| stadt(i, 0.0)).collect());
-        let neu = Gebiete(
+        let land = Areal {
+            stufe: Qualitaet::Good,
+            vielecke: vec![eckig(&[
+                [-30_000_000.0, -30_000_000.0],
+                [30_000_000.0, -30_000_000.0],
+                [30_000_000.0, 30_000_000.0],
+                [-30_000_000.0, 30_000_000.0],
+            ])],
+        };
+        let mit_land = |staedte: Vec<Areal>| {
+            Gebiete(staedte.into_iter().chain([land.clone()]).collect())
+        };
+        let alt = mit_land((0..500).map(|i| stadt(i, 0.0)).collect());
+        let neu = mit_land(
             (0..500)
                 .map(|i| stadt(i, if i == 0 { 50.0 } else { 0.0 }))
                 .collect(),
         );
+        let welt = huelle((-1..20).flat_map(|rx| (-1..16).map(move |rz| (rx, rz))), None);
         let eintrag = |_: i32, _: i32| fertig(90, Some(4));
         let projection = Projection::new(16);
-        let a = Stufen::neu(&alt, Qualitaet::Good, projection, 14, eintrag).unwrap();
-        let b = Stufen::neu(&neu, Qualitaet::Good, projection, 14, eintrag).unwrap();
+        let a = Stufen::neu(&alt, Qualitaet::Small, projection, 14, welt, eintrag).unwrap();
+        let b = Stufen::neu(&neu, Qualitaet::Small, projection, 14, welt, eintrag).unwrap();
         let anders = mit_neuer_stufe(Some(&a), Some(&b), 14);
         assert!(
             !anders.is_empty() && anders.len() < a.basis(),
             "{}",
             anders.len()
         );
+        let chunks: usize = alt
+            .0
+            .iter()
+            .map(|areal| {
+                let mut aus = BTreeSet::new();
+                for vieleck in &areal.vielecke {
+                    chunks_im(vieleck, welt, &mut aus);
+                }
+                aus.len()
+            })
+            .sum();
+        let eintraege: usize = a.0.iter().map(HashMap::len).sum();
+        assert_eq!((chunks, eintraege), (0, 0));
     }
 }

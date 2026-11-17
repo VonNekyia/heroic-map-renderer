@@ -151,7 +151,9 @@ Wanduhr je Runde; die CPU-Zeit liegt je Update 0 bis 1,7 s darunter.
   an der Basis 4,1 bis 4,7 Punkte darüber.
 - **Die Zeit:** Ein voller Lauf dauert an der Wanduhr mit `good` 0,6 % länger
   von oben und 3,4 % im iso, mit `small` 3,7 % von oben; an CPU-Zeit
-  sind es 3,1, 5,6 und 2,8 %. Ein Update mit einem Thread, wie im Plugin,
+  sind es 3,1, 5,6 und 2,8 %. Ob von oben `good` oder `small` mehr kostet,
+  zeigen die zwei Durchgänge nicht: an der Wanduhr `small`, an CPU-Zeit
+  `good`. Ein Update mit einem Thread, wie im Plugin,
   braucht in jeder Stufe gleich lang: Die Unterschiede liegen in der
   Streuung von rund 20 % zwischen den Runden.
 - **Einordnung:** `maximal_compact` braucht hier für den vollen Lauf

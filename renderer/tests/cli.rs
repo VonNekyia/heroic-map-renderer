@@ -9610,19 +9610,30 @@ const VERSCHOBEN: &str = r#"{"id":"test:staedte/stadt","quality":"maximal_compac
 /// Ein Gebiet nur über dem Chunk (0, 0).
 const ECKE: &str = r#"{"id":"test:staedte/ecke","quality":"maximal_compact","polygons":[{"outer":[[0,0],[16,0],[16,16],[0,16]]}]}"#;
 
-/// Die Welt aus [`baue_gelaende`] mit einem Schacht in (1, 0), neben der
-/// Ecke und neben dem Dach, bis auf Stein bei y = −10: Das K des Chunks
-/// sinkt von 0 auf −1.
-fn baue_schacht(welt: &Path) {
-    fn mit_schacht(x: i32, y: i32, z: i32) -> &'static str {
-        match (x, y, z) {
-            (30, -10, 8) => "minecraft:stone",
-            (30, -9.., 8) | (_, ..0, _) => "minecraft:air",
-            _ => mit_dach(x, y, z),
+/// Die Treppen aus [`gelaende`] ganz aus Stein, denn nur dichte Blöcke geben
+/// ein K. Mit `schacht` einer in (1, 0), neben der Ecke, bis auf Stein bei
+/// y = −60: Das K des Chunks sinkt von 0 auf −4, der Kasten über der Ecke
+/// reicht 64 Blöcke tiefer. Der Schacht bekommt einen neuen Stempel.
+fn baue_stein(welt: &Path, schacht: bool) {
+    fn stein(x: i32, y: i32, z: i32) -> &'static str {
+        match gelaende(x, y, z) {
+            "minecraft:air" => "minecraft:air",
+            _ if y < 0 => "minecraft:air",
+            _ => "minecraft:stone",
         }
     }
-    common::write_world_sections(welt, &UPDATE_CHUNKS, -1..=7, mit_schacht, |_, _| None);
-    common::setze_stempel(welt, 1, 0, 2);
+    fn mit_schacht(x: i32, y: i32, z: i32) -> &'static str {
+        match (x, y, z) {
+            (30, -60, 8) => "minecraft:stone",
+            (30, -59.., 8) => "minecraft:air",
+            _ => stein(x, y, z),
+        }
+    }
+    let block: fn(i32, i32, i32) -> &'static str = if schacht { mit_schacht } else { stein };
+    common::write_world_sections(welt, &UPDATE_CHUNKS, -4..=7, block, |_, _| None);
+    if schacht {
+        common::setze_stempel(welt, 1, 0, 2);
+    }
 }
 
 /// Legt in `dir` eine Datei mit diesen Gebieten an.
@@ -9779,6 +9790,22 @@ fn update_mit_gebieten_gleicht_einem_vollen_lauf() {
             gelungen(&tiles(welt, b.path(), &mit(kamera, datei, false)));
             b
         };
+        // Ein Chunk neben dem Gebiet wird tiefer: Sein K sinkt, und der
+        // Kasten über (0, 0) reicht tiefer. Das Update gleicht einem vollen
+        // Lauf, denn sein Gebiet fasst die Kästen der Nachbarn.
+        let tief = tempdir();
+        baue_stein(tief.path(), false);
+        let baum = neuer_baum(&name);
+        gelungen(&tiles(
+            tief.path(),
+            baum.path(),
+            &mit(kamera, Some(&ecke), false),
+        ));
+        baue_stein(tief.path(), true);
+        gelungen(&tiles(tief.path(), baum.path(), &mit(kamera, None, true)));
+        let soll = voll(tief.path(), Some(&ecke));
+        gleiche_baeume(baum.path(), soll.path(), &format!("{name}, Nachbar tiefer"));
+
         let baum = neuer_baum(&name);
         gelungen(&tiles(
             welt.path(),
@@ -9844,26 +9871,6 @@ fn update_mit_gebieten_gleicht_einem_vollen_lauf() {
             baum.path(),
             soll.path(),
             &format!("{name}, gleiche Gebiete"),
-        );
-
-        // Ein Chunk neben dem Gebiet wird tiefer: Sein K sinkt, und der
-        // Kasten über (0, 0) reicht tiefer. Das Update gleicht einem vollen
-        // Lauf, denn sein Gebiet fasst die Kästen der Nachbarn.
-        let tief = tempdir();
-        baue_gelaende(tief.path());
-        let baum = neuer_baum(&name);
-        gelungen(&tiles(
-            tief.path(),
-            baum.path(),
-            &mit(kamera, Some(&ecke), false),
-        ));
-        baue_schacht(tief.path());
-        gelungen(&tiles(tief.path(), baum.path(), &mit(kamera, None, true)));
-        let soll = voll(tief.path(), Some(&ecke));
-        gleiche_baeume(
-            baum.path(),
-            soll.path(),
-            &format!("{name}, Nachbar tiefer"),
         );
     }
 }

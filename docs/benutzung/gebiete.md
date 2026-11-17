@@ -188,9 +188,18 @@ Liegt `gebiete.json` oder `gebiete-neu.json` im Baum, lehnt
 
 - **Ohne Gebiete:** nichts.
 - **Mit Gebieten** rechnet jeder Lauf die Tabelle einmal, ein Update mit
-  neuer Datei zweimal. `tabelle_fuer_500_vielecke` rechnet sie für 500
-  Städte mit je 50 Ecken und 200 Blöcken Durchmesser zweimal und
-  vergleicht. In der CI unter Ubuntu dauert das im Release-Build 0,086 s,
-  also rund 0,04 s je Tabelle; im Testprofil 0,19 s, unter Windows 0,15 s
-  (Lauf 43943548766, Stand 17.11.2026).
-- **Im Speicher** hält die Tabelle je Zoomstufe nur die gehobenen Kacheln.
+  neuer Datei zweimal, jedes Update über alle Gebiete. Die Zeit wächst mit
+  den Chunks in Gebieten, je Gebiet gezählt, der Speicher mit den Kacheln,
+  die Gebiete heben.
+- **Gemessen** in `tabelle_fuer_500_vielecke`: 500 Städte mit je 50 Ecken
+  und 200 Blöcken Durchmesser und ein Land bis an die Weltgrenze, über
+  einer Welt von 21 × 17 Regionen, bei scale 16. Das sind 439 568 Chunks in
+  Gebieten, 365 568 davon verschieden, und 125 011 Einträge in der Tabelle
+  über alle Zoomstufen. Zwei Tabellen samt Vergleich dauern ZEIT.
+- **Im Speicher** hält die Tabelle je Zoomstufe nur die gehobenen Kacheln,
+  je Eintrag 12 B in einer `HashMap`, mit ihrer Verwaltung und Füllung 15
+  bis 30 B. Bei scale 16 sind das je 1000 Chunks in Gebieten rund 340
+  Einträge, 5 bis 10 KiB. Dazu kommen, solange ein Gebiet seine Kacheln
+  sucht, seine Chunks.
+- **Liegt der grösste Teil der Karte in Gebieten,** gehört die Stufe an den
+  Baum, mit `--quality`: Dann rechnet kein Lauf die Tabelle.

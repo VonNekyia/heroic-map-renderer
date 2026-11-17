@@ -2043,13 +2043,13 @@ fn write_tiles(
             .or_else(|| gebiete_fertig.clone()),
     };
     // Nur die Chunks der Welt zählen; die Regionen liest es nur mit Gebieten.
-    let huelle = match gebiete {
+    let bekannt = match gebiete {
         Some(_) => gebiete::huelle(world.regions()?, world.bereich()),
         None => [0; 4],
     };
     let tabelle_aus = |eintrag: &(dyn Fn(i32, i32) -> Option<Eintrag> + Sync)| {
         gebiete.as_ref().and_then(|g| {
-            gebiete::Stufen::neu(g, stufe_des_baums, projection, max_zoom, huelle, eintrag)
+            gebiete::Stufen::neu(g, stufe_des_baums, projection, max_zoom, bekannt, eintrag)
         })
     };
 
@@ -2158,7 +2158,7 @@ fn write_tiles(
                             stufe_des_baums,
                             projection,
                             max_zoom,
-                            huelle,
+                            bekannt,
                             |cx, cz| Some(neu.eintrag(cx, cz)),
                         )
                     });

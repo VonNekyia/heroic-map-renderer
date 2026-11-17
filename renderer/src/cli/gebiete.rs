@@ -248,7 +248,10 @@ fn chunks_im(vieleck: &Vieleck, huelle: [i32; 4], chunks: &mut BTreeSet<[i32; 2]
         xs.sort_by(f64::total_cmp);
         for [links, rechts] in xs.as_chunks::<2>().0 {
             // Die Spalten x mit x + 0.5 in [links, rechts), in der Hülle.
-            let (von, bis) = ((links - 0.5).ceil().max(hx0), (rechts - 0.5).ceil().min(hx1));
+            let (von, bis) = (
+                (links - 0.5).ceil().max(hx0),
+                (rechts - 0.5).ceil().min(hx1),
+            );
             if von < bis {
                 let (von, bis) = (von as i32, bis as i32);
                 for cx in von.div_euclid(16)..=(bis - 1).div_euclid(16) {
@@ -477,7 +480,10 @@ mod tests {
         let welt = huelle([(-1, 0), (0, 0)], None);
         assert_eq!(welt, [-32, 0, 32, 32]);
         // Ein Rechteck des Baums schneidet sie weiter.
-        assert_eq!(huelle([(-1, 0), (0, 0)], Some([-4, 2, 100, 3])), [-4, 2, 32, 3]);
+        assert_eq!(
+            huelle([(-1, 0), (0, 0)], Some([-4, 2, 100, 3])),
+            [-4, 2, 32, 3]
+        );
         assert_eq!(huelle([], None), [0; 4]);
         let quadrat = |a: f64, b: f64| eckig(&[[a, a], [b, a], [b, b], [a, b]]);
         let im = |vieleck: &Vieleck| {
@@ -494,9 +500,14 @@ mod tests {
                 stufe: Qualitaet::MaximalCompact,
                 vielecke: vec![vieleck],
             }]);
-            Stufen::neu(&gebiete, Qualitaet::Good, Projection::new(16), 14, welt, |_, _| {
-                fertig(90, Some(4))
-            })
+            Stufen::neu(
+                &gebiete,
+                Qualitaet::Good,
+                Projection::new(16),
+                14,
+                welt,
+                |_, _| fertig(90, Some(4)),
+            )
             .unwrap()
             .0
         };
@@ -586,16 +597,18 @@ mod tests {
                 [-30_000_000.0, 30_000_000.0],
             ])],
         };
-        let mit_land = |staedte: Vec<Areal>| {
-            Gebiete(staedte.into_iter().chain([land.clone()]).collect())
-        };
+        let mit_land =
+            |staedte: Vec<Areal>| Gebiete(staedte.into_iter().chain([land.clone()]).collect());
         let alt = mit_land((0..500).map(|i| stadt(i, 0.0)).collect());
         let neu = mit_land(
             (0..500)
                 .map(|i| stadt(i, if i == 0 { 50.0 } else { 0.0 }))
                 .collect(),
         );
-        let welt = huelle((-1..20).flat_map(|rx| (-1..16).map(move |rz| (rx, rz))), None);
+        let welt = huelle(
+            (-1..20).flat_map(|rx| (-1..16).map(move |rz| (rx, rz))),
+            None,
+        );
         let eintrag = |_: i32, _: i32| fertig(90, Some(4));
         let projection = Projection::new(16);
         let a = Stufen::neu(&alt, Qualitaet::Small, projection, 14, welt, eintrag).unwrap();
@@ -618,6 +631,6 @@ mod tests {
             })
             .sum();
         let eintraege: usize = a.0.iter().map(HashMap::len).sum();
-        assert_eq!((chunks, eintraege), (0, 0));
+        assert_eq!((chunks, eintraege), (439_568, 125_011));
     }
 }

@@ -407,6 +407,12 @@ Alpha bleibt in jeder Stufe Bit für Bit.
 | `maximal_compact` | – | Pixel für Pixel, kompakt |
 | `maximal` | – | Pixel für Pixel, schnell |
 
+Gegen `maximal_compact` braucht ein Baum der Testwelt mit `good` von oben
+mit Relief 64,9 % der Bytes und im iso mit Cinematic 52,0 %, mit `small`
+von oben 52,0 %. Ein voller Lauf dauert dafür 0,6 bis 3,7 % länger, ein
+Update mit einem Thread gleich lang, gemessen in
+[Stufen am Baum](../messungen/2026-11-17-stufen-am-baum.md).
+
 Was ein Lauf packt, hängt allein an `map.json` im Verzeichnis
 (`packen` in [`renderer/src/cli.rs`](../../renderer/src/cli.rs)):
 

@@ -83,7 +83,7 @@ nach `map.json`. Ein Ausschnitt schreibt keinen.
   alten Stand, schreibt es ihn nicht neu: `Stand:      unverändert ->
   …/stand.bin`. Der alte gilt weiter, mit Bytes und Zeit. Was ein
   abgebrochener Lauf hinterliess, `stand-neu.bin` samt `stand-neu/`,
-  `stand-neu-liegen.bin` und `gebiet-offen.bin`, räumt es trotzdem weg
+  `stand-neu-liegen.bin`, `gebiete-neu.json` und `gebiet-offen.bin`, räumt es trotzdem weg
   (`entferne_angefangene`). In Fassung 1 sparte das an der Testwelt 7,5 MB
   und 0,08 s je Update.
 - **Neue Stempel ohne neuen Inhalt** sind keine Änderung zum Zeichnen,
@@ -288,6 +288,9 @@ Um jeden geänderten Chunk ein Gebiet, `gebiet_der_aenderungen` in
   „Schatten“. Das gilt auch für `slope`, dessen Gefälle nur einen Block
   braucht, denn die Schicht trägt den Schatten, siehe ebenda, „Die
   Schicht“.
+- **Mit Gebieten** dazu die Basiskacheln, deren Stufe sich gegen die
+  gemerkten Gebiete ändert, siehe [Gebiete mit eigener Stufe](gebiete.md),
+  „Update“.
 - Projiziert samt der Reserve für überstehende Sprites, dann aufgerundet auf
   Kacheln der gröbsten nativen Stufe wie bei einem Ausschnitt, siehe
   [Kacheln exportieren](kacheln.md), „Ein Ausschnitt“.

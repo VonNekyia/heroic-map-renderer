@@ -35,8 +35,8 @@ GPU-Tests bleiben in der Coverage.
 - **Instanz ohne `InstanceFlags::DEBUG`:** wgpu benennt dann keine Objekte
   mehr, und der eine Wettlauf fällt weg. Es bleiben Abstürze, siehe
   [Tests](../entwicklung/tests.md), „GPU-Tests“: Dann trifft das Aufzählen
-  der Adapter das Anlegen eines Geräts. Dazu fehlten im Debug-Build die Namen in den Meldungen der
-  Validierung.
+  der Adapter das Anlegen eines Geräts. Dazu fehlten im Debug-Build die
+  Namen in den Meldungen der Validierung.
 - **Eine Sperre um `Gpu::mit_grenze`:** Sie deckt das Anlegen ab, aber nicht
   das Benennen und nicht das Abbauen, wenn ein Test sein Gerät freigibt,
   während ein anderer eins anlegt. Sie wäre Code im Renderer für einen Fall,

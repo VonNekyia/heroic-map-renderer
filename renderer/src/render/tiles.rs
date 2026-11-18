@@ -644,6 +644,22 @@ pub fn gebiet_der_aenderungen(
     Gebiet::aus(stufen, kacheln)
 }
 
+/// Die Basiskacheln, die Blöcke des Chunks von `hoehe.0` bis vor `hoehe.1`
+/// zeigen können, samt der Reserve für überstehende Sprites, aber ohne die
+/// Ränder für Licht, Schatten und Bloom aus [`gebiet_der_aenderungen`].
+/// Siehe docs/entscheidungen/0145-gebiete-mit-eigener-stufe.md.
+pub fn kacheln_des_chunks(
+    projection: Projection,
+    [cx, cz]: [i32; 2],
+    hoehe: (i32, i32),
+) -> impl Iterator<Item = TileId> {
+    let (x, z) = (cx * CHUNK, cz * CHUNK);
+    raster(
+        block_box(projection, [x, z], [x + CHUNK, z + CHUNK], hoehe),
+        TILE,
+    )
+}
+
 /// Was ein Chunk im Ausschnitt eines Laufs zeigt, siehe [`Reach::content`].
 enum Content {
     /// Keine Section, in der etwas steht.

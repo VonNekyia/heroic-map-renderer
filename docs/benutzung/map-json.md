@@ -452,7 +452,10 @@ Was ein Lauf packt, hängt allein an `map.json` im Verzeichnis
 - **Ein Baum zum Download, dessen Stufe wechselt,** bekommt neue Bytes in
   fast jeder Kachel. Jeder Spieler mit dem Mod lädt die Karte danach einmal
   ganz neu.
-- **`--pyramid`** packt die Eltern mit der Stufe aus `map.json`.
+- **Gebiete** packen besser als die Stufe des Baums; sie stehen nicht in
+  `map.json`, siehe [Gebiete mit eigener Stufe](gebiete.md).
+- **`--pyramid`** packt die Eltern mit der Stufe aus `map.json`, in Gebieten
+  mit deren Stufe.
 
 ## Verkleinern
 

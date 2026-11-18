@@ -40,6 +40,7 @@ mod assistent;
 mod banner;
 mod client;
 mod datenpakete;
+mod gebiete;
 mod manifest;
 mod pixel;
 mod schaetzung;
@@ -215,6 +216,14 @@ pub struct Args {
     #[arg(long, value_enum, value_name = "STUFE", requires = "tiles")]
     quality: Option<Qualitaet>,
 
+    /// Mit --tiles eine Datei mit Gebieten, die besser packen als der Baum,
+    /// je mit einer Stufe wie --quality und Vielecken in Blöcken; je Kachel
+    /// gewinnt die höchste Stufe. Der Baum merkt sich die Gebiete, ein Lauf
+    /// ohne den Schalter nimmt die gemerkten. Fehlt die Datei, ist sie
+    /// kaputt oder grösser als 64 MiB, bricht der Lauf ab
+    #[arg(long, value_name = "DATEI", requires = "tiles")]
+    quality_areas: Option<PathBuf>,
+
     /// Mit --tiles vorhandene Basiskacheln stehen lassen statt sie neu zu
     /// rendern: setzt einen abgebrochenen Lauf fort, und nur den. Stammt
     /// der angefangene Stand eines vollen Laufs von einem Renderer, der
@@ -293,7 +302,7 @@ pub struct Args {
         "serve", "web", "listen", "max_connections", "header_timeout", "max_header_bytes", "max_headers",
         "write_timeout", "exit_with_stdin", "tls_cert", "tls_key", "secret_file", "player_dir", "trusted_proxy", "recognize_origin", "recognize_url", "site_url",
         "site_title", "site_description", "site_image", "download_client_jar", "client_version",
-        "cache_dir", "compact", "quality", "compact_tree", "flat", "relief", "banners", "out",
+        "cache_dir", "compact", "quality", "quality_areas", "compact_tree", "flat", "relief", "banners", "out",
     ])]
     pyramid: Option<PathBuf>,
 
@@ -304,7 +313,7 @@ pub struct Args {
     #[arg(long, value_name = "VERZEICHNIS", conflicts_with_all = [
         "world", "assets", "data", "at", "block", "sprite", "scale", "camera", "direction",
         "biome_blend", "render", "cinematic", "center", "area", "tiles", "size", "scan", "prune",
-        "native_levels", "quality", "resume", "update", "gpu", "progress", "estimate", "defender_exclusion", "heights",
+        "native_levels", "quality", "quality_areas", "resume", "update", "gpu", "progress", "estimate", "defender_exclusion", "heights",
         "serve", "web", "listen", "max_connections", "header_timeout", "max_header_bytes", "max_headers",
         "write_timeout", "exit_with_stdin", "tls_cert", "tls_key", "secret_file", "player_dir", "trusted_proxy", "recognize_origin", "recognize_url", "site_url",
         "site_title", "site_description", "site_image", "download_client_jar", "client_version",
@@ -328,7 +337,7 @@ pub struct Args {
         "world", "at", "block", "sprite", "scale", "camera", "direction", "biome_blend", "render",
         "cinematic", "center", "area", "size", "scan", "prune", "native_levels", "resume", "update",
         "gpu", "progress", "estimate", "defender_exclusion", "heights", "pyramid", "compact_tree",
-        "manifest", "serve", "compact", "quality", "flat", "relief",
+        "manifest", "serve", "compact", "quality", "quality_areas", "flat", "relief",
     ])]
     banners: Option<Vec<PathBuf>>,
 
@@ -344,7 +353,7 @@ pub struct Args {
         "world", "assets", "data", "at", "block", "sprite", "scale", "camera", "direction",
         "biome_blend", "render", "cinematic", "center", "area", "tiles", "size", "scan", "prune",
         "native_levels", "resume", "update", "gpu", "progress", "estimate", "defender_exclusion", "heights",
-        "pyramid", "manifest", "download_client_jar", "client_version", "cache_dir", "compact", "quality",
+        "pyramid", "manifest", "download_client_jar", "client_version", "cache_dir", "compact", "quality", "quality_areas",
         "compact_tree", "flat", "relief", "banners", "out",
     ])]
     serve: Option<PathBuf>,
@@ -884,6 +893,13 @@ pub fn run() -> Result<()> {
     if let Some(dir) = &args.tiles {
         pruefe_wurzel(dir)?;
     }
+    // Ebenso vor der Welt: Eine Datei mit Gebieten, die fehlt oder kaputt ist,
+    // hält den Lauf auf, bevor er etwas schreibt.
+    let gebiete = args
+        .quality_areas
+        .as_deref()
+        .map(gebiete::lies)
+        .transpose()?;
     // Vor allem anderen, dann sitzt noch jemand davor. Der Hinweis kommt nur
     // beim ersten Export in ein Verzeichnis: ob die Ausnahme schon besteht,
     // sieht der Lauf ohne Adminrechte nicht, und bei jedem Lauf wäre er
@@ -1194,6 +1210,7 @@ pub fn run() -> Result<()> {
                     args.biome_blend,
                     args.compact,
                     args.quality,
+                    gebiete.as_ref(),
                     args.cinematic.then_some(LOOK),
                     args.relief,
                     args.manifest,
@@ -1948,6 +1965,7 @@ fn write_tiles(
     blend: Option<u8>,
     kompakt: bool,
     qualitaet: Option<Qualitaet>,
+    gebiete_datei: Option<&gebiete::Gebiete>,
     look: Option<Look>,
     relief: Option<Relief>,
     mit_manifest: bool,
@@ -2012,6 +2030,28 @@ fn write_tiles(
         packen(dir, bestand.as_ref(), kompakt, qualitaet, &bereich)?;
     let (verkleinern, umstellen) =
         verkleinern(bestand.as_ref(), projection.kamera() == Kamera::ObenNord);
+    // Die Gebiete dieses Laufs: vom Schalter, sonst die des abgebrochenen
+    // Laufs, sonst die des letzten fertigen.
+    // Siehe docs/entscheidungen/0145-gebiete-mit-eigener-stufe.md.
+    let stufe_des_baums = Qualitaet::von(packen);
+    let gebiete_fertig = gebiete::fertig(dir)?;
+    let gebiete_angefangen = gebiete::angefangen(dir)?;
+    let gebiete = match gebiete_datei {
+        Some(datei) => Some(datei.clone()),
+        None => gebiete_angefangen
+            .clone()
+            .or_else(|| gebiete_fertig.clone()),
+    };
+    // Nur die Chunks der Welt zählen; die Regionen liest es nur mit Gebieten.
+    let bekannt = match gebiete {
+        Some(_) => gebiete::huelle(world.regions()?, world.bereich()),
+        None => [0; 4],
+    };
+    let tabelle_aus = |eintrag: &(dyn Fn(i32, i32) -> Option<Eintrag> + Sync)| {
+        gebiete.as_ref().and_then(|g| {
+            gebiete::Stufen::neu(g, stufe_des_baums, projection, max_zoom, bekannt, eintrag)
+        })
+    };
 
     let ecke = ecke(dir, bestand.as_ref(), world)?;
     // Ein voller Lauf und ein Update schreiben den Stand des Baums, mit den
@@ -2045,17 +2085,42 @@ fn write_tiles(
             "Stand:      dieser Lauf rendert alles wie ohne --resume und schreibt am Ende einen Stand"
         );
     }
+    // Andere Gebiete als der abgebrochene Lauf: wie eine andere Stufe.
+    let gebiete_wechseln = resume
+        && gebiete_datei.is_some()
+        && !gebiete::gleich(gebiete.as_ref(), gebiete_angefangen.as_ref());
+    if gebiete_wechseln {
+        println!(
+            "Gebiete:    --quality-areas nennt andere Gebiete als der abgebrochene Lauf; dieser \
+             setzt ihn nicht fort und zeichnet wie ohne --resume"
+        );
+    }
     // Wer das Relief wechselt, zeichnet jede Kachel neu, wie ohne --resume.
-    let resume = resume && !frisch && !wechsel && !qualitaet_wechselt;
+    let resume = resume && !frisch && !wechsel && !qualitaet_wechselt && !gebiete_wechseln;
     let fortgesetzt = match angefangen {
         Angefangen::Passend(stand, seit) => Some((stand, seit)),
         Angefangen::Keiner | Angefangen::Fremd => None,
     };
     // Ob ein Update dieselben Stempel und Inhalte fand wie im alten Stand.
     let mut unveraendert = false;
-    let (gebiet, stand, aenderungen, offen) = match bereich {
-        Bereich::Welt => (None, None, None, None),
-        Bereich::Ausschnitt(rect) => (Some(Gebiet::rechteck(rect, stufen)), None, None, None),
+    let (gebiet, stand, aenderungen, offen, tabelle) = match bereich {
+        Bereich::Welt => (None, None, None, None, None),
+        Bereich::Ausschnitt(rect) => {
+            // Ein Ausschnitt schreibt keinen Stand; die Höhen nimmt er aus dem
+            // alten, ohne ihn die ganze Höhe.
+            let alt = match gebiete {
+                Some(_) => lies_stand(dir, STAND).ok().flatten(),
+                None => None,
+            };
+            let tabelle = tabelle_aus(&|cx, cz| alt.as_ref().map(|s| s.eintrag(cx, cz)));
+            (
+                Some(Gebiet::rechteck(rect, stufen)),
+                None,
+                None,
+                None,
+                tabelle,
+            )
+        }
         Bereich::Update => {
             let started = Instant::now();
             let alt = stand_fuer_update(dir, abdruecke)?;
@@ -2080,6 +2145,35 @@ fn write_tiles(
             };
             let mut kacheln = gebiet.kacheln().clone();
             kacheln.extend(offen.iter().copied());
+            // Ohne Gebiete rechnet das Update hier nichts. Mit Gebieten die
+            // Stufen nach dem neuen Stand, und nur wenn sich die Gebiete seit
+            // dem letzten fertigen Lauf ändern, die Kacheln mit neuer Stufe.
+            let tabelle = tabelle_aus(&|cx, cz| Some(neu.eintrag(cx, cz)));
+            let neue_stufe = match gebiete::gleich(gebiete.as_ref(), gebiete_fertig.as_ref()) {
+                true => BTreeSet::new(),
+                false => {
+                    let vorher = gebiete_fertig.as_ref().and_then(|g| {
+                        gebiete::Stufen::neu(
+                            g,
+                            stufe_des_baums,
+                            projection,
+                            max_zoom,
+                            bekannt,
+                            |cx, cz| Some(neu.eintrag(cx, cz)),
+                        )
+                    });
+                    gebiete::mit_neuer_stufe(vorher.as_ref(), tabelle.as_ref(), max_zoom)
+                }
+            };
+            let dazu = match neue_stufe.len() {
+                0 => dazu,
+                n => format!("{dazu}, dazu {n} Basiskacheln mit neuer Stufe aus den Gebieten"),
+            };
+            kacheln.extend(
+                neue_stufe
+                    .iter()
+                    .map(|tile| (0..stufen).fold(*tile, |tile, _| tile.parent())),
+            );
             let gebiet = Gebiet::aus(stufen, kacheln);
             println!(
                 "\nUpdate:     {} Chunks geändert{dazu}, {} Kacheln von {TILE}x{TILE} px bei scale {} im Gebiet, in {:.1} s",
@@ -2097,6 +2191,7 @@ fn write_tiles(
                 }),
                 Some(aenderungen),
                 Some(Gebiet::aus(stufen, offen)),
+                tabelle,
             )
         }
     };
@@ -2141,10 +2236,11 @@ fn write_tiles(
             // Zeit und Platte.
             // Siehe docs/benutzung/updates.md, „Der Stand“.
             Some(_) if unveraendert => {
+                gebiete::merke(dir, gebiete.as_ref())?;
                 entferne_angefangene(dir)?;
                 println!("Stand:      unverändert -> {}", dir.join(STAND).display());
             }
-            Some(stand) => schreibe_stand(dir, world, stand)?,
+            Some(stand) => schreibe_stand(dir, world, stand, gebiete.as_ref())?,
             None => {}
         }
         melde_json(serde_json::json!({"phase": "done", "tiles": neu, "s": sekunden(beginn)}));
@@ -2218,6 +2314,22 @@ fn write_tiles(
         }
         stand => stand,
     };
+    // Ein voller Lauf rechnet die Stufen nach dem Stand, den er schreibt;
+    // ohne Stand über die ganze Höhe.
+    let tabelle = match (tabelle, &stand) {
+        (None, Some(stand)) if matches!(bereich, Bereich::Welt) => {
+            tabelle_aus(&|cx, cz| Some(stand.eintrag(cx, cz)))
+        }
+        (None, None) if matches!(bereich, Bereich::Welt) => tabelle_aus(&|_, _| None),
+        (tabelle, _) => tabelle,
+    };
+    if let Some(tabelle) = &tabelle {
+        println!(
+            "Gebiete:    {} Basiskacheln packen besser als {}",
+            tabelle.basis(),
+            stufe_des_baums.name()
+        );
+    }
     // Ein voller Lauf über einen Baum mit Stand weiss wie ein Update, welche
     // Chunks sich geändert haben, auch mit --resume. Den alten Stand liest er
     // vor der ersten Kachel noch einmal, statt ihn bis dahin zu halten.
@@ -2414,6 +2526,7 @@ fn write_tiles(
             blend,
             kompakt,
             qualitaet,
+            gebiete_datei,
             look,
             relief,
             mit_manifest,
@@ -2513,6 +2626,8 @@ fn write_tiles(
         && !resume
     {
         lege_stand_ab(dir, STAND_NEU, stand)?;
+        // Daneben seine Gebiete: Mit ihnen setzt --resume fort.
+        gebiete::lege_an(dir, gebiete.as_ref())?;
     }
     // Daneben, was liegen bleibt: Dessen Zeit sagt es nicht.
     let liegen = stand
@@ -2614,6 +2729,7 @@ fn write_tiles(
         packen,
         hashes: Some(&hashes),
         verkleinern,
+        stufen: tabelle.as_ref(),
     };
     // Mit Relief die Schicht in `relief/` und ihr Rest, mit eigenen Hashes.
     let schicht_dir = dir.join(SCHICHT);
@@ -2639,7 +2755,8 @@ fn write_tiles(
         }
         _ => BTreeSet::new(),
     });
-    // Schicht und Rest sind Daten für den Mod: immer verlustfrei.
+    // Schicht und Rest sind Daten für den Mod: immer verlustfrei, auch in
+    // einem Gebiet.
     let daten = match packen {
         Packen::Zusammen(_) => Packen::Kompakt,
         verlustfrei => verlustfrei,
@@ -2649,12 +2766,14 @@ fn write_tiles(
         ablage: Ablage {
             packen: daten,
             hashes: Some(schicht),
+            stufen: None,
             ..ablage
         },
         rest: &rest_dir,
         rest_ablage: Ablage {
             packen: daten,
             hashes: Some(rest),
+            stufen: None,
             ..ablage
         },
         ohne_rest: &ohne_rest,
@@ -2989,7 +3108,7 @@ fn write_tiles(
     // Zuletzt: Bricht der Lauf vorher ab, gilt der alte Stand, und das
     // nächste Update zeichnet dieselben Stellen noch einmal.
     if let Some(stand) = stand {
-        schreibe_stand(dir, world, stand)?;
+        schreibe_stand(dir, world, stand, gebiete.as_ref())?;
     }
     melde_json(serde_json::json!({"phase": "done", "tiles": anzahl, "s": sekunden(beginn)}));
     Ok(())
@@ -3346,13 +3465,20 @@ fn entferne_angefangene(dir: &Path) -> Result<()> {
     // Leer fällt der Ordner weg; liegt sonst etwas darin, bleibt er.
     let _ = std::fs::remove_dir(kopf.with_extension(""));
     entferne(&dir.join(LIEGEN_NEU))?;
+    entferne(&dir.join(gebiete::GEBIETE_NEU))?;
     entferne(&dir.join(OFFEN))
 }
 
 /// Schreibt den Stand am Ende eines Laufs: Was der Server seit dem Beginn
-/// schrieb, ist darin unbekannt. Der angefangene Stand fällt weg, ebenso das
-/// offene Gebiet: Dieser Lauf hat es gezeichnet.
-fn schreibe_stand(dir: &Path, world: &World, stand: Stand) -> Result<()> {
+/// schrieb, ist darin unbekannt. Danach merkt sich der Baum die Gebiete des
+/// Laufs. Der angefangene Stand fällt weg, ebenso das offene Gebiet: Dieser
+/// Lauf hat es gezeichnet.
+fn schreibe_stand(
+    dir: &Path,
+    world: &World,
+    stand: Stand,
+    gebiete: Option<&gebiete::Gebiete>,
+) -> Result<()> {
     let stand = stand.am_ende(&world.stempel()?);
     let (chunks, unbekannt) = stand.eintraege().fold((0, 0), |(n, u), e| {
         (
@@ -3362,6 +3488,7 @@ fn schreibe_stand(dir: &Path, world: &World, stand: Stand) -> Result<()> {
     });
     let pfad = dir.join(STAND);
     lege_stand_ab(dir, STAND, &stand)?;
+    gebiete::merke(dir, gebiete)?;
     entferne_angefangene(dir)?;
     let waehrend = match unbekannt {
         0 => String::new(),
@@ -3579,7 +3706,32 @@ fn rebuild_pyramid(
     })?;
     let max_zoom = alt.max_zoom;
     let packen = packen_des_baums(dir, &alt)?;
-    let nord = projektion_des_baums(dir, &alt)?.kamera() == Kamera::ObenNord;
+    let projektion = projektion_des_baums(dir, &alt)?;
+    let nord = projektion.kamera() == Kamera::ObenNord;
+    // Die gemerkten Gebiete, mit Hülle und Höhen aus dem Stand. Ohne ihn
+    // kennt es die Chunks der Welt nicht.
+    // Siehe docs/entscheidungen/0145-gebiete-mit-eigener-stufe.md.
+    let tabelle = match gebiete::fertig(dir)? {
+        Some(gebiete) => {
+            let stand = lies_stand(dir, STAND)?.with_context(|| {
+                format!(
+                    "Gebiete:    {} liegt da, {} nicht: --pyramid kennt ohne Stand die Chunks \
+                     der Welt nicht; ein voller Lauf baut den Baum neu",
+                    dir.join(gebiete::GEBIETE).display(),
+                    dir.join(STAND).display()
+                )
+            })?;
+            gebiete::Stufen::neu(
+                &gebiete,
+                Qualitaet::von(packen),
+                projektion,
+                max_zoom,
+                gebiete::huelle(stand.regionen(), None),
+                |cx, cz| Some(stand.eintrag(cx, cz)),
+            )
+        }
+        None => None,
+    };
     let (verkleinern, umstellen) = verkleinern(Some(&alt), nord);
     if umstellen {
         melde_umstellen(dir);
@@ -3674,6 +3826,10 @@ fn rebuild_pyramid(
                 } else {
                     max_zoom - nativ - z
                 };
+                let packen = tabelle
+                    .as_ref()
+                    .and_then(|t| t.gehoben(z, *parent))
+                    .map_or(packen, Qualitaet::packen);
                 let art = (packen, verkleinern, tiefe);
                 baue_neu(dir, z, *parent, teile, &kinder, zeit, stempel, art)
             })
@@ -5758,13 +5914,26 @@ fn je_kachel(
     Ok(())
 }
 
-/// Wie ein Lauf Kacheln ablegt: so gepackt wie sein Baum, mit den Hashes
-/// der Pixel, falls er sie führt, und Eltern so verkleinert wie sein Baum.
+/// Wie ein Lauf Kacheln ablegt: so gepackt wie sein Baum, in Gebieten
+/// besser, mit den Hashes der Pixel, falls er sie führt, und Eltern so
+/// verkleinert wie sein Baum.
 #[derive(Clone, Copy, Default)]
 struct Ablage<'a> {
     packen: Packen,
     hashes: Option<&'a pixel::Pixel>,
     verkleinern: Verkleinern,
+    /// Die Kacheln, die Gebiete über die Stufe des Baums heben.
+    stufen: Option<&'a gebiete::Stufen>,
+}
+
+impl Ablage<'_> {
+    /// Wie diese Kachel packt: wie der Baum, ausser ein Gebiet hebt sie.
+    /// Siehe docs/entscheidungen/0145-gebiete-mit-eigener-stufe.md.
+    fn packen_fuer(&self, z: u32, tile: TileId) -> Packen {
+        self.stufen
+            .and_then(|stufen| stufen.gehoben(z, tile))
+            .map_or(self.packen, Qualitaet::packen)
+    }
 }
 
 /// Der Ordner der Schicht des Reliefs im Baum, ein Baum mit denselben
@@ -5848,15 +6017,16 @@ fn schreibe_oder_lass<'b>(
     ablage: Ablage<'_>,
     pixel_danach: bool,
 ) -> Result<(usize, bool, Cow<'b, RgbaImage>)> {
+    let packen = ablage.packen_fuer(z, tile);
     let vorstufe = |image: &mut Cow<'b, RgbaImage>| {
-        if let Some(staerke) = ablage.packen.staerke() {
+        if let Some(staerke) = packen.staerke() {
             lege_zusammen(image.to_mut(), staerke);
         }
     };
     let pfad = tile_path(dir, z, tile);
     let mit_hash = ablage
         .hashes
-        .map(|hashes| (hashes, pixel::hash(&image, ablage.packen)));
+        .map(|hashes| (hashes, pixel::hash(&image, packen)));
     if let Some((hashes, hash)) = &mit_hash
         && let Some(bytes) = hashes.gleich(z, tile, hash, &pfad)
     {
@@ -5866,7 +6036,7 @@ fn schreibe_oder_lass<'b>(
         return Ok((bytes, true, image));
     }
     vorstufe(&mut image);
-    let data = encode_webp(&image, ablage.packen)?;
+    let data = encode_webp(&image, packen)?;
     let geschrieben = lege_ab(&pfad, &data, None)?;
     if let Some((hashes, hash)) = &mit_hash {
         hashes.merke(z, tile, hash, &pfad)?;

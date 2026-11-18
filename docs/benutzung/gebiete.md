@@ -195,7 +195,13 @@ Liegt `gebiete.json` oder `gebiete-neu.json` im Baum, lehnt
   und 200 Blöcken Durchmesser und ein Land bis an die Weltgrenze, über
   einer Welt von 21 × 17 Regionen, bei scale 16. Das sind 439 568 Chunks in
   Gebieten, 365 568 davon verschieden, und 125 011 Einträge in der Tabelle
-  über alle Zoomstufen. Zwei Tabellen samt Vergleich dauern ZEIT.
+  über alle Zoomstufen. Zwei Tabellen samt Vergleich und der Zählung des
+  Tests dauern in der CI unter Ubuntu im Release-Build 1,33 s, also
+  höchstens rund 1,5 ms je 1000 Chunks und Tabelle; im Testprofil 2,90 s,
+  unter Windows 2,96 s (Lauf 44199409597, Stand 18.11.2026). Für 500
+  Städte allein, 74 000 Chunks, sind das rund 0,11 s je Tabelle; ein
+  Update von oben mit einem Thread braucht an der Testwelt rund 5,6 s, siehe
+  [Stufen am Baum](../messungen/2026-11-17-stufen-am-baum.md).
 - **Im Speicher** hält die Tabelle je Zoomstufe nur die gehobenen Kacheln,
   je Eintrag 12 B in einer `HashMap`, mit ihrer Verwaltung und Füllung 15
   bis 30 B. Bei scale 16 sind das je 1000 Chunks in Gebieten rund 340

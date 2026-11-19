@@ -87,8 +87,7 @@ In `slope` und ebenso in `shadows` (`gefaelle` in
   - Ein Hang nach Südosten oder Nordwesten mit einem Block je Spalte
     bekommt n = 4 oder −4, wie zuvor mit der mittleren Differenz. Flachere
     Hänge und Terrassen haben schärfere Kanten: Die ganze Stufe liegt auf
-    der oberen
-    Spalte.
+    der oberen Spalte.
   - Entschieden in
     [0147](../entscheidungen/0147-gefaelle-an-der-hoeheren-spalte.md), mit
     den verworfenen Regeln.

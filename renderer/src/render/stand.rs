@@ -686,10 +686,12 @@ pub const ZEICHENSTAND_FLAT: u32 = 6;
 /// Wie der Renderer das Relief von oben zeichnet, `--relief`, samt seiner
 /// Schicht: Er geht nur in den Abdruck von Bäumen mit Relief ein, und eine
 /// Änderung am Relief hebt nur ihn. 2 seit der Schicht, die Bäume mit 1
-/// nicht haben; 3 seit den Höhen aus `MOTION_BLOCKING`.
+/// nicht haben; 3 seit den Höhen aus `MOTION_BLOCKING`; 4 seit dem Gefälle
+/// an der höheren Spalte.
 /// Siehe docs/entscheidungen/0122-relief-von-oben.md.
 /// Siehe docs/entscheidungen/0134-relief-hoehen-ohne-pflanzen.md.
-pub const ZEICHENSTAND_RELIEF: u32 = 3;
+/// Siehe docs/entscheidungen/0147-gefaelle-an-der-hoeheren-spalte.md.
+pub const ZEICHENSTAND_RELIEF: u32 = 4;
 
 /// Die Looks, wie `look` in `map.json` sie nennt, mit ihrem Zeichenstand.
 pub const LOOKS: [(&str, u32); 3] = [
@@ -736,7 +738,7 @@ const GOLDBILDER: [(&str, u64); 4] = [
     ("map", 0x6d10_59d1_e0c6_349f),
     ("cinematic", 0x8338_0150_d842_fd85),
     ("flat", 0x9da5_830a_c6ae_0047),
-    ("relief", 0x5b95_9d48_ea25_f298),
+    ("relief", 0x4883_03d8_d9ed_0176),
 ];
 
 /// Eine eingebaute Tabelle aus `src/assets`: ihr Name und ihr Inhalt aus

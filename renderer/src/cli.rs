@@ -57,6 +57,7 @@ const Y_RANGE: (i32, i32) = (-64, 319);
 #[derive(Parser)]
 #[command(name = "heroic-map-renderer", version, about)]
 #[command(group(clap::ArgGroup::new("bild").args(["render", "tiles"]).multiple(true)))]
+#[command(group(clap::ArgGroup::new("baum").args(["tiles", "repack"]).multiple(true)))]
 pub struct Args {
     /// Weltverzeichnis: die Wurzel mit level.dat oder eine Dimension darin
     #[arg(long)]
@@ -213,7 +214,7 @@ pub struct Args {
     /// 2, 4 und 8 daneben, Alpha Bit für Bit, und packen kompakt. Ein neuer
     /// Baum ohne den Schalter packt `good`, ein bestehender behält seine
     /// Stufe aus map.json; einen anderen Wert nimmt nur ein voller Lauf
-    #[arg(long, value_enum, value_name = "STUFE", requires = "tiles")]
+    #[arg(long, value_enum, value_name = "STUFE", requires = "baum")]
     quality: Option<Qualitaet>,
 
     /// Mit --tiles eine Datei mit Gebieten, die besser packen als der Baum,
@@ -302,7 +303,7 @@ pub struct Args {
         "serve", "web", "listen", "max_connections", "header_timeout", "max_header_bytes", "max_headers",
         "write_timeout", "exit_with_stdin", "tls_cert", "tls_key", "secret_file", "player_dir", "trusted_proxy", "recognize_origin", "recognize_url", "site_url",
         "site_title", "site_description", "site_image", "download_client_jar", "client_version",
-        "cache_dir", "compact", "quality", "quality_areas", "compact_tree", "flat", "relief", "banners", "out",
+        "cache_dir", "compact", "quality", "quality_areas", "compact_tree", "repack", "flat", "relief", "banners", "out",
     ])]
     pyramid: Option<PathBuf>,
 
@@ -317,9 +318,25 @@ pub struct Args {
         "serve", "web", "listen", "max_connections", "header_timeout", "max_header_bytes", "max_headers",
         "write_timeout", "exit_with_stdin", "tls_cert", "tls_key", "secret_file", "player_dir", "trusted_proxy", "recognize_origin", "recognize_url", "site_url",
         "site_title", "site_description", "site_image", "download_client_jar", "client_version",
-        "cache_dir", "compact", "pyramid", "flat", "relief", "banners", "out",
+        "cache_dir", "compact", "pyramid", "repack", "flat", "relief", "banners", "out",
     ])]
     compact_tree: Option<PathBuf>,
+
+    /// Diesen fertigen Kachelbaum auf die Stufe aus --quality umpacken, ohne
+    /// Welt und ohne Assets, von maximal oder maximal_compact aus; danach
+    /// gleicht er einem vollen Lauf mit dieser Stufe und denselben Gebieten.
+    /// Zuerst trägt map.json die Stufe ein; nach einem Abbruch setzt ein
+    /// neuer Aufruf fort. --compact-tree ist --repack mit maximal_compact
+    #[arg(long, value_name = "VERZEICHNIS", requires = "quality", conflicts_with_all = [
+        "world", "assets", "data", "at", "block", "sprite", "scale", "camera", "direction",
+        "biome_blend", "render", "cinematic", "center", "area", "tiles", "size", "scan", "prune",
+        "native_levels", "quality_areas", "resume", "update", "gpu", "progress", "estimate", "defender_exclusion", "heights",
+        "serve", "web", "listen", "max_connections", "header_timeout", "max_header_bytes", "max_headers",
+        "write_timeout", "exit_with_stdin", "tls_cert", "tls_key", "secret_file", "player_dir", "trusted_proxy", "recognize_origin", "recognize_url", "site_url",
+        "site_title", "site_description", "site_image", "download_client_jar", "client_version",
+        "cache_dir", "compact", "pyramid", "compact_tree", "flat", "relief", "banners", "out",
+    ])]
+    repack: Option<PathBuf>,
 
     /// Mit --tiles, --pyramid oder --compact-tree am Ende das Manifest des Baums schreiben,
     /// je Kachel Grösse und ETag, für den Download. Ohne den Schalter
@@ -336,7 +353,7 @@ pub struct Args {
     #[arg(long, value_name = "DATEI", num_args = 0.., requires = "out", conflicts_with_all = [
         "world", "at", "block", "sprite", "scale", "camera", "direction", "biome_blend", "render",
         "cinematic", "center", "area", "size", "scan", "prune", "native_levels", "resume", "update",
-        "gpu", "progress", "estimate", "defender_exclusion", "heights", "pyramid", "compact_tree",
+        "gpu", "progress", "estimate", "defender_exclusion", "heights", "pyramid", "compact_tree", "repack",
         "manifest", "serve", "compact", "quality", "quality_areas", "flat", "relief",
     ])]
     banners: Option<Vec<PathBuf>>,
@@ -354,7 +371,7 @@ pub struct Args {
         "biome_blend", "render", "cinematic", "center", "area", "tiles", "size", "scan", "prune",
         "native_levels", "resume", "update", "gpu", "progress", "estimate", "defender_exclusion", "heights",
         "pyramid", "manifest", "download_client_jar", "client_version", "cache_dir", "compact", "quality", "quality_areas",
-        "compact_tree", "flat", "relief", "banners", "out",
+        "compact_tree", "repack", "flat", "relief", "banners", "out",
     ])]
     serve: Option<PathBuf>,
 
@@ -879,8 +896,9 @@ pub fn run() -> Result<()> {
         && args.tiles.is_none()
         && args.pyramid.is_none()
         && args.compact_tree.is_none()
+        && args.repack.is_none()
     {
-        bail!("--manifest braucht --tiles, --pyramid oder --compact-tree");
+        bail!("--manifest braucht --tiles, --pyramid, --compact-tree oder --repack");
     }
     if args.heights.is_some() && args.world.is_none() {
         bail!("--heights braucht --world");
@@ -1248,7 +1266,11 @@ pub fn run() -> Result<()> {
     }
 
     if let Some(dir) = &args.compact_tree {
-        verdichten::verdichte(dir, args.manifest)?;
+        verdichten::packe_um(dir, Qualitaet::MaximalCompact, args.manifest)?;
+    }
+
+    if let (Some(dir), Some(stufe)) = (&args.repack, args.quality) {
+        verdichten::packe_um(dir, stufe, args.manifest)?;
     }
 
     if let Some(assets) = &assets {
@@ -2629,6 +2651,12 @@ fn write_tiles(
         // Daneben seine Gebiete: Mit ihnen setzt --resume fort.
         gebiete::lege_an(dir, gebiete.as_ref())?;
     }
+    // Ein voller Lauf packt jede Kachel mit seiner Stufe; ein offenes
+    // Umpacken ist danach keines mehr.
+    // Siehe docs/entscheidungen/0146-umpacken.md.
+    if matches!(bereich, Bereich::Welt) {
+        entferne(&dir.join(verdichten::UMPACKEN_OFFEN))?;
+    }
     // Daneben, was liegen bleibt: Dessen Zeit sagt es nicht.
     let liegen = stand
         .as_ref()
@@ -3693,7 +3721,21 @@ fn rebuild_pyramid(
     dir: &Path,
     mit_manifest: bool,
     beginn: SystemTime,
+    liste: impl FnMut(&Path, u32) -> Result<BTreeMap<TileId, SystemTime>>,
+) -> Result<usize> {
+    pyramide_bauen(dir, mit_manifest, beginn, liste, false)
+}
+
+/// [`rebuild_pyramid`]; mit `ueber_nativen` lässt es die nativen Stufen, wie
+/// sie sind, und baut jede Elternkachel darüber aus ihren Kindern neu, für
+/// `--repack`.
+/// Siehe docs/entscheidungen/0146-umpacken.md.
+fn pyramide_bauen(
+    dir: &Path,
+    mit_manifest: bool,
+    beginn: SystemTime,
     mut liste: impl FnMut(&Path, u32) -> Result<BTreeMap<TileId, SystemTime>>,
+    ueber_nativen: bool,
 ) -> Result<usize> {
     let started = Instant::now();
     let stempel = beginn - Duration::from_secs(2);
@@ -3708,44 +3750,12 @@ fn rebuild_pyramid(
     let packen = packen_des_baums(dir, &alt)?;
     let projektion = projektion_des_baums(dir, &alt)?;
     let nord = projektion.kamera() == Kamera::ObenNord;
-    // Die gemerkten Gebiete, mit Hülle und Höhen aus dem Stand. Ohne ihn
-    // kennt es die Chunks der Welt nicht.
-    // Siehe docs/entscheidungen/0145-gebiete-mit-eigener-stufe.md.
-    let tabelle = match gebiete::fertig(dir)? {
-        Some(gebiete) => {
-            let stand = lies_stand(dir, STAND)?.with_context(|| {
-                format!(
-                    "Gebiete:    {} liegt da, {} nicht: --pyramid kennt ohne Stand die Chunks \
-                     der Welt nicht; ein voller Lauf baut den Baum neu",
-                    dir.join(gebiete::GEBIETE).display(),
-                    dir.join(STAND).display()
-                )
-            })?;
-            gebiete::Stufen::neu(
-                &gebiete,
-                Qualitaet::von(packen),
-                projektion,
-                max_zoom,
-                gebiete::huelle(stand.regionen(), None),
-                |cx, cz| Some(stand.eintrag(cx, cz)),
-            )
-        }
-        None => None,
-    };
+    let tabelle = stufen_des_baums(dir, packen, &alt)?;
     let (verkleinern, umstellen) = verkleinern(Some(&alt), nord);
     if umstellen {
         melde_umstellen(dir);
     }
-    // Ohne das Feld stammt der Baum aus einem älteren Stand. Nennt er eine
-    // Welt, rendert der alle nativen Stufen, die der scale hergibt; ohne
-    // Welt ist er älter als die nativen Stufen und hat keine.
-    let nativ = alt.native_levels.unwrap_or_else(|| {
-        if alt.world.is_some() {
-            native_levels(Projection::new(alt.scale), max_zoom)
-        } else {
-            0
-        }
-    });
+    let nativ = nativ_des_baums(&alt);
     let mut kinder = liste(dir, max_zoom)?;
     if kinder.is_empty() {
         bail!(
@@ -3769,6 +3779,12 @@ fn rebuild_pyramid(
         let mut eltern = liste(dir, z)?;
         let gelistet = SystemTime::now();
         let schuetzen = z + nativ >= max_zoom;
+        if ueber_nativen && schuetzen {
+            // Die nativen Stufen hat --repack schon umgepackt.
+            kinder = eltern;
+            geaendert = BTreeSet::new();
+            continue;
+        }
         let mut kandidaten: BTreeSet<TileId> = eltern.keys().copied().collect();
         kandidaten.extend(kinder.keys().map(TileId::parent));
         let mut bauen = Vec::new();
@@ -3797,7 +3813,7 @@ fn rebuild_pyramid(
                     naechste.insert(parent);
                     weg += 1;
                 }
-            } else if (umstellen && !schuetzen)
+            } else if ((umstellen || ueber_nativen) && !schuetzen)
                 || parent
                     .children()
                     .iter()
@@ -3904,6 +3920,49 @@ fn rebuild_pyramid(
     let path = schreibe_info(dir, &info, Some(stempel))?;
     melde_karte(&info, basis.len(), false, &path);
     Ok(gebaut)
+}
+
+/// Wie viele native Stufen ein Baum hat. Ohne das Feld stammt er aus einem
+/// älteren Stand: Nennt er eine Welt, rendert der alle nativen Stufen, die
+/// der scale hergibt; ohne Welt ist er älter als die nativen Stufen und hat
+/// keine.
+fn nativ_des_baums(info: &MapInfo) -> u32 {
+    info.native_levels.unwrap_or_else(|| {
+        if info.world.is_some() {
+            native_levels(Projection::new(info.scale), info.max_zoom)
+        } else {
+            0
+        }
+    })
+}
+
+/// Die Stufen, auf die die gemerkten Gebiete Kacheln eines Baums heben, der
+/// mit `packen` packt; `None` ohne Gebiete.
+fn stufen_des_baums(dir: &Path, packen: Packen, info: &MapInfo) -> Result<Option<gebiete::Stufen>> {
+    // Die gemerkten Gebiete, mit Hülle und Höhen aus dem Stand. Ohne ihn
+    // kennt es die Chunks der Welt nicht.
+    // Siehe docs/entscheidungen/0145-gebiete-mit-eigener-stufe.md.
+    Ok(match gebiete::fertig(dir)? {
+        Some(gebiete) => {
+            let stand = lies_stand(dir, STAND)?.with_context(|| {
+                format!(
+                    "Gebiete:    {} liegt da, {} nicht: --pyramid und --repack kennen ohne \
+                     Stand die Chunks der Welt nicht; ein voller Lauf baut den Baum neu",
+                    dir.join(gebiete::GEBIETE).display(),
+                    dir.join(STAND).display()
+                )
+            })?;
+            gebiete::Stufen::neu(
+                &gebiete,
+                Qualitaet::von(packen),
+                projektion_des_baums(dir, info)?,
+                info.max_zoom,
+                gebiete::huelle(stand.regionen(), None),
+                |cx, cz| Some(stand.eintrag(cx, cz)),
+            )
+        }
+        None => None,
+    })
 }
 
 /// Baut eine Elternkachel für `--pyramid` aus ihren Kindern auf der Platte
@@ -7336,6 +7395,7 @@ mod tests {
         for (modus, eigene) in [
             ("pyramid", &["manifest"][..]),
             ("compact_tree", &["manifest"][..]),
+            ("repack", &["manifest", "quality"][..]),
             ("serve", &eigene_von_serve[..]),
         ] {
             let arg = cmd.get_arguments().find(|a| a.get_id() == modus).unwrap();

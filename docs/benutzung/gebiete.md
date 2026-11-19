@@ -48,7 +48,7 @@ vom Renderer nutzt“:
 - **Eine leere Liste** heisst keine Gebiete. Nach dem Lauf vergisst der
   Baum die gemerkten.
 - `--quality-areas` gibt es nur mit `--tiles`, nicht mit `--pyramid`,
-  `--compact-tree` oder `--serve`.
+  `--compact-tree`, `--repack` oder `--serve`.
 - **`--estimate`** schätzt mit der Stufe des Baums, ohne Gebiete; mit
   `--quality-areas` schätzt es zu wenig Platz, siehe
   [Kosten](kosten.md), „Schätzen: `--estimate`“.
@@ -167,10 +167,10 @@ dieselben Bytes wie der Lauf (`feine_stufen_im_speicher_mit_gebiet`).
   ganze Höhe, mehr als der Lauf. Das nächste Update baut die Eltern über
   seinen Kacheln wieder wie ein voller Lauf.
 - **Ohne `stand.bin`** kennt es die Chunks der Welt nicht und lehnt den
-  Baum ab:
+  Baum ab, ebenso `--repack`:
 
   ```
-  Error: Gebiete:    <baum>/gebiete.json liegt da, <baum>/stand.bin nicht: --pyramid kennt ohne Stand die Chunks der Welt nicht; ein voller Lauf baut den Baum neu
+  Error: Gebiete:    <baum>/gebiete.json liegt da, <baum>/stand.bin nicht: --pyramid und --repack kennen ohne Stand die Chunks der Welt nicht; ein voller Lauf baut den Baum neu
   ```
 
   Ein Baum mit `gebiete.json` hat immer einen Stand, beide schreibt das
@@ -180,9 +180,14 @@ dieselben Bytes wie der Lauf (`feine_stufen_im_speicher_mit_gebiet`).
 
 ## `--compact-tree`
 
-Liegt `gebiete.json` oder `gebiete-neu.json` im Baum, lehnt
-`--compact-tree` ihn ab. Es packte sonst die Kacheln eines Gebiets in
-`maximal` kompakt.
+`--compact-tree` und `--repack` packen je Kachel mit der höchsten Stufe aus
+ihrem Ziel und den gemerkten Gebieten, aus `gebiete.json` und dem Stand wie
+`--pyramid`; eine Kachel eines Gebiets in `maximal` bleibt so schnell
+gepackt. Liegt `gebiete-neu.json`, lehnen beide den Baum ab: Ein
+abgebrochener Lauf kann andere Gebiete haben. Siehe
+[Umpacken](umpacken.md) und
+[0146](../entscheidungen/0146-umpacken.md); bis dahin lehnte
+`--compact-tree` jeden Baum mit Gebieten ab.
 
 ## Was es kostet
 

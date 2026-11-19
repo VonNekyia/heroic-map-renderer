@@ -10135,10 +10135,12 @@ fn schicht_bleibt_in_gebieten_wie_ohne() {
     assert_ne!(basis, basis_ohne);
 }
 
-/// Ein Gebiet für die Tests von `--repack`: die Chunks (1, 1) bis (2, 2) in
-/// `maximal_compact`.
+/// Ein Gebiet für die Tests von `--repack`: der Chunk (2, 2) in
+/// `maximal_compact`. Es endet nicht an den Grenzen der nativen Kacheln:
+/// Eine native Kachel über ihm bleibt verlustfrei, während Kinder von ihr
+/// Farben zusammenlegen.
 const MITTE: &str =
-    r#"{"quality":"maximal_compact","polygons":[{"outer":[[16,16],[48,16],[48,48],[16,48]]}]}"#;
+    r#"{"quality":"maximal_compact","polygons":[{"outer":[[32,32],[48,32],[48,48],[32,48]]}]}"#;
 
 /// `--repack` mit `--quality`: packt den Baum in `baum` um.
 fn umpacken(baum: &Path, stufe: &str, abbruch: Option<&str>) -> Output {
@@ -10264,7 +10266,19 @@ fn umpacken_nach_abbruch() {
                 &mit("good", &["--update"]),
             ));
         }
-        gelungen(&umpacken(baum.path(), "good", None));
+        // Was vor dem Abbruch umgepackt wurde, ist jünger als der Beginn und
+        // bleibt: Ein zweites Zusammenlegen könnte andere Bytes geben.
+        let weiter =
+            String::from_utf8_lossy(&gelungen(&umpacken(baum.path(), "good", None)).stdout)
+                .into_owned();
+        let uebergangen: usize = weiter
+            .lines()
+            .find_map(|z| {
+                let (_, rest) = z.strip_prefix("Umgepackt:")?.split_once("schon so, ")?;
+                rest.split_once(" übergangen")?.0.parse().ok()
+            })
+            .unwrap_or(0);
+        assert!(uebergangen >= 3, "{fall}: {weiter}");
         assert!(!baum.path().join("repack-offen.json").exists(), "{fall}");
         let soll = neuer_baum(&name);
         gelungen(&tiles(welt.path(), soll.path(), &mit("good", &[])));

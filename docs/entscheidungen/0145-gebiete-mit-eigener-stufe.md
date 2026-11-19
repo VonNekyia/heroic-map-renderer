@@ -1,6 +1,6 @@
 ---
 title: "0145: Gebiete mit eigener Stufe"
-description: Warum ein Gebiet Kacheln je Chunk hebt, mit den Höhen aus dem Stand, warum je Kachel die höchste Stufe gilt, das Update die Tabelle über alle Gebiete rechnet und --compact-tree Bäume mit Gebieten ablehnt.
+description: Warum ein Gebiet Kacheln je Chunk hebt, mit den Höhen aus dem Stand, warum je Kachel die höchste Stufe gilt und das Update die Tabelle über alle Gebiete rechnet; dass --compact-tree Bäume mit Gebieten ablehnte, löst 0146 ab.
 status: gilt
 date: 2026-11-16
 issues: [421]
@@ -46,7 +46,9 @@ Packung stehen in [0143](0143-stufen-farben-zusammenlegen.md).
 - **Der Baum merkt sich die Gebiete** ohne `id` in `gebiete.json`, mit dem
   Stand; der laufende Lauf hält seine in `gebiete-neu.json` fest. Für
   `--resume` gilt dieselbe Regel wie bei der Stufe.
-- **`--compact-tree` lehnt einen Baum mit Gebieten ab.**
+- **`--compact-tree` lehnt einen Baum mit Gebieten ab.** Abgelöst durch
+  [0146](0146-umpacken.md): Es packt jetzt je Kachel mit den Stufen der
+  Gebiete.
 
 ## Verworfene Alternativen
 

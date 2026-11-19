@@ -1132,6 +1132,27 @@ unsafe extern "C" fn anhaengen(
 mod tests {
     use super::*;
 
+    /// Zweimal zusammengelegt ist wie einmal: [`vertritt`] ist symmetrisch,
+    /// danach steht kein Vertreter mehr für einen anderen. Daran hängt, dass
+    /// ein zweites Umpacken die Pixel nicht ändert.
+    /// Siehe docs/entscheidungen/0146-umpacken.md.
+    #[test]
+    fn zusammenlegen_zweimal_wie_einmal() {
+        let bild = RgbaImage::from_fn(64, 64, |x, y| {
+            let gruen = if x % 16 == 0 { 255 } else { (y * 5) as u8 };
+            let alpha = if (x + y) % 9 == 0 { 0 } else { 255 };
+            image::Rgba([(x * 3 + y) as u8, gruen, ((x ^ y) * 7) as u8, alpha])
+        });
+        for staerke in [2, 4, 8] {
+            let mut einmal = bild.clone();
+            lege_zusammen(&mut einmal, staerke);
+            assert_ne!(einmal, bild, "{staerke}");
+            let mut zweimal = einmal.clone();
+            lege_zusammen(&mut zweimal, staerke);
+            assert_eq!(zweimal, einmal, "{staerke}");
+        }
+    }
+
     /// [`lege_zusammen`] in der einfachsten Form: sucht den Vertreter unter
     /// allen bisherigen, in der Reihenfolge, in der sie entstanden.
     fn lege_zusammen_einfach(bild: &RgbaImage, staerke: u8) -> RgbaImage {

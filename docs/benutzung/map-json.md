@@ -426,8 +426,9 @@ Was ein Lauf packt, hängt allein an `map.json` im Verzeichnis
 - **Ein Lauf schreibt `map.json` vor der ersten Kachel.** Bricht der erste
   Lauf eines Baums ab, steht seine Stufe also schon dort, und `--resume`
   nimmt nicht die Vorgabe.
-- **Eine andere Stufe nimmt nur ein voller Lauf** mit `--quality`. Er sagt
-  es und zeichnet jede Kachel neu:
+- **Eine andere Stufe nimmt ein voller Lauf** mit `--quality`, von `maximal`
+  oder `maximal_compact` aus auch `--repack`, siehe [Umpacken](umpacken.md).
+  Der volle Lauf sagt es und zeichnet jede Kachel neu:
 
   ```
   Qualität:   <baum>/map.json packt maximal, dieser Lauf packt good und jede Kachel neu
@@ -446,7 +447,7 @@ Was ein Lauf packt, hängt allein an `map.json` im Verzeichnis
   der Renderer es ab, bevor der Lauf beginnt.
 - **`--compact-tree`** packt einen Baum von `maximal` nach `maximal_compact`
   und trägt die Stufe ein, wenn `map.json` eine nennt. Einen Baum darunter
-  lehnt es ab.
+  lehnt es ab. Es ist `--repack` mit `maximal_compact`.
 - **Schicht und Rest des Reliefs** packen in jeder Stufe verlustfrei, unter
   den beiden verlustfreien kompakt: Sie sind Daten für den Mod.
 - **Ein Baum zum Download, dessen Stufe wechselt,** bekommt neue Bytes in

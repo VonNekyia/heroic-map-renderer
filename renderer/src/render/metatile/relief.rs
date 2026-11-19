@@ -55,24 +55,34 @@ impl Relief {
     }
 }
 
-/// Der Code einer Spalte in der Schicht: die Stufe des Gefälles `n` in
-/// −4…4, um 4 verschoben, dazu 9, wenn sie im Schatten liegt. 4 heisst
-/// unverändert.
+/// Der Code einer Spalte in der Schicht: die Stufe des Gefälles `n` aus
+/// [`stufe`], begrenzt auf −4…4, um 4 verschoben, dazu 9, wenn sie im
+/// Schatten liegt. 4 heisst unverändert.
 /// Siehe docs/renderer/relief.md, „Die Schicht“.
-fn code([west, ost, nord, sued]: [i32; 4], schatten: bool) -> u8 {
-    let n = (ost - west + sued - nord).clamp(-4, 4);
-    (n + 4) as u8 + 9 * u8::from(schatten)
+fn code(n: i32, schatten: bool) -> u8 {
+    (n.clamp(-4, 4) + 4) as u8 + 9 * u8::from(schatten)
+}
+
+/// Die Stufe des Gefälles einer Spalte der Höhe `h` aus ihren Nachbarn im
+/// Westen, Osten, Norden und Süden. Nur die höhere Spalte einer Stufe
+/// bekommt sie: Je Nachbar zählt, um wie viel die Spalte höher ist, nach
+/// Westen und Norden zum Licht hin hell, nach Osten und Süden dunkel, doppelt.
+/// Am Hang mit einem Block je Spalte ist das dieselbe Stufe wie die mittlere
+/// Differenz; um ein hohes Ding, das einen Block breit ist, bleibt der Boden.
+/// Siehe docs/renderer/relief.md, „Gefälle“.
+fn stufe(h: i32, [west, ost, nord, sued]: [i32; 4]) -> i32 {
+    let hoeher = |nachbar: i32| (h - nachbar).max(0);
+    2 * (hoeher(west) + hoeher(nord) - hoeher(ost) - hoeher(sued))
 }
 
 /// Der Code, der nichts ändert.
 pub const UNVERAENDERT: u8 = 4;
 
-/// Die Helligkeit einer Spalte aus den Höhen ihrer Nachbarn im Westen,
-/// Osten, Norden und Süden: Steigt die Oberfläche nach Südosten, schaut sie
-/// zum Licht aus Nordwesten und wird heller.
+/// Die Helligkeit einer Spalte aus der Stufe ihres Gefälles, [`stufe`]:
+/// Schaut sie zum Licht aus Nordwesten, wird sie heller.
 /// Siehe docs/renderer/relief.md, „Gefälle“.
-fn gefaelle([west, ost, nord, sued]: [i32; 4]) -> f32 {
-    let steigt = (ost - west + sued - nord) as f32 / 2.0;
+fn gefaelle(n: i32) -> f32 {
+    let steigt = n as f32 / 2.0;
     (1.0 + JE_BLOCK * steigt).clamp(1.0 - HOECHSTENS, 1.0 + HOECHSTENS)
 }
 
@@ -157,13 +167,14 @@ pub(super) fn zeichne(
             let um = |dx: i32, dz: i32| an(x + dx, z + dz).unwrap_or(h0);
             let nachbarn = [um(-1, 0), um(1, 0), um(0, -1), um(0, 1)];
             let schatten = im_schatten(h0, |k| an(x - k, z - k));
-            let mut faktor = gefaelle(nachbarn);
+            let n = stufe(h0, nachbarn);
+            let mut faktor = gefaelle(n);
             if relief == Relief::Schatten && schatten {
                 faktor *= IM_SCHATTEN;
             }
             let px0 = (o.0 + f64::from(x) * sx).round() as i32 - rect.x;
             let pz0 = (o.1 + f64::from(z) * sz).round() as i32 - rect.y;
-            let code = code(nachbarn, schatten);
+            let code = code(n, schatten);
             let (spalten, zeilen) = (
                 px0.max(0)..(px0 + sx as i32).min(w),
                 pz0.max(0)..(pz0 + sz as i32).min(h),
@@ -213,31 +224,60 @@ mod tests {
         assert!(Relief::parse("none").is_err());
     }
 
-    /// Zum Licht aus Nordwesten heller, davon weg dunkler, eben gleich,
-    /// gekappt.
+    /// Nur die höhere Spalte einer Stufe bekommt sie, doppelt: zum Licht aus
+    /// Nordwesten hell, davon weg dunkel. Am Hang mit einem Block je Spalte
+    /// wie die mittlere Differenz, um ein Ding von einem Block Breite nichts.
+    #[test]
+    fn stufe_nur_an_der_hoeheren_spalte() {
+        assert_eq!(stufe(64, [64, 64, 64, 64]), 0);
+        // Eine Stufe nach Westen hinab: Die obere Spalte schaut zum Licht,
+        // die untere daneben bleibt.
+        assert_eq!(stufe(65, [64, 65, 65, 65]), 2);
+        assert_eq!(stufe(64, [64, 65, 64, 64]), 0);
+        // Nach Osten und Süden hinab dunkel.
+        assert_eq!(stufe(65, [65, 64, 65, 65]), -2);
+        assert_eq!(stufe(65, [65, 65, 65, 64]), -2);
+        // Ein Hang mit einem Block je Spalte: 4, wie die mittlere Differenz
+        // h Ost − h West + h Süd − h Nord.
+        assert_eq!(stufe(64, [63, 65, 63, 65]), 4);
+        assert_eq!(stufe(64, [65, 63, 65, 63]), -4);
+        // Ein Ding von einem Block Breite, 6 Blöcke hoch: Es selbst und der
+        // Boden auf jeder Seite bleiben.
+        assert_eq!(stufe(70, [64, 64, 64, 64]), 0);
+        for seite in 0..4 {
+            let mut nachbarn = [64; 4];
+            nachbarn[seite] = 70;
+            assert_eq!(stufe(64, nachbarn), 0, "{seite}");
+        }
+        // Die Kante eines breiten Dings im Nordwesten hell, im Südosten
+        // dunkel.
+        assert_eq!(stufe(70, [64, 70, 64, 70]), 24);
+        assert_eq!(stufe(70, [70, 64, 70, 64]), -24);
+    }
+
+    /// Zum Licht hin heller, davon weg dunkler, eben gleich, gekappt.
     #[test]
     fn gefaelle_zum_licht_hell() {
-        assert_eq!(gefaelle([64, 64, 64, 64]), 1.0);
-        // Nach Osten einen Block höher: Die Spalte schaut nach Westen.
-        assert!((gefaelle([64, 65, 64, 64]) - 1.06).abs() < 1e-6);
-        assert!((gefaelle([64, 64, 65, 64]) - 0.94).abs() < 1e-6);
-        assert_eq!(gefaelle([60, 70, 60, 70]), 1.0 + HOECHSTENS);
-        assert_eq!(gefaelle([70, 60, 70, 60]), 1.0 - HOECHSTENS);
+        assert_eq!(gefaelle(0), 1.0);
+        assert!((gefaelle(1) - 1.06).abs() < 1e-6);
+        assert!((gefaelle(-1) - 0.94).abs() < 1e-6);
+        assert!((gefaelle(24) - 1.24).abs() < 1e-6);
+        assert!((gefaelle(-24) - 0.76).abs() < 1e-6);
     }
 
     /// Der Code: eben 4, die Stufe des Gefälles zwischen 0 und 8 begrenzt
     /// wie der Faktor, im Schatten 9 dazu.
     #[test]
     fn code_der_schicht() {
-        assert_eq!(code([64, 64, 64, 64], false), UNVERAENDERT);
-        assert_eq!(code([64, 65, 64, 64], false), 5);
-        assert_eq!(code([64, 64, 65, 64], false), 3);
-        assert_eq!(code([60, 70, 60, 70], false), 8);
-        assert_eq!(code([70, 60, 70, 60], false), 0);
-        assert_eq!(code([64, 64, 64, 64], true), 13);
-        assert_eq!(code([70, 60, 70, 60], true), 9);
+        assert_eq!(code(0, false), UNVERAENDERT);
+        assert_eq!(code(2, false), 6);
+        assert_eq!(code(-2, false), 2);
+        assert_eq!(code(24, false), 8);
+        assert_eq!(code(-24, false), 0);
+        assert_eq!(code(0, true), 13);
+        assert_eq!(code(-24, true), 9);
         // Wo der Code begrenzt, ist es auch der Faktor.
-        assert_eq!(gefaelle([64, 68, 64, 64]), gefaelle([60, 70, 60, 70]));
+        assert_eq!(gefaelle(4), gefaelle(24));
     }
 
     /// Schatten nur, wo eine Spalte im Nordwesten über 45° ragt, bis

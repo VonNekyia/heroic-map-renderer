@@ -33,7 +33,9 @@ er eine Schicht, aus der der Mod jede Art des Reliefs wählen kann, siehe
     Blöcke bleiben auf der Karte, denn gezeichnet wird ab `WORLD_SURFACE`; sie
     heben nur das Relief nicht.
   - **Es zählen auch** kleine Blöcke wie Druckplatten, Hängeschilder,
-    Laternen, Ketten und `sculk_vein`, dazu Bambus. Um sie bleibt ein Kreuz.
+    Laternen, Ketten und `sculk_vein`, dazu Bambus. Wie jedes Ding von einem
+    Block Breite bleiben sie selbst und der Boden um sie, wie sie sind, siehe
+    „Gefälle“.
 - **Die Regel des Spiels,** per javap belegt am Client:
   - 26.2: `blocksMotion()` oder eine Flüssigkeit (`Heightmap$Types`).
     `BlockStateBase.blocksMotion` ist `isSolid()`, ausser bei `COBWEB` und
@@ -70,11 +72,26 @@ er eine Schicht, aus der der Mod jede Art des Reliefs wählen kann, siehe
 In `slope` und ebenso in `shadows` (`gefaelle` in
 [`renderer/src/render/metatile/relief.rs`](../../renderer/src/render/metatile/relief.rs)):
 
-- **Die Steigung nach Südosten** in Blöcken:
-  d = (h Ost − h West + h Süd − h Nord) / 2.
-- **Der Faktor** ist 1 + 0,12 · d, begrenzt auf 0,76 bis 1,24.
-- **Steigt die Oberfläche nach Südosten,** schaut sie zum Licht und wird
-  heller. Fällt sie, wird sie dunkler; eben bleibt sie.
+- **Die Stufe** einer Spalte der Höhe h (`stufe`): Nur die höhere Spalte
+  einer Stufe bekommt sie. Je Nachbar zählt, um wie viel die Spalte höher
+  ist, nach Westen und Norden zum Licht hin hell, nach Osten und Süden
+  dunkel, doppelt:
+  n = 2 · (max(0, h − h West) + max(0, h − h Nord) − max(0, h − h Ost) −
+  max(0, h − h Süd)).
+- **Der Faktor** ist 1 + 0,06 · n, begrenzt auf 0,76 bis 1,24.
+- **Was das heisst:**
+  - Ein Ding von einem Block Breite, etwa ein Stamm, eine Kiste oder ein
+    Kaktus, bleibt, wie es ist, und der Boden um es auch.
+  - Ein breiteres Ding, etwa eine Krone oder ein Dach, wird an seiner Kante
+    im Nordwesten heller und im Südosten dunkler.
+  - Ein Hang nach Südosten oder Nordwesten mit einem Block je Spalte
+    bekommt n = 4 oder −4, wie zuvor mit der mittleren Differenz. Flachere
+    Hänge und Terrassen haben schärfere Kanten: Die ganze Stufe liegt auf
+    der oberen
+    Spalte.
+  - Entschieden in
+    [0147](../entscheidungen/0147-gefaelle-an-der-hoeheren-spalte.md), mit
+    den verworfenen Regeln.
 - **Auf Rot, Grün und Blau** jedes Pixels des Blocks, gerundet und bei 255
   gekappt. Alpha bleibt.
 
@@ -103,8 +120,8 @@ siehe [0132](../entscheidungen/0132-relief-als-schicht.md).
 - **Der Code** einer Spalte (`code` in
   [`renderer/src/render/metatile/relief.rs`](../../renderer/src/render/metatile/relief.rs)):
   n + 4 + 9 · s, 0 bis 17.
-  - n = h Ost − h West + h Süd − h Nord, begrenzt auf −4 bis 4. Das ist
-    genau, wo auch der Faktor begrenzt: 1 + 0,06 · n, 0,76 bis 1,24.
+  - n ist die Stufe aus „Gefälle“, begrenzt auf −4 bis 4. Das ist genau,
+    wo auch der Faktor begrenzt: 1 + 0,06 · n, 0,76 bis 1,24.
   - s ist 1 im Schatten, auch mit `slope`.
   - 4 heisst unverändert: eben und ohne Schatten.
 - **Der Faktor** aus dem Code: 1 + 0,12 · ((code mod 9) − 4) / 2, begrenzt
@@ -158,6 +175,10 @@ Auf einer Stadt der grossen Welt bei scale 4, gemessen in
 | Platz des Baums | 95,6 MB | +13 % | +15 % |
 
 - **Mit 16 Threads** lag der Unterschied in der Zeit im Rauschen.
+- **Seit dem Gefälle an der höheren Spalte** ist ein Baum mit `slope` auf
+  der Testwelt 6,1 bis 6,8 % kleiner, die Kacheln 4,1 bis 4,5 %, die
+  Schicht 30,7 % und ihr Rest 13,2 %, siehe
+  [2026-11-19, Gefälle an der höheren Spalte](../messungen/2026-11-19-gefaelle-an-der-hoeheren-spalte.md).
 - **Seit den Höhen ohne Pflanzen** sind die Kacheln 3–4 % kleiner und die
   Schicht 8 %, siehe
   [2026-11-01, Relief ohne Pflanzen](../messungen/2026-11-01-relief-ohne-pflanzen.md).

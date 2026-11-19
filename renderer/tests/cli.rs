@@ -9587,8 +9587,9 @@ fn qualitaet_wechselt_nur_im_vollen_lauf() {
     let fehler = String::from_utf8_lossy(&verdichten.stderr);
     assert!(!verdichten.status.success(), "{fehler}");
     assert!(
-        fehler
-            .contains("packt good: --compact-tree verdichtet nur einen Baum mit --quality maximal oder maximal_compact"),
+        fehler.contains(
+            "packt good: --repack und --compact-tree packen nur einen Baum mit maximal oder maximal_compact um"
+        ),
         "{fehler}"
     );
 }
@@ -10029,21 +10030,33 @@ fn gebiete_datei_bricht_ab() {
             &stadt,
         ],
     ));
-    let verdichten = cli(&[OsStr::new("--compact-tree"), baum.path().as_os_str()]);
-    let fehler = String::from_utf8_lossy(&verdichten.stderr);
-    assert!(!verdichten.status.success(), "{fehler}");
-    assert!(
-        fehler.contains("verdichtet nur einen Baum ohne Gebiete"),
-        "{fehler}"
-    );
+    // --compact-tree packt nach den Gebieten: Die Stadt in `maximal` bleibt
+    // schnell gepackt, der Rest ist schon kompakt.
+    let vorher = schnappschuss(baum.path());
+    gelungen(&cli(&[
+        OsStr::new("--compact-tree"),
+        baum.path().as_os_str(),
+    ]));
+    assert_eq!(schnappschuss(baum.path()), vorher);
     std::fs::remove_file(baum.path().join("stand.bin")).unwrap();
-    let pyramide = cli(&[OsStr::new("--pyramid"), baum.path().as_os_str()]);
-    let fehler = String::from_utf8_lossy(&pyramide.stderr);
-    assert!(!pyramide.status.success(), "{fehler}");
-    assert!(
-        fehler.contains("Error: Gebiete:") && fehler.contains("--pyramid kennt ohne Stand"),
-        "{fehler}"
-    );
+    for schalter in [
+        &[OsStr::new("--pyramid"), baum.path().as_os_str()][..],
+        &[
+            OsStr::new("--repack"),
+            baum.path().as_os_str(),
+            OsStr::new("--quality"),
+            OsStr::new("good"),
+        ],
+    ] {
+        let aus = cli(schalter);
+        let fehler = String::from_utf8_lossy(&aus.stderr);
+        assert!(!aus.status.success(), "{fehler}");
+        assert!(
+            fehler.contains("Error: Gebiete:")
+                && fehler.contains("--pyramid und --repack kennen ohne Stand"),
+            "{fehler}"
+        );
+    }
 }
 
 /// Auch mit einem Gebiet ist, was im Speicher entsteht, Byte für Byte, was
@@ -10120,4 +10133,236 @@ fn schicht_bleibt_in_gebieten_wie_ohne() {
     assert!(!schicht.is_empty());
     assert_eq!(schicht, schicht_ohne);
     assert_ne!(basis, basis_ohne);
+}
+
+/// Ein Gebiet für die Tests von `--repack`: der Chunk (2, 2) in
+/// `maximal_compact`. Es endet nicht an den Grenzen der nativen Kacheln:
+/// Eine native Kachel über ihm bleibt verlustfrei, während Kinder von ihr
+/// Farben zusammenlegen.
+const MITTE: &str =
+    r#"{"quality":"maximal_compact","polygons":[{"outer":[[32,32],[48,32],[48,48],[32,48]]}]}"#;
+
+/// `--repack` mit `--quality`: packt den Baum in `baum` um.
+fn umpacken(baum: &Path, stufe: &str, abbruch: Option<&str>) -> Output {
+    let mut befehl = Command::new(env!("CARGO_BIN_EXE_heroic-map-renderer"));
+    befehl.arg("--repack").arg(baum).args(["--quality", stufe]);
+    if let Some(wann) = abbruch {
+        befehl.env("HEROIC_ABBRUCH", wann);
+    }
+    befehl.output().expect("heroic-map-renderer starten")
+}
+
+/// `--repack` packt einen Baum in `maximal_compact` auf jede Stufe um und
+/// einen in `maximal` auf `good` und `maximal_compact`: Danach gleicht er
+/// Byte für Byte einem vollen Lauf mit dieser Stufe, im iso und von oben,
+/// je mit einer nativen Stufe, ohne und mit einem Gebiet. Die Datei des
+/// Umpackens ist danach weg.
+/// Siehe docs/entscheidungen/0146-umpacken.md.
+#[test]
+fn umpacken_gleicht_einem_vollen_lauf() {
+    let welt = weite_welt();
+    let ablage = tempdir();
+    let mitte = gebiete_datei(ablage.path(), "mitte.json", &[MITTE]);
+    for kamera in [
+        &["--scale", "16", "--native-levels", "1"][..],
+        &[
+            "--scale",
+            "8",
+            "--camera",
+            "top-north",
+            "--native-levels",
+            "1",
+        ],
+    ] {
+        let name = baum_name(kamera);
+        for gebiet in [None, Some(mitte.as_str())] {
+            let lauf = |stufe: &str| {
+                let b = neuer_baum(&name);
+                let mut args: Vec<&str> = kamera.to_vec();
+                args.extend(["--quality", stufe]);
+                args.extend(gebiet.into_iter().flat_map(|d| ["--quality-areas", d]));
+                gelungen(&tiles(welt.path(), b.path(), &args));
+                b
+            };
+            for (quelle, ziele) in [
+                (
+                    "maximal_compact",
+                    &["minimal", "small", "good", "maximal", "maximal_compact"][..],
+                ),
+                ("maximal", &["good", "maximal_compact"]),
+            ] {
+                let ausgang = lauf(quelle);
+                for ziel in ziele {
+                    let baum = neuer_baum(&name);
+                    // Die ganze Wurzel, mit den Höhen neben dem Baum.
+                    kopiere_ordner(
+                        ausgang.path().parent().unwrap(),
+                        baum.path().parent().unwrap(),
+                    );
+                    gelungen(&umpacken(baum.path(), ziel, None));
+                    let was = format!("{name}, {quelle} nach {ziel}, Gebiet {}", gebiet.is_some());
+                    gleiche_baeume(baum.path(), lauf(ziel).path(), &was);
+                    assert!(!baum.path().join("repack-offen.json").exists(), "{was}");
+                }
+            }
+        }
+    }
+}
+
+/// Bricht `--repack` mitten in einem Block ab, setzt ein neuer Aufruf fort:
+/// Was seit dem Beginn geschrieben wurde, gilt als umgepackt, auch ohne
+/// Hashes. Danach gleicht der Baum einem vollen Lauf. Ebenso, wenn
+/// zwischen Abbruch und Fortsetzen ein Update Chunks neu zeichnet, und wenn
+/// der Baum keine Hashes hat. Ein voller Lauf räumt ein offenes Umpacken
+/// weg, ein Aufruf mit anderem Ziel bricht ab.
+/// Siehe docs/entscheidungen/0146-umpacken.md.
+#[test]
+fn umpacken_nach_abbruch() {
+    let kamera = ["--scale", "16", "--native-levels", "1"];
+    let name = baum_name(&kamera);
+    let mit = |stufe: &'static str, extra: &[&'static str]| -> Vec<&'static str> {
+        kamera
+            .iter()
+            .copied()
+            .chain(["--quality", stufe])
+            .chain(extra.iter().copied())
+            .collect()
+    };
+    for (fall, ohne_hashes, update) in [
+        ("fortsetzen", false, false),
+        ("ohne Hashes", true, false),
+        ("Update dazwischen", false, true),
+    ] {
+        let welt = tempdir();
+        baue_gelaende(welt.path());
+        let baum = neuer_baum(&name);
+        gelungen(&tiles(
+            welt.path(),
+            baum.path(),
+            &mit("maximal_compact", &[]),
+        ));
+        if ohne_hashes {
+            std::fs::remove_dir_all(baum.path().join("pixel")).unwrap();
+        }
+        let ab = umpacken(baum.path(), "good", Some("umpacken-3"));
+        let fehler = String::from_utf8_lossy(&ab.stderr);
+        assert!(
+            !ab.status.success() && fehler.contains("HEROIC_ABBRUCH"),
+            "{fall}: {fehler}"
+        );
+        assert!(baum.path().join("repack-offen.json").exists(), "{fall}");
+        let anders = umpacken(baum.path(), "small", None);
+        assert!(
+            !anders.status.success()
+                && String::from_utf8_lossy(&anders.stderr)
+                    .contains("abgebrochenes Umpacken nach good"),
+            "{fall}"
+        );
+        if update {
+            baue_aenderungen(welt.path());
+            gelungen(&tiles(
+                welt.path(),
+                baum.path(),
+                &mit("good", &["--update"]),
+            ));
+        }
+        // Was vor dem Abbruch umgepackt wurde, ist jünger als der Beginn und
+        // bleibt: Ein zweites Zusammenlegen könnte andere Bytes geben.
+        let weiter =
+            String::from_utf8_lossy(&gelungen(&umpacken(baum.path(), "good", None)).stdout)
+                .into_owned();
+        let uebergangen: usize = weiter
+            .lines()
+            .find_map(|z| {
+                let (_, rest) = z.strip_prefix("Umgepackt:")?.split_once("schon so, ")?;
+                rest.split_once(" übergangen")?.0.parse().ok()
+            })
+            .unwrap_or(0);
+        assert!(uebergangen >= 3, "{fall}: {weiter}");
+        assert!(!baum.path().join("repack-offen.json").exists(), "{fall}");
+        let soll = neuer_baum(&name);
+        gelungen(&tiles(welt.path(), soll.path(), &mit("good", &[])));
+        gleiche_baeume(baum.path(), soll.path(), fall);
+        if !update {
+            // Die Hashes gelten den Pixeln vor der Vorstufe, mit dem Präfix
+            // des Ziels: Ein voller Lauf danach kodiert gleiche Pixel nicht neu.
+            let log = String::from_utf8_lossy(
+                &gelungen(&tiles(welt.path(), baum.path(), &mit("good", &[]))).stdout,
+            )
+            .into_owned();
+            let gleich: usize = log
+                .lines()
+                .find_map(|z| {
+                    z.strip_prefix("Pixel:")?
+                        .trim()
+                        .split_once(" Kacheln mit gleichen Pixeln")?
+                        .0
+                        .parse()
+                        .ok()
+                })
+                .unwrap_or(0);
+            assert!(gleich > 0, "{fall}: {log}");
+        }
+    }
+
+    // Ein voller Lauf nach einem Abbruch räumt die Datei weg.
+    let welt = tempdir();
+    baue_gelaende(welt.path());
+    let baum = neuer_baum(&name);
+    gelungen(&tiles(
+        welt.path(),
+        baum.path(),
+        &mit("maximal_compact", &[]),
+    ));
+    assert!(
+        !umpacken(baum.path(), "good", Some("umpacken-3"))
+            .status
+            .success()
+    );
+    gelungen(&tiles(welt.path(), baum.path(), &mit("small", &[])));
+    assert!(!baum.path().join("repack-offen.json").exists());
+}
+
+/// `--repack` lehnt ab, bevor es etwas schreibt: einen Baum unter
+/// `maximal_compact`, einen mit `gebiete-neu.json` und mit `stand-neu.bin`
+/// eines abgebrochenen Laufs ein Ziel mit zusammengelegten Farben; ohne
+/// `--quality` sagt es clap.
+#[test]
+fn umpacken_lehnt_ab() {
+    let welt = tempdir();
+    baue_gelaende(welt.path());
+    let kamera = ["--scale", "16"];
+    let name = baum_name(&kamera);
+    let baum = |stufe: &str| {
+        let b = neuer_baum(&name);
+        let args: Vec<&str> = kamera.iter().copied().chain(["--quality", stufe]).collect();
+        gelungen(&tiles(welt.path(), b.path(), &args));
+        b
+    };
+    let fehler = |aus: Output| {
+        assert!(!aus.status.success());
+        String::from_utf8_lossy(&aus.stderr).into_owned()
+    };
+    let gut = baum("good");
+    let vorher = schnappschuss(gut.path());
+    assert!(
+        fehler(umpacken(gut.path(), "small", None)).contains("packt good: --repack und --compact-tree packen nur einen Baum mit maximal oder maximal_compact um")
+    );
+    assert_eq!(schnappschuss(gut.path()), vorher);
+
+    let kompakt = baum("maximal_compact");
+    std::fs::write(
+        kompakt.path().join("gebiete-neu.json"),
+        r#"{"v":1,"areas":[]}"#,
+    )
+    .unwrap();
+    assert!(fehler(umpacken(kompakt.path(), "good", None)).contains("gebiete-neu.json liegt da"));
+    std::fs::remove_file(kompakt.path().join("gebiete-neu.json")).unwrap();
+    std::fs::write(kompakt.path().join("stand-neu.bin"), b"").unwrap();
+    let vorher = schnappschuss(kompakt.path());
+    assert!(fehler(umpacken(kompakt.path(), "good", None)).contains("stand-neu.bin liegt da"));
+    assert_eq!(schnappschuss(kompakt.path()), vorher);
+
+    let ohne = cli(&[OsStr::new("--repack"), kompakt.path().as_os_str()]);
+    assert!(!ohne.status.success());
 }

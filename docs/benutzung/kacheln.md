@@ -283,12 +283,15 @@ bestehenden Baum, etwa mit einem neuen Binär, jede Kachel ein neues ETag.
 ## Nachverdichten
 
 `--compact-tree` packt einen fertigen Baum kompakt nach, wie mit
-`--compact`, ohne Welt und ohne Assets (`verdichte` in
+`--compact`, ohne Welt und ohne Assets (`packe_um` in
 [`renderer/src/cli/verdichten.rs`](../../renderer/src/cli/verdichten.rs)).
-Entschieden in [0093](../entscheidungen/0093-nachverdichten.md). Einen Baum mit
+Entschieden in [0093](../entscheidungen/0093-nachverdichten.md); seit
+[0146](../entscheidungen/0146-umpacken.md) ist es `--repack` mit
+`maximal_compact`, siehe [Umpacken](umpacken.md). Einen Baum mit
 zusammengelegten Farben, unter `--quality maximal_compact`, lehnt es ab: Es
 hätte die Pixel vor dem Zusammenlegen nicht, denen der Hash gilt, siehe [0143](../entscheidungen/0143-stufen-farben-zusammenlegen.md).
-Einen Baum mit Gebieten lehnt es ebenso ab, siehe
+In einem Baum mit Gebieten packt es je Kachel mit der höchsten Stufe aus
+`maximal_compact` und den Gebieten, siehe
 [Gebiete mit eigener Stufe](gebiete.md), „`--compact-tree`“.
 
 ```bash
@@ -296,9 +299,9 @@ cargo run --release --manifest-path renderer/Cargo.toml -- --compact-tree ./tile
 ```
 
 ```
-Zoom 10:     2304 neu, 0 schon kompakt, 0 übergangen, 0 nicht lesbar
+Zoom 10:     2304 neu, 0 schon so, 0 übergangen, 0 nicht lesbar
 …
-Verdichtet: 3086 Kacheln, 108.4 MB statt 154.0 MB, 0 schon kompakt, 0 übergangen, 0 nicht lesbar, in 41.7 s
+Verdichtet: 3086 Kacheln, 108.4 MB statt 154.0 MB, 0 schon so, 0 übergangen, 0 nicht lesbar, in 41.7 s
 ```
 
 - **Zuerst `map.json`:** Der Aufruf trägt `"compact": true` ein, bevor er

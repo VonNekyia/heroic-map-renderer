@@ -383,7 +383,7 @@ reicht.
   [`renderer/src/world/chunk.rs`](../../renderer/src/world/chunk.rs)). Hat
   eine Spalte keinen, gibt es kein E und keine Grenze.
 - **K** ist die Section von E, **H** der Abdruck der Sections unter K
-  (`Chunk::abdruck_unter`). Beide stehen im Stand, siehe „Der Stand“.
+  (`Chunk::abdruecke`). Beide stehen im Stand, siehe „Der Stand“.
 - **Ein Durchgang:** Den Abdruck des Chunks, H und im Update H unter dem
   alten K rechnet `Chunk::abdruecke` in einer Schleife über die Sections;
   an der ersten Section ab K zweigt es den Zustand ab. Die Werte sind

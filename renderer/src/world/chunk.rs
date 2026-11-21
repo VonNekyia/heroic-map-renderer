@@ -842,10 +842,12 @@ impl Chunk {
         self.abdruecke([None, None]).0
     }
 
-    /// [`Chunk::abdruck`] und [`Chunk::abdruck_unter`] für bis zu zwei K in
-    /// einem Durchgang über die Sections: Der Zustand von FNV vor der ersten
-    /// Section ab K ist der von `abdruck_unter`; er wird dort abgezweigt und
-    /// mit den Blockdaten unter K und den Laubfarben zu Ende gerechnet.
+    /// [`Chunk::abdruck`] und für bis zu zwei K das H der Grenze nach unten,
+    /// in einem Durchgang über die Sections. H ist der Abdruck der Sections
+    /// unter der Section K mit den [`Blockdaten`] darin und allen
+    /// Laubfarben: Der Zustand von FNV vor der ersten Section ab K wird
+    /// abgezweigt und mit den Blockdaten unter K und den Laubfarben zu Ende
+    /// gerechnet.
     /// Siehe docs/entscheidungen/0127-grenze-nach-unten.md.
     pub fn abdruecke(&self, ks: [Option<i8>; 2]) -> (Abdruck, [Option<u64>; 2]) {
         let mut fnv = Fnv::default();
@@ -930,11 +932,9 @@ impl Chunk {
         None
     }
 
-    /// H für die Grenze nach unten: der Abdruck der Sections unter der
-    /// Section `k`, wie in [`Chunk::abdruck`], mit den [`Blockdaten`] darin
-    /// und allen Laubfarben.
-    /// Siehe docs/entscheidungen/0127-grenze-nach-unten.md.
-    pub fn abdruck_unter(&self, k: i8) -> u64 {
+    /// H einzeln, der Bezug für die Tests von [`Chunk::abdruecke`].
+    #[cfg(test)]
+    fn abdruck_unter(&self, k: i8) -> u64 {
         let mut fnv = Fnv::default();
         for section in self.sections.iter().take_while(|s| s.y < k) {
             fnv.section(section);

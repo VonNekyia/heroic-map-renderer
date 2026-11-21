@@ -51,7 +51,9 @@ einen fertigen Baum um, und nur von `maximal` nach `maximal_compact`, siehe
   Ziel nach. In der anderen Reihenfolge bliebe ein Baum, der das Ziel nennt,
   aber ganz verlustfrei ist, und den `--repack` dann ablehnt. Nennt
   `map.json` beim Fortsetzen das Ziel noch nicht, beginnt das Umpacken neu:
-  Ein Update dazwischen packte noch mit der Quelle.
+  Ein Update dazwischen packte noch mit der Quelle. Die Stufe des Baums
+  sagt dann `map.json`, denn ein voller Lauf kann seine schon eingetragen
+  haben, bevor er die Datei wegräumte.
 - **Was schon umgepackt ist, sagt die Zeit:** Eine Kachel, die jünger ist
   als der Beginn, schrieb das Umpacken oder ein Update mit dem Ziel; sie
   bleibt. Eine ältere ist noch verlustfrei.

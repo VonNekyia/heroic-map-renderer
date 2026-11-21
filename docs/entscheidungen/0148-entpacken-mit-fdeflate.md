@@ -13,8 +13,8 @@ code:
 
 ## Anlass
 
-Im Profil von `--flat` vom 18.11. kostete das Entpacken der Chunks mit
-einem Kern 11,4 % der Zeit. Die Messung vom 14.11.,
+Im Profil von `--flat` vom 18.11. war das Entpacken der Chunks einer der
+grösseren Posten. Die Messung vom 14.11.,
 [Entpacken und Höhen mit zlib-rs und fdeflate](../messungen/2026-11-14-entpacken-und-hoehen.md),
 hatte `fdeflate` als schnellste Wahl gezeigt. Der User gab die Änderung am
 21.11. frei.

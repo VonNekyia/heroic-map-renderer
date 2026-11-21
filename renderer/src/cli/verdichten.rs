@@ -98,10 +98,11 @@ pub(super) fn packe_um(dir: &Path, ziel: Qualitaet, mit_manifest: bool) -> Resul
                 .with_context(|| format!("{} lesen", pfad_offen.display()))?,
         ),
     };
-    // Nach einem Abbruch steht die Quelle in der Datei des Umpackens. Nennt
-    // map.json das Ziel noch nicht, endete der Aufruf zwischen beiden Dateien:
-    // Keine Kachel ist umgepackt, und ein Update dazwischen packte noch mit
-    // der Quelle. Dann beginnt es neu, mit neuem Beginn.
+    // Nennt map.json schon das Ziel, steht die Quelle nur noch in der Datei
+    // des Umpackens. Nennt es das Ziel noch nicht, endete dieser Aufruf
+    // zwischen beiden Dateien oder ein voller Lauf vor dem Wegräumen der
+    // Datei: Keine Kachel ist umgepackt, die Stufe nennt map.json, und es
+    // beginnt neu, mit neuem Beginn.
     let (quelle, beginn, ablegen) = match &offen {
         Some(offen) => {
             ensure!(
@@ -112,15 +113,14 @@ pub(super) fn packe_um(dir: &Path, ziel: Qualitaet, mit_manifest: bool) -> Resul
                 offen.ziel,
                 offen.ziel
             );
-            let quelle = Qualitaet::aus_name(&offen.quelle)
-                .with_context(|| format!("{} nennt keine Stufe", pfad_offen.display()))?;
-            match qualitaet_des_baums(dir, &alt)? == ziel {
-                true => (
-                    quelle,
+            match qualitaet_des_baums(dir, &alt)? {
+                im_baum if im_baum == ziel => (
+                    Qualitaet::aus_name(&offen.quelle)
+                        .with_context(|| format!("{} nennt keine Stufe", pfad_offen.display()))?,
                     UNIX_EPOCH + Duration::from_nanos(offen.beginn),
                     false,
                 ),
-                false => (quelle, jetzt, true),
+                im_baum => (im_baum, jetzt, true),
             }
         }
         None => (qualitaet_des_baums(dir, &alt)?, jetzt, true),

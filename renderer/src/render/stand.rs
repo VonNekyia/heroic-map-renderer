@@ -98,21 +98,24 @@ pub struct Lesung {
 impl Lesung {
     /// Liest einen Chunk; `k_alt` ist das K des alten Stands.
     pub fn von(chunk: Option<&Chunk>, k_alt: Option<i8>) -> Lesung {
-        let inhalt = Inhalt::von(chunk);
-        let fertig = chunk.filter(|_| matches!(inhalt, Inhalt::Fertig(_)));
-        let dicht_ab = fertig.and_then(Chunk::erster_dichter);
-        let tiefe = fertig.zip(dicht_ab).map(|(chunk, e)| {
-            let k = (e >> 4) as i8;
-            Tiefe {
-                k,
-                h: chunk.abdruck_unter(k),
-            }
-        });
+        let Some(fertig) = chunk.filter(|chunk| chunk.is_generated()) else {
+            return Lesung {
+                inhalt: Inhalt::von(chunk),
+                tiefe: None,
+                dicht_ab: None,
+                unter_alt: None,
+            };
+        };
+        // Erst E, dann ein Durchgang für den Abdruck und beide Abdrücke
+        // darunter.
+        let dicht_ab = fertig.erster_dichter();
+        let k = dicht_ab.map(|e| (e >> 4) as i8);
+        let (abdruck, [h, unter_alt]) = fertig.abdruecke([k, k_alt]);
         Lesung {
-            inhalt,
-            tiefe,
+            inhalt: Inhalt::Fertig(abdruck),
+            tiefe: k.zip(h).map(|(k, h)| Tiefe { k, h }),
             dicht_ab,
-            unter_alt: fertig.zip(k_alt).map(|(chunk, k)| chunk.abdruck_unter(k)),
+            unter_alt,
         }
     }
 }
@@ -848,11 +851,28 @@ pub fn fingerabdruck_der_dateien(wurzeln: &[PathBuf]) -> u64 {
 /// sich nicht lesen lässt, geht mit einer Marke ein, statt den Lauf
 /// abzubrechen: Die Assets melden es nur.
 fn sammle(pfad: &Path, name: &str, out: &mut Vec<(String, u64, u128)>) {
-    let unlesbar =
-        |out: &mut Vec<(String, u64, u128)>| out.push((format!("{name}\0unlesbar"), 0, 0));
-    let Ok(info) = std::fs::metadata(pfad) else {
-        return unlesbar(out);
-    };
+    match std::fs::metadata(pfad) {
+        Ok(info) => sammle_mit(pfad, name, &info, out),
+        Err(_) => unlesbar(name, out),
+    }
+}
+
+/// Ein Eintrag, der sich nicht lesen lässt.
+fn unlesbar(name: &str, out: &mut Vec<(String, u64, u128)>) {
+    out.push((format!("{name}\0unlesbar"), 0, 0));
+}
+
+/// [`sammle`] mit `info`, Grösse und Zeit von `pfad`. Unter einem Ordner
+/// kommen sie aus dem Verzeichniseintrag: Unter Windows öffnet
+/// `std::fs::metadata` dafür jede Datei. Eine Verknüpfung fragt weiter
+/// nach ihrem Ziel, damit das Ziel zählt.
+/// Siehe docs/benutzung/updates.md, „Anderer Renderer, andere Assets“.
+fn sammle_mit(
+    pfad: &Path,
+    name: &str,
+    info: &std::fs::Metadata,
+    out: &mut Vec<(String, u64, u128)>,
+) {
     if !info.is_dir() {
         let zeit = info
             .modified()
@@ -863,11 +883,11 @@ fn sammle(pfad: &Path, name: &str, out: &mut Vec<(String, u64, u128)>) {
         return;
     }
     let Ok(eintraege) = std::fs::read_dir(pfad) else {
-        return unlesbar(out);
+        return unlesbar(name, out);
     };
     for eintrag in eintraege {
         let Ok(eintrag) = eintrag else {
-            unlesbar(out);
+            unlesbar(name, out);
             continue;
         };
         let teil = eintrag.file_name().to_string_lossy().into_owned();
@@ -876,7 +896,12 @@ fn sammle(pfad: &Path, name: &str, out: &mut Vec<(String, u64, u128)>) {
         } else {
             format!("{name}/{teil}")
         };
-        sammle(&eintrag.path(), &name, out);
+        match eintrag.metadata() {
+            Ok(info) if !info.file_type().is_symlink() => {
+                sammle_mit(&eintrag.path(), &name, &info, out);
+            }
+            _ => sammle(&eintrag.path(), &name, out),
+        }
     }
 }
 
@@ -1009,6 +1034,50 @@ mod tests {
         }
         let wurzeln = [wurzel.path().to_path_buf(), wurzel.path().join("a/b.json")];
         assert_eq!(fingerabdruck_der_dateien(&wurzeln), 0xee5a_22b3_126b_f1a6);
+    }
+
+    /// Eine Verknüpfung auf einen Ordner zählt mit ihrem Ziel: Der Abdruck
+    /// gleicht dem eines Baums, in dem an ihrer Stelle der Ordner selbst
+    /// liegt. Unter Windows ein Junction, das ohne Adminrechte geht.
+    #[test]
+    fn verknuepfung_zaehlt_mit_ihrem_ziel() {
+        let zeit =
+            std::time::UNIX_EPOCH + std::time::Duration::from_nanos(1_781_611_408_123_456_700);
+        let lege = |pfad: &Path, inhalt: &str| {
+            std::fs::create_dir_all(pfad.parent().unwrap()).unwrap();
+            std::fs::write(pfad, inhalt).unwrap();
+            std::fs::File::options()
+                .write(true)
+                .open(pfad)
+                .unwrap()
+                .set_modified(zeit)
+                .unwrap();
+        };
+        let ziel = tempfile::tempdir().unwrap();
+        lege(&ziel.path().join("ordner/d.png"), "png");
+        let mit = tempfile::tempdir().unwrap();
+        lege(&mit.path().join("a/b.json"), "{}");
+        let link = mit.path().join("a").join("c");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(ziel.path().join("ordner"), &link).unwrap();
+        #[cfg(windows)]
+        assert!(
+            std::process::Command::new("cmd")
+                .args(["/C", "mklink", "/J"])
+                .arg(&link)
+                .arg(ziel.path().join("ordner"))
+                .output()
+                .unwrap()
+                .status
+                .success()
+        );
+        let ohne = tempfile::tempdir().unwrap();
+        lege(&ohne.path().join("a/b.json"), "{}");
+        lege(&ohne.path().join("a/c/d.png"), "png");
+        assert_eq!(
+            fingerabdruck_der_dateien(&[mit.path().to_path_buf()]),
+            fingerabdruck_der_dateien(&[ohne.path().to_path_buf()])
+        );
     }
 
     fn fertig(hash: u64, oben: Option<i32>) -> Inhalt {

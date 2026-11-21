@@ -304,14 +304,30 @@ pub struct Stempel {
     pub ort: u32,
 }
 
+/// Grösser entpackt der Renderer keinen Chunk mit zlib. Ein Chunk des Spiels
+/// hat entpackt wenige MB; kaputte Daten halten so früh an.
+const HOECHSTENS_ENTPACKT: usize = 64 << 20;
+
 fn decompress(scheme: u8, data: &[u8]) -> Result<Vec<u8>> {
     let mut out = Vec::new();
     match scheme {
         1 => {
             flate2::read::GzDecoder::new(data).read_to_end(&mut out)?;
         }
+        // zlib, das Verfahren des Spiels: mit fdeflate, das die Prüfsumme
+        // prüft wie flate2.
+        // Siehe docs/entscheidungen/0148-entpacken-mit-fdeflate.md.
         2 => {
-            flate2::read::ZlibDecoder::new(data).read_to_end(&mut out)?;
+            return fdeflate::decompress_to_vec_bounded(data, HOECHSTENS_ENTPACKT).map_err(|e| {
+                match e {
+                    fdeflate::BoundedDecompressionError::DecompressionError { inner } => {
+                        anyhow!("zlib: {inner:?}")
+                    }
+                    fdeflate::BoundedDecompressionError::OutputTooLarge { .. } => {
+                        anyhow!("zlib: entpackt grösser als 64 MiB")
+                    }
+                }
+            });
         }
         3 => out.extend_from_slice(data),
         4 => {
@@ -339,6 +355,64 @@ pub fn coords_from_name(path: &Path) -> Option<(i32, i32)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Der Chunk aus 26.3 unter `tests/fixtures`, mit zlib gepackt.
+    fn echter_chunk() -> Vec<u8> {
+        std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/chunk-263.zlib"),
+        )
+        .unwrap()
+    }
+
+    /// zlib entpackt Byte für Byte wie flate2, mit derselben Länge.
+    #[test]
+    fn zlib_wie_flate2() {
+        let gepackt = echter_chunk();
+        let mut soll = Vec::new();
+        flate2::read::ZlibDecoder::new(&gepackt[..])
+            .read_to_end(&mut soll)
+            .unwrap();
+        let ist = decompress(2, &gepackt).unwrap();
+        assert_eq!(ist.len(), 30_517);
+        assert_eq!(ist, soll);
+    }
+
+    /// Kaputte Daten geben einen Fehler: abgeschnitten, ein Byte in der
+    /// Mitte gekippt, die Prüfsumme am Ende gekippt.
+    #[test]
+    fn zlib_kaputt_ist_ein_fehler() {
+        let gepackt = echter_chunk();
+        let mitte = gepackt.len() / 2;
+        let ende = gepackt.len() - 1;
+        let mut gekippt = gepackt.clone();
+        gekippt[mitte] ^= 0x40;
+        let mut pruefsumme = gepackt.clone();
+        pruefsumme[ende] ^= 0x01;
+        for (was, daten) in [
+            ("abgeschnitten", &gepackt[..mitte]),
+            ("gekippt", &gekippt[..]),
+            ("Prüfsumme", &pruefsumme[..]),
+        ] {
+            assert!(decompress(2, daten).is_err(), "{was}");
+        }
+    }
+
+    /// Mehr als 64 MiB entpackt es nicht: 64 MiB und ein Byte Nullen sind ein
+    /// Fehler, 1 MiB nicht.
+    #[test]
+    fn zlib_hoechstens_64_mib() {
+        let packe = |n: usize| {
+            let mut z = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+            std::io::Write::write_all(&mut z, &vec![0; n]).unwrap();
+            z.finish().unwrap()
+        };
+        assert_eq!(decompress(2, &packe(1 << 20)).unwrap().len(), 1 << 20);
+        let fehler = decompress(2, &packe((64 << 20) + 1)).unwrap_err();
+        assert!(
+            fehler.to_string().contains("grösser als 64 MiB"),
+            "{fehler}"
+        );
+    }
 
     #[test]
     fn regionskoordinaten_aus_dateinamen() {

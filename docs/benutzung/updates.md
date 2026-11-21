@@ -384,6 +384,11 @@ reicht.
   eine Spalte keinen, gibt es kein E und keine Grenze.
 - **K** ist die Section von E, **H** der Abdruck der Sections unter K
   (`Chunk::abdruck_unter`). Beide stehen im Stand, siehe „Der Stand“.
+- **Ein Durchgang:** Den Abdruck des Chunks, H und im Update H unter dem
+  alten K rechnet `Chunk::abdruecke` in einer Schleife über die Sections;
+  an der ersten Section ab K zweigt es den Zustand ab. Die Werte sind
+  dieselben wie einzeln (`abdruecke_in_einem_durchgang_wie_einzeln`), kein
+  Stand wird ungültig. Vorher waren es bis zu drei Durchgänge je Chunk.
 - **Die Bedingung** prüft `grenze_nach_unten` in `stand.rs`: Der alte Stand
   kennt K und H, der Chunk hat jetzt ein E, und seine Sections unter dem
   alten K haben wieder H. Ein Update liest dafür jeden Chunk mit dem alten

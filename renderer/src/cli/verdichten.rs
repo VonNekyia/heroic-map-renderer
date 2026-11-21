@@ -55,9 +55,10 @@ enum Kachel {
     Kaputt,
 }
 
-/// Packt den Baum in `dir` auf die Stufe `ziel` um. Zuerst trägt `map.json`
-/// die Stufe ein, damit jeder Lauf, der jetzt beginnt, schon so packt. Je
-/// Kachel gilt die höchste Stufe aus `ziel` und den gemerkten Gebieten.
+/// Packt den Baum in `dir` auf die Stufe `ziel` um. Vor der ersten Kachel
+/// trägt `map.json` die Stufe ein, damit jeder Lauf, der jetzt beginnt,
+/// schon so packt. Je Kachel gilt die höchste Stufe aus `ziel` und den
+/// gemerkten Gebieten.
 ///
 /// - **Verlustfrei nach verlustfrei** packt es jede Stufe der Pyramide neu,
 ///   mit denselben Pixeln und der alten Zeit; was ein anderer Lauf seit dem
@@ -66,7 +67,8 @@ enum Kachel {
 ///   Treffer hiesse, dass die Eltern der Kachel stimmen, und die baut erst
 ///   das nächste Update.
 ///   Siehe docs/entscheidungen/0124-pyramide-nur-ueber-neuen-kindern.md.
-/// - **Mit zusammengelegten Farben** legt es [`UMPACKEN_OFFEN`] ab, packt die
+/// - **Mit zusammengelegten Farben** legt es [`UMPACKEN_OFFEN`] vor
+///   `map.json` ab, packt die
 ///   Basis und die nativen Stufen aus ihren Pixeln, je Kachel mit der Zeit des
 ///   Umpackens, und baut am Ende jede Elternkachel darüber neu. Ob eine
 ///   Kachel schon umgepackt ist, sagt ihre Zeit gegen den Beginn, nicht ihr
@@ -96,9 +98,11 @@ pub(super) fn packe_um(dir: &Path, ziel: Qualitaet, mit_manifest: bool) -> Resul
                 .with_context(|| format!("{} lesen", pfad_offen.display()))?,
         ),
     };
-    // Nach einem Abbruch nennt map.json schon das Ziel; die Quelle steht in
-    // der Datei des Umpackens.
-    let (quelle, beginn) = match &offen {
+    // Nach einem Abbruch steht die Quelle in der Datei des Umpackens. Nennt
+    // map.json das Ziel noch nicht, endete der Aufruf zwischen beiden Dateien:
+    // Keine Kachel ist umgepackt, und ein Update dazwischen packte noch mit
+    // der Quelle. Dann beginnt es neu, mit neuem Beginn.
+    let (quelle, beginn, ablegen) = match &offen {
         Some(offen) => {
             ensure!(
                 offen.ziel == ziel.name(),
@@ -110,9 +114,16 @@ pub(super) fn packe_um(dir: &Path, ziel: Qualitaet, mit_manifest: bool) -> Resul
             );
             let quelle = Qualitaet::aus_name(&offen.quelle)
                 .with_context(|| format!("{} nennt keine Stufe", pfad_offen.display()))?;
-            (quelle, UNIX_EPOCH + Duration::from_nanos(offen.beginn))
+            match qualitaet_des_baums(dir, &alt)? == ziel {
+                true => (
+                    quelle,
+                    UNIX_EPOCH + Duration::from_nanos(offen.beginn),
+                    false,
+                ),
+                false => (quelle, jetzt, true),
+            }
         }
-        None => (qualitaet_des_baums(dir, &alt)?, jetzt),
+        None => (qualitaet_des_baums(dir, &alt)?, jetzt, true),
     };
     // Mit zusammengelegten Farben gälte der Hash den Pixeln vor der Vorstufe,
     // die es hier nicht mehr gibt.
@@ -147,10 +158,10 @@ pub(super) fn packe_um(dir: &Path, ziel: Qualitaet, mit_manifest: bool) -> Resul
         },
         ..alt.clone()
     };
-    if (info.compact, &info.quality) != (alt.compact, &alt.quality) {
-        schreibe_info(dir, &info, None)?;
-    }
-    if zusammen && offen.is_none() {
+    // Erst die Datei des Umpackens, dann map.json: Endet der Aufruf
+    // dazwischen, nennt der Baum noch die Quelle, und das Fortsetzen trägt das
+    // Ziel nach.
+    if zusammen && ablegen {
         let offen = Offen {
             quelle: quelle.name().to_string(),
             ziel: ziel.name().to_string(),
@@ -159,14 +170,22 @@ pub(super) fn packe_um(dir: &Path, ziel: Qualitaet, mit_manifest: bool) -> Resul
         tausche(&pfad_offen, &serde_json::to_vec(&offen)?, None, true)
             .with_context(|| format!("{} schreiben", pfad_offen.display()))?;
     }
+    if (info.compact, &info.quality) != (alt.compact, &alt.quality) {
+        schreibe_info(dir, &info, None)?;
+    }
     let offen_lauf = [STAND_NEU, GEBIET_OFFEN]
         .into_iter()
         .map(|name| dir.join(name))
         .find(|pfad| pfad.exists());
     if let Some(offen_lauf) = &offen_lauf {
         println!(
-            "Hashes:     keine neuen, solange {} liegt; die Eltern baut das nächste Update",
-            offen_lauf.display()
+            "Hashes:     keine neuen, solange {} liegt; die Eltern baut {}",
+            offen_lauf.display(),
+            if zusammen {
+                "am Ende dieser Aufruf"
+            } else {
+                "das nächste Update"
+            }
         );
     }
     let merken = offen_lauf.is_none();

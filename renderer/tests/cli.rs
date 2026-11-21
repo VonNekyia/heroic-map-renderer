@@ -10323,6 +10323,46 @@ fn umpacken_nach_abbruch() {
     assert!(!baum.path().join("repack-offen.json").exists());
 }
 
+/// Endet `--repack` zwischen `repack-offen.json` und `map.json`, nennt der
+/// Baum noch die Quelle. Ein Update danach packt mit ihr, und seine Kacheln
+/// sind jünger als der Beginn in der Datei. Das Fortsetzen beginnt dann neu
+/// und gleicht danach einem vollen Lauf.
+/// Siehe docs/entscheidungen/0146-umpacken.md.
+#[test]
+fn umpacken_endet_zwischen_den_dateien() {
+    fn mit<'a>(stufe: &'a str, extra: &[&'a str]) -> Vec<&'a str> {
+        ["--scale", "16", "--native-levels", "1", "--quality", stufe]
+            .into_iter()
+            .chain(extra.iter().copied())
+            .collect()
+    }
+    let name = baum_name(&mit("good", &[]));
+    let welt = tempdir();
+    baue_gelaende(welt.path());
+    let baum = neuer_baum(&name);
+    gelungen(&tiles(
+        welt.path(),
+        baum.path(),
+        &mit("maximal_compact", &[]),
+    ));
+    std::fs::write(
+        baum.path().join("repack-offen.json"),
+        r#"{"quelle":"maximal_compact","ziel":"good","beginn":1}"#,
+    )
+    .unwrap();
+    baue_aenderungen(welt.path());
+    gelungen(&tiles(
+        welt.path(),
+        baum.path(),
+        &mit("maximal_compact", &["--update"]),
+    ));
+    gelungen(&umpacken(baum.path(), "good", None));
+    assert!(!baum.path().join("repack-offen.json").exists());
+    let soll = neuer_baum(&name);
+    gelungen(&tiles(welt.path(), soll.path(), &mit("good", &[])));
+    gleiche_baeume(baum.path(), soll.path(), "zwischen den Dateien");
+}
+
 /// `--repack` lehnt ab, bevor es etwas schreibt: einen Baum unter
 /// `maximal_compact`, einen mit `gebiete-neu.json` und mit `stand-neu.bin`
 /// eines abgebrochenen Laufs ein Ziel mit zusammengelegten Farben; ohne

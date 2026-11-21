@@ -46,6 +46,12 @@ einen fertigen Baum um, und nur von `maximal` nach `maximal_compact`, siehe
   Umpacken mit zusammengelegten Farben nicht fertig ist. Ein neuer Aufruf
   mit demselben Ziel setzt fort, einer mit einem anderen bricht ab. Jeder
   volle Lauf räumt die Datei weg.
+- **Erst `repack-offen.json`, dann `map.json`:** Endet der Aufruf
+  dazwischen, nennt der Baum noch die Quelle, und das Fortsetzen trägt das
+  Ziel nach. In der anderen Reihenfolge bliebe ein Baum, der das Ziel nennt,
+  aber ganz verlustfrei ist, und den `--repack` dann ablehnt. Nennt
+  `map.json` beim Fortsetzen das Ziel noch nicht, beginnt das Umpacken neu:
+  Ein Update dazwischen packte noch mit der Quelle.
 - **Was schon umgepackt ist, sagt die Zeit:** Eine Kachel, die jünger ist
   als der Beginn, schrieb das Umpacken oder ein Update mit dem Ziel; sie
   bleibt. Eine ältere ist noch verlustfrei.

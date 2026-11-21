@@ -37,9 +37,11 @@ cargo run --release --manifest-path renderer/Cargo.toml -- --repack ./tiles/2x1-
 
 ## Mit zusammengelegten Farben
 
-1. `map.json` trägt das Ziel ein, bevor eine Kachel sich ändert. Jeder Lauf,
-   der jetzt beginnt, packt schon so.
-2. Daneben legt es `repack-offen.json` ab: Quelle, Ziel und Beginn.
+1. Zuerst legt es `repack-offen.json` ab: Quelle, Ziel und Beginn.
+2. Dann trägt `map.json` das Ziel ein, bevor eine Kachel sich ändert. Jeder
+   Lauf, der jetzt beginnt, packt schon so. Endet der Aufruf zwischen beiden
+   Dateien, nennt der Baum noch die Quelle, und das Fortsetzen trägt das
+   Ziel nach.
 3. Basis und native Stufen: jede Kachel dekodieren, Farben zusammenlegen wie
    ein Lauf, packen. Der Hash gilt den Pixeln vor der Vorstufe, mit dem
    Präfix des Ziels, siehe [Updates](updates.md), „Gleiche Pixel“. Die
@@ -64,6 +66,11 @@ Umgepackt: 26 Kacheln, 0.0 MB statt 0.0 MB, 0 schon so, 0 übergangen, 0 nicht l
   gegen den Beginn, nicht der Hash: Jünger heisst umgepackt oder von einem
   Update mit dem Ziel geschrieben. So geht es auch in einem Baum ohne
   Hashes.
+- **Nennt `map.json` das Ziel noch nicht,** endete der Aufruf vor der
+  ersten Kachel. Ein Update dazwischen packte dann noch mit der Quelle, und
+  seine Kacheln sind jünger als der Beginn. Das Fortsetzen beginnt darum
+  neu, mit neuem Beginn in `repack-offen.json`
+  (`umpacken_endet_zwischen_den_dateien`).
 - **Ein anderes Ziel** bricht ab, solange die Datei liegt:
 
   ```

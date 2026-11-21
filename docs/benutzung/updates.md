@@ -611,6 +611,15 @@ nicht passt (`update_braucht_den_stand_und_dieselben_assets`):
   [Assets](assets.md), „Datapacks der Welt“. Ein Test hält den Wert für
   feste Dateien als Konstante fest (`fingerabdruck_der_dateien_bleibt`). Den Inhalt liest er nicht; eine kopierte Datei hat eine neue
   Zeit und zählt als anders.
+  - **Grösse und Zeit** kommen aus dem Verzeichniseintrag, den das
+    Auflisten ohnehin liefert (`sammle_mit` in
+    [`renderer/src/render/stand.rs`](../../renderer/src/render/stand.rs)).
+    Eine Verknüpfung zählt mit ihrem Ziel
+    (`verknuepfung_zaehlt_mit_ihrem_ziel`).
+  - **Das spart nur unter Windows,** wo die Frage je Datei sie öffnet: Für
+    21 488 Dateien in 215 Ordnern brauchte es in der CI unter Windows 29
+    statt 640 ms, unter Linux 48 statt 58 ms (Lauf 44203545700, Stand
+    18.11.2026). Jeder Lauf zahlt das einmal, auch jedes Update.
 - **Der Cache des Client-Jars** aus `--download-client-jar` trägt je Datei
   die Bauzeit des Jars: Neu ausgepackt bleibt der Fingerabdruck gleich. Wer
   von eigenen Wurzeln auf den Cache wechselt, bekommt einen neuen und

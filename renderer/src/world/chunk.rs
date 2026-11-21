@@ -839,9 +839,24 @@ impl Chunk {
     ///
     /// [`Inhalt::von`]: crate::render::stand::Inhalt::von
     pub fn abdruck(&self) -> Abdruck {
+        self.abdruecke([None, None]).0
+    }
+
+    /// [`Chunk::abdruck`] und [`Chunk::abdruck_unter`] für bis zu zwei K in
+    /// einem Durchgang über die Sections: Der Zustand von FNV vor der ersten
+    /// Section ab K ist der von `abdruck_unter`; er wird dort abgezweigt und
+    /// mit den Blockdaten unter K und den Laubfarben zu Ende gerechnet.
+    /// Siehe docs/entscheidungen/0127-grenze-nach-unten.md.
+    pub fn abdruecke(&self, ks: [Option<i8>; 2]) -> (Abdruck, [Option<u64>; 2]) {
         let mut fnv = Fnv::default();
         let mut oben = None;
+        let mut abgezweigt = [None; 2];
         for section in &self.sections {
+            for (k, zustand) in ks.iter().zip(&mut abgezweigt) {
+                if zustand.is_none() && k.is_some_and(|k| section.y >= k) {
+                    *zustand = Some(fnv.0);
+                }
+            }
             fnv.section(section);
             if !section.is_empty() {
                 let luft: Vec<bool> = section
@@ -863,11 +878,23 @@ impl Chunk {
                 }
             }
         }
+        // Liegt K über allen Sections, gelten sie alle.
+        let unter = std::array::from_fn(|i| {
+            let k = ks[i]?;
+            let mut unter = Fnv(abgezweigt[i].unwrap_or(fnv.0));
+            for (lage, daten) in &self.blockentities {
+                if lage[1] < i32::from(k) * SECTION {
+                    unter.blockdaten(*lage, daten);
+                }
+            }
+            unter.laubfarben(&self.laubfarben);
+            Some(unter.0)
+        });
         for (lage, daten) in &self.blockentities {
             fnv.blockdaten(*lage, daten);
         }
         fnv.laubfarben(&self.laubfarben);
-        Abdruck { hash: fnv.0, oben }
+        (Abdruck { hash: fnv.0, oben }, unter)
     }
 
     /// E für die Grenze nach unten: das tiefste y, an dem in einer Spalte
@@ -2214,6 +2241,53 @@ mod tests {
         let rot = laub(laub_bytes(&[(0xff_0000, &[[1, 70, 2]])]));
         let gruen = laub(laub_bytes(&[(0x00_ff00, &[[1, 70, 2]])]));
         assert_ne!(rot.abdruck_unter(0), gruen.abdruck_unter(0));
+    }
+
+    /// Ein Durchgang gibt dieselben Abdrücke unter K wie `abdruck_unter`
+    /// einzeln, für jedes K unter, zwischen und über den Sections, mit einer
+    /// Lücke zwischen ihnen und Blockdaten in jeder Höhe. Den Abdruck selbst
+    /// hält `abdruck_bleibt_wie_er_war` als Zahl fest.
+    #[test]
+    fn abdruecke_in_einem_durchgang_wie_einzeln() {
+        use fastnbt::Value;
+        let section = |y: i8, block: usize| Probe {
+            y,
+            palette: vec![
+                ("minecraft:air", vec![]),
+                ("minecraft:stone", vec![]),
+                ("minecraft:glass", vec![]),
+            ],
+            indizes: Some(
+                (0..4096)
+                    .map(|i| if i % 7 == 0 { 0 } else { block })
+                    .collect(),
+            ),
+            biom: "minecraft:plains",
+        };
+        let lage = |n| Some(Value::Int(n));
+        let banner_bei = |y| {
+            banner(
+                Value::String("minecraft:banner".into()),
+                [("x", lage(1)), ("y", lage(y)), ("z", lage(1))],
+            )
+        };
+        let c = chunk_aus(
+            "minecraft:full",
+            &[section(-1, 1), section(0, 2), section(2, 1)],
+            true,
+            vec![banner_bei(-5), banner_bei(3), banner_bei(40)],
+        );
+        for k1 in -3..=4 {
+            for k2 in [None, Some(-2), Some(1), Some(5)] {
+                let (abdruck, [h1, h2]) = c.abdruecke([Some(k1), k2]);
+                assert_eq!(abdruck, c.abdruck(), "{k1} {k2:?}");
+                assert_eq!(h1, Some(c.abdruck_unter(k1)), "{k1}");
+                assert_eq!(h2, k2.map(|k| c.abdruck_unter(k)), "{k2:?}");
+            }
+        }
+        assert_eq!(c.abdruecke([None, None]).1, [None, None]);
+        // Die Werte hängen an K.
+        assert_ne!(c.abdruck_unter(0), c.abdruck_unter(1));
     }
 
     /// Der Abdruck ändert sich mit jeder Farbe und Lage; ohne Schlüssel

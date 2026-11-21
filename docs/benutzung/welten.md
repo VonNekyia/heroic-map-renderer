@@ -1,6 +1,6 @@
 ---
 title: Welten und Kennung
-description: Welche Welten der Renderer liest und welche Chunks darin, wie er Weltwurzel, Dimension, Seed, Datenversion und Wasserspiegel findet, wie daraus die Kennung der Welt im Kachelbaum wird und wie er liest, während der Server schreibt.
+description: Welche Welten der Renderer liest und welche Chunks darin, wie er Weltwurzel, Dimension, Seed, Datenversion und Wasserspiegel findet, wie daraus die Kennung der Welt im Kachelbaum wird, wie er Chunks entpackt und wie er liest, während der Server schreibt.
 code:
   - renderer/src/assets/dimension.rs
   - renderer/src/world/mod.rs
@@ -202,6 +202,28 @@ nicht auseinanderhalten.
 
 Was mit einem Baum geschieht, dessen Kennung nicht passt, steht in
 [Zoomstufen](zoomstufen.md), „Ein Baum, eine Welt“.
+
+## Kompressionsverfahren
+
+Je Chunk nennt die Regionsdatei, wie er gepackt ist (`decompress` in
+[`renderer/src/world/region.rs`](../../renderer/src/world/region.rs)):
+
+| Nummer | Verfahren | entpackt mit |
+|---|---|---|
+| 1 | gzip | `flate2` |
+| 2 | zlib, das Verfahren des Spiels | `fdeflate`, höchstens 64 MiB |
+| 3 | ungepackt | – |
+| 4 | LZ4, von Paper | `lz4-java-wrc` |
+
+- **zlib mit `fdeflate`:** Es prüft die Prüfsumme wie `flate2`. Kaputte
+  Daten und mehr als 64 MiB entpackt sind ein Fehler beim Entpacken, siehe
+  „Während der Server schreibt“. Entschieden in
+  [0148](../entscheidungen/0148-entpacken-mit-fdeflate.md).
+- **Was es bringt:** In der CI an 2048 Chunks der Testwelt 85 statt 129 ms
+  unter Linux, 108 statt 178 ms unter Windows, 34 und 39 % weniger Zeit,
+  bei gleicher Ausgabe (Lauf 44203545700, Stand 18.11.2026).
+- **Geprüft** in `zlib_wie_flate2`, `zlib_kaputt_ist_ein_fehler` und
+  `zlib_hoechstens_64_mib` in `region.rs`.
 
 ## Während der Server schreibt
 

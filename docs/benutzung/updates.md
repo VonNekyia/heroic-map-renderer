@@ -384,6 +384,11 @@ reicht.
   eine Spalte keinen, gibt es kein E und keine Grenze.
 - **K** ist die Section von E, **H** der Abdruck der Sections unter K
   (`Chunk::abdruck_unter`). Beide stehen im Stand, siehe „Der Stand“.
+- **Ein Durchgang:** Den Abdruck des Chunks, H und im Update H unter dem
+  alten K rechnet `Chunk::abdruecke` in einer Schleife über die Sections;
+  an der ersten Section ab K zweigt es den Zustand ab. Die Werte sind
+  dieselben wie einzeln (`abdruecke_in_einem_durchgang_wie_einzeln`), kein
+  Stand wird ungültig. Vorher waren es bis zu drei Durchgänge je Chunk.
 - **Die Bedingung** prüft `grenze_nach_unten` in `stand.rs`: Der alte Stand
   kennt K und H, der Chunk hat jetzt ein E, und seine Sections unter dem
   alten K haben wieder H. Ein Update liest dafür jeden Chunk mit dem alten
@@ -611,6 +616,23 @@ nicht passt (`update_braucht_den_stand_und_dieselben_assets`):
   [Assets](assets.md), „Datapacks der Welt“. Ein Test hält den Wert für
   feste Dateien als Konstante fest (`fingerabdruck_der_dateien_bleibt`). Den Inhalt liest er nicht; eine kopierte Datei hat eine neue
   Zeit und zählt als anders.
+  - **Grösse und Zeit** kommen aus dem Verzeichniseintrag, den das
+    Auflisten ohnehin liefert (`sammle_mit` in
+    [`renderer/src/render/stand.rs`](../../renderer/src/render/stand.rs)).
+    Eine Verknüpfung zählt mit ihrem Ziel
+    (`verknuepfung_zaehlt_mit_ihrem_ziel`).
+  - **Das spart nur unter Windows,** wo die Frage je Datei sie öffnet: Für
+    21 488 Dateien in 215 Ordnern brauchte es in der CI unter Windows 29
+    statt 640 ms, unter Linux 48 statt 58 ms (Lauf 44203545700, Stand
+    18.11.2026). Jeder Lauf zahlt das einmal, auch jedes Update.
+  - **Unter Windows kann der Eintrag nachhinken:** Hält ein Programm die
+    Datei noch offen, kann das Verzeichnis die alte Grösse und Zeit nennen
+    ([`FindFirstFileW`, „Remarks“](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-findfirstfilew)).
+    Wurde sie über einen zweiten harten Link geändert, bleibt der Eintrag
+    unter dem anderen Namen alt
+    ([Hard Links and Junctions](https://learn.microsoft.com/en-us/windows/win32/fileio/hard-links-and-junctions)).
+    Der Fingerabdruck merkt die Änderung dann später oder gar nicht. Wer
+    Assets so ändert, rendert danach voll.
 - **Der Cache des Client-Jars** aus `--download-client-jar` trägt je Datei
   die Bauzeit des Jars: Neu ausgepackt bleibt der Fingerabdruck gleich. Wer
   von eigenen Wurzeln auf den Cache wechselt, bekommt einen neuen und

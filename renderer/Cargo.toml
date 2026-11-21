@@ -15,7 +15,8 @@ anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 crc32fast = "1"                     # CRC-32 der Einträge im ZIP unter /download/<baum>.zip; steckt schon über flate2 im Baum
 fastnbt = "2"                       # NBT; simdnbt 0.10 ist nightly-only
-flate2 = "1"                        # gzip/zlib der Chunkdaten
+fdeflate = "0.3"                    # zlib der Chunkdaten; steckt schon über png im Baum, siehe docs/entscheidungen/0148-entpacken-mit-fdeflate.md
+flate2 = "1"                        # gzip der Chunkdaten, Manifest, ZIP und Ströme von --serve
 http-body-util = "0.1"              # Körper der Antworten von --serve
 httpdate = "1"                      # Last-Modified für --serve; steckt schon über hyper im Baum
 hyper = { version = "1", features = ["server", "client", "http1"] }  # HTTP für --serve und das Client-Jar, siehe docs/entscheidungen/0084-server-im-renderer.md und 0086

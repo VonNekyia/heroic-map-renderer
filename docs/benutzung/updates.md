@@ -625,6 +625,14 @@ nicht passt (`update_braucht_den_stand_und_dieselben_assets`):
     21 488 Dateien in 215 Ordnern brauchte es in der CI unter Windows 29
     statt 640 ms, unter Linux 48 statt 58 ms (Lauf 44203545700, Stand
     18.11.2026). Jeder Lauf zahlt das einmal, auch jedes Update.
+  - **Unter Windows kann der Eintrag nachhinken:** Hält ein Programm die
+    Datei noch offen, kann das Verzeichnis die alte Grösse und Zeit nennen
+    ([`FindFirstFileW`, „Remarks“](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-findfirstfilew)).
+    Wurde sie über einen zweiten harten Link geändert, bleibt der Eintrag
+    unter dem anderen Namen alt
+    ([Hard Links and Junctions](https://learn.microsoft.com/en-us/windows/win32/fileio/hard-links-and-junctions)).
+    Der Fingerabdruck merkt die Änderung dann später oder gar nicht. Wer
+    Assets so ändert, rendert danach voll.
 - **Der Cache des Client-Jars** aus `--download-client-jar` trägt je Datei
   die Bauzeit des Jars: Neu ausgepackt bleibt der Fingerabdruck gleich. Wer
   von eigenen Wurzeln auf den Cache wechselt, bekommt einen neuen und

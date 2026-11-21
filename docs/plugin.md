@@ -74,8 +74,10 @@ dem Plugin-Programmierer ab.
     Das nächste Update baut die Eltern und legt die Hashes ab. Für das
     Plugin ändert sich am Ausgang nichts. Es gibt keinen
     Fortschritt als JSON; das Plugin zeigt die letzte Zeile.
-  - **Die Packung eines Baums,** das Feld `compact` in `map.json`, liest
-    das Plugin für seinen Status: `true` heisst kompakt, sonst schnell.
+  - **Die Stufe eines Baums** liest das Plugin seit plugin#227 aus
+    `map.json` wie der Renderer: `quality`, sonst mit `"compact": true`
+    `maximal_compact`, sonst `maximal`. Sein Status nennt sie in der Zeile
+    `Packung`, siehe [map.json](benutzung/map-json.md), „Die Stufe“.
 - **Bei `top-north` der nächste Pixel** ([0094](entscheidungen/0094-von-oben-der-naechste-pixel.md)):
   Ein Baum aus `top-north` verkleinert seine Pyramide je 2 × 2 mit einem
   Pixel, ohne Schalter. Der erste Lauf des neuen Renderers auf einem

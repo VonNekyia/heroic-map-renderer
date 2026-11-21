@@ -10364,7 +10364,8 @@ fn umpacken_endet_zwischen_den_dateien() {
 }
 
 /// `--repack` lehnt ab, bevor es etwas schreibt: einen Baum unter
-/// `maximal_compact`, einen mit `gebiete-neu.json` und mit `stand-neu.bin`
+/// `maximal_compact`, auch wenn die Datei eines Umpackens eine andere
+/// Quelle nennt, einen mit `gebiete-neu.json` und mit `stand-neu.bin`
 /// eines abgebrochenen Laufs ein Ziel mit zusammengelegten Farben; ohne
 /// `--quality` sagt es clap.
 #[test]
@@ -10388,6 +10389,16 @@ fn umpacken_lehnt_ab() {
     assert!(
         fehler(umpacken(gut.path(), "small", None)).contains("packt good: --repack und --compact-tree packen nur einen Baum mit maximal oder maximal_compact um")
     );
+    assert_eq!(schnappschuss(gut.path()), vorher);
+    // Ein voller Lauf endete zwischen map.json und dem Wegräumen der Datei
+    // des Umpackens: Die Stufe sagt map.json, nicht die Datei.
+    std::fs::write(
+        gut.path().join("repack-offen.json"),
+        r#"{"quelle":"maximal_compact","ziel":"small","beginn":1}"#,
+    )
+    .unwrap();
+    let vorher = schnappschuss(gut.path());
+    assert!(fehler(umpacken(gut.path(), "small", None)).contains("packt good:"));
     assert_eq!(schnappschuss(gut.path()), vorher);
 
     let kompakt = baum("maximal_compact");

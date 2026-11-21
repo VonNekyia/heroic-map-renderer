@@ -70,7 +70,10 @@ Umgepackt: 26 Kacheln, 0.0 MB statt 0.0 MB, 0 schon so, 0 übergangen, 0 nicht l
   ersten Kachel. Ein Update dazwischen packte dann noch mit der Quelle, und
   seine Kacheln sind jünger als der Beginn. Das Fortsetzen beginnt darum
   neu, mit neuem Beginn in `repack-offen.json`
-  (`umpacken_endet_zwischen_den_dateien`).
+  (`umpacken_endet_zwischen_den_dateien`). Die Quelle nimmt es dann aus
+  `map.json`, nicht aus der Datei: Ein voller Lauf, der vor dem Wegräumen
+  der Datei endete, hat dort schon seine Stufe eingetragen
+  (`umpacken_lehnt_ab`).
 - **Ein anderes Ziel** bricht ab, solange die Datei liegt:
 
   ```

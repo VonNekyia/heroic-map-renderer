@@ -98,21 +98,24 @@ pub struct Lesung {
 impl Lesung {
     /// Liest einen Chunk; `k_alt` ist das K des alten Stands.
     pub fn von(chunk: Option<&Chunk>, k_alt: Option<i8>) -> Lesung {
-        let inhalt = Inhalt::von(chunk);
-        let fertig = chunk.filter(|_| matches!(inhalt, Inhalt::Fertig(_)));
-        let dicht_ab = fertig.and_then(Chunk::erster_dichter);
-        let tiefe = fertig.zip(dicht_ab).map(|(chunk, e)| {
-            let k = (e >> 4) as i8;
-            Tiefe {
-                k,
-                h: chunk.abdruck_unter(k),
-            }
-        });
+        let Some(fertig) = chunk.filter(|chunk| chunk.is_generated()) else {
+            return Lesung {
+                inhalt: Inhalt::von(chunk),
+                tiefe: None,
+                dicht_ab: None,
+                unter_alt: None,
+            };
+        };
+        // Erst E, dann ein Durchgang für den Abdruck und beide Abdrücke
+        // darunter.
+        let dicht_ab = fertig.erster_dichter();
+        let k = dicht_ab.map(|e| (e >> 4) as i8);
+        let (abdruck, [h, unter_alt]) = fertig.abdruecke([k, k_alt]);
         Lesung {
-            inhalt,
-            tiefe,
+            inhalt: Inhalt::Fertig(abdruck),
+            tiefe: k.zip(h).map(|(k, h)| Tiefe { k, h }),
             dicht_ab,
-            unter_alt: fertig.zip(k_alt).map(|(chunk, k)| chunk.abdruck_unter(k)),
+            unter_alt,
         }
     }
 }
